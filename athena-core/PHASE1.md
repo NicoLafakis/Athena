@@ -145,8 +145,8 @@ transport and against the `MockSidecar`'s `/v1/models`.
   (still `>= 1.83.10`, still clean). The pin lives in one constant
   (`LITELLM_PINNED_VERSION`) so moving it is a one-line change.
 
-> The ADR's LiteLLM pin open-item is intentionally left for Nico to fold into the
-> ADR — this file records the choice + rationale only; the ADR was not edited.
+> The LiteLLM pin (1.93.0) has since been folded into ADR 0001's "Open items"
+> (with the hash-verify-at-install caveat). This file records the full rationale.
 
 ## SDK-vs-assumption findings (Phase 1)
 
