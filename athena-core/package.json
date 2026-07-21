@@ -1,0 +1,25 @@
+{
+  "name": "athena-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Athena core — Phase 0 de-risk spike: Claude Agent SDK engine + provider dialect layer",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "hook:probe": "node fixtures/.claude/hooks/inject.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.216"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}
