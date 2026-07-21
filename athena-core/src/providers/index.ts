@@ -8,6 +8,8 @@ export * from './types.js';
 export * from './descriptors.js';
 export * from './shapeRequest.js';
 export * from './sidecar.js';
+export * from './resolveProvider.js';
+export * from './fetchModels.js';
 
 /** A Provider backed by a capability descriptor + the pure {@link shapeRequest}. */
 export class CapabilityProvider implements Provider {

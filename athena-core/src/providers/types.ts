@@ -16,6 +16,15 @@ export type ProviderName = 'anthropic' | 'kimi' | 'minimax' | 'openai';
  */
 export type AuthHeaderStyle = 'x-api-key' | 'bearer';
 
+/**
+ * The env var the Agent SDK / Claude Code CLI itself reads to authenticate its
+ * outbound HTTP request. Verified present in the SDK bundle (Phase 1, step 0).
+ * - `'ANTHROPIC_API_KEY'`   → `x-api-key` auth (Anthropic, MiniMax; also the
+ *   placeholder the SDK sends to the local OpenAI sidecar).
+ * - `'ANTHROPIC_AUTH_TOKEN'`→ `Authorization: Bearer` auth (Kimi).
+ */
+export type SdkAuthEnvVar = 'ANTHROPIC_API_KEY' | 'ANTHROPIC_AUTH_TOKEN';
+
 /** How a shaped request leaves the process. */
 export type Dispatch = 'direct' | 'sidecar';
 
@@ -42,9 +51,39 @@ export type ProviderCapabilities = {
   ignoredParams?: string[];
   /** Transport routing. Defaults to `'direct'`; OpenAI is `'sidecar'`. */
   dispatch?: Dispatch;
-  /** Env var carrying the credential (documentation aid; volatile per /models). */
+  /**
+   * Env var in `process.env` that holds the REAL provider secret VALUE.
+   * `resolveProvider` reads the value from here at call time (never hardcodes).
+   * Usually equals {@link sdkAuthEnvVar}; for OpenAI it is `OPENAI_API_KEY`,
+   * which the sidecar (not the SDK) consumes.
+   */
   authEnvVar?: string;
-  /** Free-form note (e.g. why a value is set), surfaced in PHASE0 findings. */
+
+  // ---- Phase 1 additions (env/session selection + runtime model refresh) ----
+  /**
+   * Env var the SDK/CLI reads to authenticate its own outbound HTTP call. For
+   * direct providers this is where {@link authEnvVar}'s value is injected; for a
+   * sidecar provider it carries the local sidecar's (non-secret) master key.
+   */
+  sdkAuthEnvVar?: SdkAuthEnvVar;
+  /** Default model id used when the caller names none. VOLATILE — refresh via `/models`. */
+  defaultModel?: string;
+  /**
+   * Known model ids (VOLATILE snapshot). `resolveProvider` validates a requested
+   * model against this ∪ any runtime refresh; `fetchModels` refreshes it. When
+   * empty, model validation is skipped (unknown-but-new models pass through).
+   */
+  models?: string[];
+  /**
+   * When true, `resolveProvider` also pins `ANTHROPIC_SMALL_FAST_MODEL` to the
+   * resolved main model. Needed for non-Anthropic endpoints: Claude Code's
+   * background/small-model calls would otherwise send a `claude-*-haiku` id the
+   * provider's endpoint does not host (404). Anthropic leaves it unset.
+   */
+  aliasSmallFastModel?: boolean;
+  /** Path (appended to `baseUrl`) of the Anthropic/OpenAI-compatible model list. Default `/v1/models`. */
+  modelsPath?: string;
+  /** Free-form note (e.g. why a value is set), surfaced in findings. */
   note?: string;
 };
 
@@ -116,3 +155,31 @@ export interface Provider {
   /** Pure. Produces a transport-ready request. Never mutates the input, never touches the network. */
   shape(baseRequest: MessagesRequest): ShapedRequest;
 }
+
+/**
+ * A flat map of environment variables to inject into an SDK session (via
+ * `Options.env`) so the spawned Claude Code CLI talks to the chosen provider.
+ * Contains only concrete string values; secret VALUES present here were read
+ * from `process.env` at call time (never hardcoded).
+ */
+export type SessionEnv = Record<string, string>;
+
+/**
+ * Result of {@link resolveProvider}: the descriptor, the per-session env that
+ * selects the provider, the resolved model id, and — when the required secret
+ * env var is absent from `process.env` — its name (config is still fully
+ * returned so it is testable keyless).
+ */
+export type ResolvedProvider = {
+  descriptor: ProviderCapabilities;
+  /** Env to inject via `Options.env` (base_url + auth + flags + model). */
+  sessionEnv: SessionEnv;
+  /** The resolved model id (requested, else the descriptor default). */
+  model: string;
+  /**
+   * Name of the required secret env var when it is ABSENT from `process.env`.
+   * Undefined when the secret is present. The non-secret config is returned
+   * regardless, so resolution is fully unit-testable without any key.
+   */
+  missingKeyEnvVar?: string;
+};

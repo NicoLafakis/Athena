@@ -12,6 +12,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveSettings } from '@anthropic-ai/claude-agent-sdk';
 import type { HookCallback, Options, ResolvedSettings } from '@anthropic-ai/claude-agent-sdk';
+import { resolveProvider } from '../providers/resolveProvider.js';
+import type { ProviderName, ResolvedProvider } from '../providers/types.js';
 import { HOOK_MARKER } from '../hooks/contract.js';
 
 export { HOOK_MARKER, SKILL_MARKER } from '../hooks/contract.js';
@@ -50,15 +52,14 @@ export type BuildOptions = {
 };
 
 /**
- * Build the SDK `Options` that make the Agent SDK discover the fixture `.claude`
+ * Shared base `Options` that make the Agent SDK discover the fixture `.claude`
  * config: its `settings.json` command hooks and its `hello` skill.
  *
  * `settingSources` MUST include `'project'` to load `.claude/settings.json` and
  * CLAUDE.md (per the SDK type docs); `'local'` adds `.claude/settings.local.json`.
  */
-export function buildAthenaOptions(opts: BuildOptions = {}): Options {
-  const { includeProgrammaticHook = false, overrides = {} } = opts;
-  const base: Options = {
+function buildBaseOptions(includeProgrammaticHook: boolean): Options {
+  return {
     cwd: FIXTURE_PROJECT_DIR,
     settingSources: ['project', 'local'],
     skills: ['hello'],
@@ -67,7 +68,75 @@ export function buildAthenaOptions(opts: BuildOptions = {}): Options {
       ? { hooks: { SessionStart: [{ hooks: [sessionStartInjector] }] } }
       : {}),
   };
-  return { ...base, ...overrides };
+}
+
+/**
+ * Phase 0 shape, preserved: build the fixture-wired SDK `Options` (no provider
+ * selection). Kept intact so the Phase 0 config/hook proofs stay green.
+ */
+export function buildAthenaOptions(opts: BuildOptions = {}): Options {
+  const { includeProgrammaticHook = false, overrides = {} } = opts;
+  return { ...buildBaseOptions(includeProgrammaticHook), ...overrides };
+}
+
+export type BuildSessionArgs = {
+  /** Provider to select. Default `'anthropic'`. */
+  provider?: ProviderName;
+  /** Model id (validated against the provider's known list). Defaults to descriptor default. */
+  model?: string;
+  /** Register the programmatic SessionStart injector as well (default false). */
+  includeProgrammaticHook?: boolean;
+  /** Extra SDK Options overrides (applied last). */
+  overrides?: Partial<Options>;
+  /** Env to read secrets from + spread into `Options.env` (default `process.env`). */
+  env?: Record<string, string | undefined>;
+  /**
+   * Base-URL override for `ANTHROPIC_BASE_URL`. For OpenAI this is the live
+   * sidecar address (a `SidecarManager.baseUrl` or a mock server url).
+   */
+  baseUrl?: string;
+};
+
+/** A built Athena session: the resolved provider selection + the SDK `Options`. */
+export type AthenaSession = {
+  /** The provider resolution (descriptor, sessionEnv, model, missingKeyEnvVar). */
+  resolved: ResolvedProvider;
+  /** SDK `Options` with `env` and `model` set for the chosen provider. */
+  options: Options;
+};
+
+/**
+ * Build a provider-configured SDK session. Evolution of {@link buildAthenaOptions}:
+ * resolves the provider to a per-session env, then injects it via `Options.env`.
+ *
+ * CRITICAL (verified in step 0): `Options.env` REPLACES the spawned CLI's
+ * environment entirely — it is NOT merged with `process.env`. So we spread the
+ * incoming env FIRST and overlay the provider `sessionEnv` on top; otherwise the
+ * CLI would lose `PATH`/`HOME` and fail to launch. This is what makes clean
+ * multi-provider selection possible with no mutation of the parent `process.env`.
+ */
+export function buildSession(args: BuildSessionArgs = {}): AthenaSession {
+  const {
+    provider = 'anthropic',
+    model,
+    includeProgrammaticHook = false,
+    overrides = {},
+    env = process.env,
+    baseUrl,
+  } = args;
+
+  const resolved = resolveProvider(provider, model, { env, baseUrl });
+
+  const options: Options = {
+    ...buildBaseOptions(includeProgrammaticHook),
+    model: resolved.model,
+    // Spread process.env FIRST (Options.env replaces, not merges), then overlay
+    // the provider selection env.
+    env: { ...env, ...resolved.sessionEnv },
+    ...overrides,
+  };
+
+  return { resolved, options };
 }
 
 /**
