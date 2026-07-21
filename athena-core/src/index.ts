@@ -14,9 +14,10 @@ export {
   FIXTURE_HOOK_PATH,
   FIXTURE_SKILL_PATH,
   buildAthenaOptions,
+  buildSession,
   resolveAthenaSettings,
   sessionStartInjector,
 } from './config/loadConfig.js';
-export type { BuildOptions } from './config/loadConfig.js';
+export type { BuildOptions, BuildSessionArgs, AthenaSession } from './config/loadConfig.js';
 export { hasAnthropicAuth, runLiveSmoke } from './smoke/liveSmoke.js';
 export type { LiveSmokeResult } from './smoke/liveSmoke.js';

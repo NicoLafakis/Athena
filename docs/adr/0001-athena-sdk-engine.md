@@ -125,7 +125,7 @@ Spike under `athena-core/` (TypeScript, `@anthropic-ai/claude-agent-sdk@0.3.216`
 
 ## Open items
 
-- **LiteLLM clean-version pin:** select and record the exact known-clean version (avoid 1.82.7 / 1.82.8). Still open.
+- **LiteLLM clean-version pin:** pinned to **1.93.0** (clean line — past the `1.83.0` remediation release and the `1.83.10` proxy-SQLi fix; the `1.82.7`/`1.82.8` credential-stealers are hard-refused by `SidecarManager.assertCleanVersion`). Install hash-pinned (`pip install "litellm[proxy]==1.93.0" --require-hashes`) and re-verify the artifact hash against PyPI at vendor time. Not installed in-container (Windows/keyed). Rationale in `athena-core/PHASE1.md`.
 - ~~Confirm seam 2 (Stop re-prompt + `additionalContext`)~~ — **CONFIRMED in Phase 0** (above).
 - **Live proofs deferred** to the keyed / Windows checklist: one real `query()` turn (hook injection + `hello` skill invocation), live Claude↔Kimi endpoint switch, real Ares `~/.claude` load, real `py`-hook fire under Task Scheduler, and runtime skill listing.
 - Layout: the SDK core lives under `athena-core/`; the legacy Electron shell stays at root as a tool/embodiment source until Phase 4 consumes it.
