@@ -113,8 +113,19 @@ Everything else is native SDK config or self-contained Python CLI tools. The sea
 - **Phase 4 — Surfaces.** CLI polish + VS Code extension on the shared core.
 - **Phase 5 — Distribution & hardening.** Windows binary, VSIX, fixture/eval gate wired as the release ratchet.
 
+## Phase 0 findings (verified 2026-07-21)
+
+Spike under `athena-core/` (TypeScript, `@anthropic-ai/claude-agent-sdk@0.3.216`, Node >=18). Build + typecheck clean; 27 unit tests pass, 1 keyed live-smoke skipped (no key in the authoring container). Empirical corrections to the assumptions above:
+
+- **Seam 2 CONFIRMED.** The SDK's `SyncHookJSONOutput` exposes `decision: 'approve' | 'block'` + `reason` (the `Stop` re-prompt) and `additionalContext` injection on `SessionStart` / `UserPromptSubmit` / `Stop` / `SubagentStop`. `StopHookInput` carries `stop_hook_active` (loop guard) and `last_assistant_message`. The recursive-learning nudge (RSI Loop B) is buildable exactly as specified.
+- **Provider mechanism revised (important).** The Agent SDK owns the HTTP request and exposes **no public per-request body interceptor**. Claude/Kimi/MiniMax switching is therefore **env/settings-driven** (`ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_API_KEY`, `ENABLE_TOOL_SEARCH=false`, `CLAUDE_CODE_AUTO_COMPACT_WINDOW`) — the same way Claude Code itself does it — not body mutation. `shapeRequest()` remains the canonical dialect model in two roles: (a) the spec that drives each provider's env/settings, and (b) the real body shaper for calls made **outside** the SDK (RSI Loop A `query()` sub-calls, the OpenAI sidecar). Consequence: **provider selection is per-session config; mid-session switching means reconfiguring the session, not reshaping individual messages.** This does not change the decision — 3/4 providers still work native — but it reshapes Phase 1.
+- **`resolveSettings()`** (SDK, alpha) gives keyless introspection of the merged config a run would see; it proved hook discovery with no key and no turn, and is ideal for the Phase 5 fixture ratchet.
+- **Hook hosting confirmed:** Ares's pure-injection Python hooks map in as `type:'command'` shims (no TS rewrite); deny-gates can be command shims or programmatic `HookCallback`s. Real signature: `(input, toolUseID, {signal}) => Promise<HookJSONOutput>`, wired via `Options.hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>>`.
+- Canonical base-url var is `ANTHROPIC_BASE_URL` (not `ANTHROPIC_API_BASE`). `systemPrompt: { type:'preset', preset:'claude_code', append }` keeps Claude Code base behavior while appending Ares identity (Phase 2).
+
 ## Open items
 
-- LiteLLM clean-version pin: select and record the exact version.
-- Confirm SDK exposes a `Stop`-equivalent re-prompt and `additionalContext` injection (seam 2) — verified in Phase 0.
+- **LiteLLM clean-version pin:** select and record the exact known-clean version (avoid 1.82.7 / 1.82.8). Still open.
+- ~~Confirm seam 2 (Stop re-prompt + `additionalContext`)~~ — **CONFIRMED in Phase 0** (above).
+- **Live proofs deferred** to the keyed / Windows checklist: one real `query()` turn (hook injection + `hello` skill invocation), live Claude↔Kimi endpoint switch, real Ares `~/.claude` load, real `py`-hook fire under Task Scheduler, and runtime skill listing.
 - Layout: the SDK core lives under `athena-core/`; the legacy Electron shell stays at root as a tool/embodiment source until Phase 4 consumes it.
