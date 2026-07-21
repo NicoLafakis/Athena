@@ -72,11 +72,9 @@ export async function countToolUseBlocks(
 ): Promise<number> {
   if (!transcriptPath) return 0;
   let n = 0;
+  const stream = createReadStream(transcriptPath, { encoding: 'utf8' });
+  const rl = createInterface({ input: stream, crlfDelay: Infinity });
   try {
-    const rl = createInterface({
-      input: createReadStream(transcriptPath, { encoding: 'utf8' }),
-      crlfDelay: Infinity,
-    });
     for await (const line of rl) {
       const trimmed = line.trim();
       if (!trimmed || !trimmed.includes('"tool_use"')) continue;
@@ -94,13 +92,13 @@ export async function countToolUseBlocks(
           (b) => b && typeof b === 'object' && (b as { type?: string }).type === 'tool_use',
         ).length;
       }
-      if (n >= threshold) {
-        rl.close();
-        return n;
-      }
+      if (n >= threshold) return n; // `finally` closes the interface + destroys the stream
     }
   } catch {
     return n;
+  } finally {
+    rl.close();
+    stream.destroy();
   }
   return n;
 }
