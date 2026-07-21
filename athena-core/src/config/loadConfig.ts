@@ -26,6 +26,7 @@ import { CLAUDE_CONFIG_DIR_ENV, resolveAresHome } from './aresConfig.js';
 import { memoryInjector } from '../hooks/memoryInjector.js';
 import { reflectionNudge } from '../hooks/reflectionNudge.js';
 import { rulesReinject } from '../hooks/rulesReinject.js';
+import { agentTrace } from '../hooks/agentTrace.js';
 
 export { HOOK_MARKER, SKILL_MARKER } from '../hooks/contract.js';
 
@@ -103,6 +104,8 @@ export type AresHookFlags = {
   reflection?: boolean;
   /** UserPromptSubmit identity + operating-rules commission re-injection. */
   rules?: boolean;
+  /** RSI Loop C: SubagentStop telemetry -> <aresHome>/agents/trace-log.jsonl (feeds /evolve-prompts). */
+  trace?: boolean;
 };
 
 export type BuildSessionArgs = {
@@ -163,6 +166,7 @@ export function buildAresProgrammaticHooks(
   if (flags.memory) push('SessionStart', memoryInjector(aresHome));
   if (flags.rules) push('UserPromptSubmit', rulesReinject(aresHome));
   if (flags.reflection) push('Stop', reflectionNudge());
+  if (flags.trace) push('SubagentStop', agentTrace(aresHome));
   return hooks;
 }
 

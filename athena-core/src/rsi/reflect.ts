@@ -33,7 +33,7 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { query, type Options } from '@anthropic-ai/claude-agent-sdk';
 import { resolveAresHome } from '../config/aresConfig.js';
 import {
   DEFAULT_MAX_SESSIONS,
@@ -159,14 +159,7 @@ export type ModelCall = (
  * unit tests inject a mock in its place.
  */
 export const sdkModelCall: ModelCall = async (prompt, opts = {}) => {
-  const q = query({
-    prompt,
-    options: {
-      maxTurns: 1,
-      settingSources: [],
-      ...(opts.model ? { model: opts.model } : {}),
-    },
-  });
+  const q = query({ prompt, options: reflectQueryOptions({ model: opts.model }) });
   let result: string | null = null;
   for await (const msg of q) {
     if (msg.type === 'result' && msg.subtype === 'success') {
@@ -175,6 +168,36 @@ export const sdkModelCall: ModelCall = async (prompt, opts = {}) => {
   }
   return result;
 };
+
+/**
+ * Tools the reflection sub-call is HARD-blocked from using. The reflection is a
+ * pure text turn (digest in -> reflection out) and must never touch the
+ * filesystem or shell. `settingSources:[]` isolates config but does NOT restrict
+ * built-in tools, so the mutating/exec tools are disallowed explicitly — turning
+ * the prompt's "do not use tools" from a soft request into an SDK-enforced
+ * control. The technical half of the propose-only / anti-self-corruption
+ * guarantee: the JS write path never touches memory, and this stops the
+ * sub-model from touching it either.
+ */
+export const REFLECT_DISALLOWED_TOOLS = [
+  'Write',
+  'Edit',
+  'MultiEdit',
+  'NotebookEdit',
+  'Bash',
+  'WebFetch',
+  'WebSearch',
+];
+
+/** SDK query options for the reflection sub-call (extracted so the hard tool-block is unit-testable). */
+export function reflectQueryOptions(opts: { model?: string } = {}): Options {
+  return {
+    maxTurns: 1,
+    settingSources: [],
+    disallowedTools: REFLECT_DISALLOWED_TOOLS,
+    ...(opts.model ? { model: opts.model } : {}),
+  };
+}
 
 // ========================================================================
 // The write path — the SCRIPT owns disk, not the model
