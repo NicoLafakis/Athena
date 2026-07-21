@@ -11,10 +11,21 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveSettings } from '@anthropic-ai/claude-agent-sdk';
-import type { HookCallback, Options, ResolvedSettings } from '@anthropic-ai/claude-agent-sdk';
+import type {
+  HookCallback,
+  HookCallbackMatcher,
+  HookEvent,
+  Options,
+  ResolvedSettings,
+  SettingSource,
+} from '@anthropic-ai/claude-agent-sdk';
 import { resolveProvider } from '../providers/resolveProvider.js';
 import type { ProviderName, ResolvedProvider } from '../providers/types.js';
 import { HOOK_MARKER } from '../hooks/contract.js';
+import { CLAUDE_CONFIG_DIR_ENV, resolveAresHome } from './aresConfig.js';
+import { memoryInjector } from '../hooks/memoryInjector.js';
+import { reflectionNudge } from '../hooks/reflectionNudge.js';
+import { rulesReinject } from '../hooks/rulesReinject.js';
 
 export { HOOK_MARKER, SKILL_MARKER } from '../hooks/contract.js';
 
@@ -79,6 +90,21 @@ export function buildAthenaOptions(opts: BuildOptions = {}): Options {
   return { ...buildBaseOptions(includeProgrammaticHook), ...overrides };
 }
 
+/**
+ * Which programmatic Ares TS-port hooks to wire (seam 3 + RSI Loop B +
+ * rules_reinject). These cover the NATIVE-injection gaps (and the cross-platform
+ * future where the Windows `py` hooks can't run). See {@link buildSession} for the
+ * double-fire gate.
+ */
+export type AresHookFlags = {
+  /** Seam 3: SessionStart MEMORY.md index injection + freshness reminder. */
+  memory?: boolean;
+  /** RSI Loop B: Stop recursive-learning nudge (>= 5 tool calls, once per session). */
+  reflection?: boolean;
+  /** UserPromptSubmit identity + operating-rules commission re-injection. */
+  rules?: boolean;
+};
+
 export type BuildSessionArgs = {
   /** Provider to select. Default `'anthropic'`. */
   provider?: ProviderName;
@@ -95,7 +121,50 @@ export type BuildSessionArgs = {
    * sidecar address (a `SidecarManager.baseUrl` or a mock server url).
    */
   baseUrl?: string;
+
+  // ---- Phase 2: ride the live Ares brain ----
+  /**
+   * Ride the LIVE Ares harness in place. When true: `'user'` is added to
+   * `settingSources`, `CLAUDE_CONFIG_DIR` is injected into the session env pointed
+   * at {@link aresHome}, and `cwd` defaults to the Ares home — so the real Ares
+   * `settings.json` (its 14 `py` hooks, permissions, model, plugins) loads
+   * NATIVELY. On Windows those py hooks fire; the TS ports below are gated OFF in
+   * this mode to avoid double-firing.
+   */
+  rideAres?: boolean;
+  /** Ares config home to ride (default via {@link resolveAresHome}: `ATHENA_ARES_HOME` env → OS home `.claude`). */
+  aresHome?: string;
+  /**
+   * Opt-in programmatic Ares hook ports. Wired only when NOT riding live Ares
+   * (unless {@link allowDoubleFire}) — on Windows the native `py` hooks already do
+   * this, so wiring the TS ports too would double-fire. Use these on the
+   * cross-platform / no-`py` path where the native hooks can't run.
+   */
+  aresHooks?: AresHookFlags;
+  /**
+   * Escape hatch: wire the TS-port hooks EVEN while riding live Ares. Off by
+   * default precisely because it double-fires with the native py hooks.
+   */
+  allowDoubleFire?: boolean;
 };
+
+/**
+ * Build the programmatic Ares hook set from the selected flags. Returns a
+ * partial `Options.hooks` record; empty when nothing is selected. Pure.
+ */
+export function buildAresProgrammaticHooks(
+  flags: AresHookFlags,
+  aresHome: string,
+): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
+  const hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
+  const push = (event: HookEvent, cb: HookCallback) => {
+    (hooks[event] ??= []).push({ hooks: [cb] });
+  };
+  if (flags.memory) push('SessionStart', memoryInjector(aresHome));
+  if (flags.rules) push('UserPromptSubmit', rulesReinject(aresHome));
+  if (flags.reflection) push('Stop', reflectionNudge());
+  return hooks;
+}
 
 /** A built Athena session: the resolved provider selection + the SDK `Options`. */
 export type AthenaSession = {
@@ -123,20 +192,68 @@ export function buildSession(args: BuildSessionArgs = {}): AthenaSession {
     overrides = {},
     env = process.env,
     baseUrl,
+    rideAres = false,
+    aresHome: aresHomeArg,
+    aresHooks = {},
+    allowDoubleFire = false,
   } = args;
 
   const resolved = resolveProvider(provider, model, { env, baseUrl });
+  const aresHome = resolveAresHome(aresHomeArg, env);
+
+  const base = buildBaseOptions(includeProgrammaticHook);
+
+  // Spread process.env FIRST (Options.env replaces, not merges), then overlay the
+  // provider selection env.
+  const sessionEnv: Record<string, string | undefined> = { ...env, ...resolved.sessionEnv };
+
+  // Ride the live Ares brain: add the `'user'` tier + point CLAUDE_CONFIG_DIR at
+  // the Ares home so its real settings.json (14 py hooks, etc.) loads natively.
+  let settingSources = base.settingSources;
+  let cwd = base.cwd;
+  if (rideAres) {
+    settingSources = mergeUserSource(settingSources);
+    sessionEnv[CLAUDE_CONFIG_DIR_ENV] = aresHome;
+    cwd = aresHome;
+  }
+
+  // Wire the programmatic TS-port hooks. GATE: when riding live Ares the native
+  // py hooks already cover these, so we do NOT wire the ports (double-fire) unless
+  // explicitly allowed. Off the Ares-riding path (cross-platform / no-py future),
+  // the ports are the only vehicle, so they wire freely.
+  const wirePorts = !rideAres || allowDoubleFire;
+  const portHooks = wirePorts ? buildAresProgrammaticHooks(aresHooks, aresHome) : {};
+  const mergedHooks = mergeHooks(base.hooks, portHooks);
 
   const options: Options = {
-    ...buildBaseOptions(includeProgrammaticHook),
+    ...base,
+    settingSources,
+    cwd,
     model: resolved.model,
-    // Spread process.env FIRST (Options.env replaces, not merges), then overlay
-    // the provider selection env.
-    env: { ...env, ...resolved.sessionEnv },
+    env: sessionEnv,
+    ...(Object.keys(mergedHooks).length > 0 ? { hooks: mergedHooks } : {}),
     ...overrides,
   };
 
   return { resolved, options };
+}
+
+/** Add `'user'` to a `settingSources` list (idempotent). Keeps `'project'` so CLAUDE.md still loads. */
+function mergeUserSource(sources: SettingSource[] | undefined): SettingSource[] {
+  const base = sources ?? (['project', 'local'] as SettingSource[]);
+  return base.includes('user') ? base : (['user', ...base] as SettingSource[]);
+}
+
+/** Shallow-merge two `Options.hooks` records, concatenating matcher arrays per event. */
+function mergeHooks(
+  a: Partial<Record<HookEvent, HookCallbackMatcher[]>> | undefined,
+  b: Partial<Record<HookEvent, HookCallbackMatcher[]>>,
+): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
+  const out: Partial<Record<HookEvent, HookCallbackMatcher[]>> = { ...(a ?? {}) };
+  for (const [event, matchers] of Object.entries(b) as [HookEvent, HookCallbackMatcher[]][]) {
+    out[event] = [...(out[event] ?? []), ...matchers];
+  }
+  return out;
 }
 
 /**

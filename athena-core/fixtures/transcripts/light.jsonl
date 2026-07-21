@@ -1,0 +1,5 @@
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"What does this file export?"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Let me check."},{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/a/index.ts"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"..."}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Grep","input":{"pattern":"export"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"It exports two functions."}]}}
