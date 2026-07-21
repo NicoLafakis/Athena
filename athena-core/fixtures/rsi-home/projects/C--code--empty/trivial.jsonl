@@ -1,0 +1,2 @@
+{"type":"user","cwd":"C:\\code\\empty","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"x0","content":"noise"}]}}
+{"type":"user","cwd":"C:\\code\\empty","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"x1","content":"more noise"}]}}
