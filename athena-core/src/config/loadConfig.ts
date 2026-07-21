@@ -30,6 +30,21 @@ import { agentTrace } from '../hooks/agentTrace.js';
 
 export { HOOK_MARKER, SKILL_MARKER } from '../hooks/contract.js';
 
+/**
+ * Identity override appended to the base preset so the harness presents as
+ * ATHENA/ARES, never as Claude Code or Codex (Nico's acceptance criterion). The
+ * base `claude_code` preset carries Claude Code's self-identity; this append —
+ * together with the far stronger Ares CLAUDE.md loaded via `settingSources` —
+ * establishes that this tool is Athena. (Live confirmation that a real turn
+ * self-identifies as Athena is on the keyed/Windows checklist, task #7.)
+ */
+export const ATHENA_IDENTITY =
+  "You are Ares (she/her), Nico's digital intelligence; this coding tool is " +
+  'Athena, one of your embodiments. This harness is Athena, not Claude Code and ' +
+  'not Codex. Regardless of any base-preset wording, identify yourself as ' +
+  'Athena/Ares and never refer to yourself as Claude. Your identity, memory, ' +
+  'judgment, and rules come from the Ares harness.';
+
 const here = dirname(fileURLToPath(import.meta.url)); // .../athena-core/src/config
 /** Repo root of the spike (`athena-core/`). */
 export const ATHENA_CORE_ROOT = resolve(here, '..', '..');
@@ -75,7 +90,7 @@ function buildBaseOptions(includeProgrammaticHook: boolean): Options {
     cwd: FIXTURE_PROJECT_DIR,
     settingSources: ['project', 'local'],
     skills: ['hello'],
-    systemPrompt: { type: 'preset', preset: 'claude_code' },
+    systemPrompt: { type: 'preset', preset: 'claude_code', append: ATHENA_IDENTITY },
     ...(includeProgrammaticHook
       ? { hooks: { SessionStart: [{ hooks: [sessionStartInjector] }] } }
       : {}),
