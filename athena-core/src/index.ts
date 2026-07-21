@@ -125,3 +125,23 @@ export {
   agentTrace,
 } from './hooks/agentTrace.js';
 export type { TraceEntry, AgentSignals, AgentTraceOptions } from './hooks/agentTrace.js';
+
+// Phase 4a — surfaces: the `athena` terminal CLI. Pure arg parsing + dry-run
+// formatting + the runnable entry, re-exported so a VS Code extension (or any
+// embedder) can reuse the exact same surface the bin uses.
+export {
+  CLI_NAME,
+  PROVIDER_NAMES,
+  DEFAULT_PROVIDER,
+  CliUsageError,
+  parseCliArgs,
+  isProviderName,
+  versionText,
+  bannerText,
+  helpText,
+} from './cli/args.js';
+export type { CliArgs } from './cli/args.js';
+export { dryRunConfig, formatDryRun } from './cli/format.js';
+export type { DryRunConfig } from './cli/format.js';
+export { packageVersion, sdkRunTurn, runCli } from './cli/index.js';
+export type { RunTurn, CliDeps, ReplContext } from './cli/index.js';

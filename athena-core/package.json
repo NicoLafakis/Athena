@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Athena core — Phase 0 de-risk spike: Claude Agent SDK engine + provider dialect layer",
+  "bin": {
+    "athena": "./dist/cli/index.js"
+  },
   "engines": {
     "node": ">=18.0.0"
   },

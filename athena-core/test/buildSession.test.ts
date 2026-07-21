@@ -5,9 +5,8 @@ import { FIXTURE_PROJECT_DIR, buildSession } from '../src/config/loadConfig.js';
 const KEYLESS = { PATH: '/usr/bin', HOME: '/home/user' } as Record<string, string | undefined>;
 
 describe('buildSession — keeps the Phase 0 fixture wiring', () => {
-  it('sets cwd, settingSources incl. project, and the hello skill', () => {
+  it('keeps settingSources incl. project and the hello skill', () => {
     const { options } = buildSession({ env: KEYLESS });
-    expect(options.cwd).toBe(FIXTURE_PROJECT_DIR);
     expect(options.settingSources).toContain('project');
     expect(options.skills).toEqual(['hello']);
   });
@@ -15,6 +14,21 @@ describe('buildSession — keeps the Phase 0 fixture wiring', () => {
   it('can also register the programmatic hook', () => {
     const { options } = buildSession({ includeProgrammaticHook: true, env: KEYLESS });
     expect(options.hooks?.SessionStart?.[0]?.hooks?.length).toBe(1);
+  });
+});
+
+describe('buildSession — cwd is the user project, not the fixture/Ares dir', () => {
+  it('defaults cwd to process.cwd() (the user project), not the fixture project dir', () => {
+    const { options } = buildSession({ env: KEYLESS });
+    expect(options.cwd).toBe(process.cwd());
+    // Regression guard: buildSession must not default to the fixture dir the way
+    // the Phase 0 buildAthenaOptions helper still does.
+    expect(options.cwd).not.toBe(FIXTURE_PROJECT_DIR);
+  });
+
+  it('honors an injected cwd', () => {
+    const { options } = buildSession({ cwd: '/work/project', env: KEYLESS });
+    expect(options.cwd).toBe('/work/project');
   });
 });
 

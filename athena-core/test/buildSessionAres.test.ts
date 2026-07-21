@@ -25,7 +25,28 @@ describe('buildSession — rideAres loads the live Ares brain natively', () => {
     expect(options.settingSources).toContain('user');
     expect(options.settingSources).toContain('project'); // keep CLAUDE.md loading
     expect(options.env?.[CLAUDE_CONFIG_DIR_ENV]).toBe(FIXTURE_ARES_HOME);
-    expect(options.cwd).toBe(FIXTURE_ARES_HOME);
+  });
+
+  it('rideAres does NOT relocate cwd into the Ares home (runs in the user project)', () => {
+    const { options } = buildSession({
+      rideAres: true,
+      aresHome: FIXTURE_ARES_HOME,
+      env: KEYLESS,
+    });
+    // The CONFIG dir is the Ares home; the WORKING dir stays the user's project.
+    expect(options.cwd).not.toBe(FIXTURE_ARES_HOME);
+    expect(options.cwd).toBe(process.cwd());
+  });
+
+  it('an injected cwd is honored while riding Ares (config dir still the Ares home)', () => {
+    const { options } = buildSession({
+      rideAres: true,
+      aresHome: FIXTURE_ARES_HOME,
+      cwd: '/work/project',
+      env: KEYLESS,
+    });
+    expect(options.cwd).toBe('/work/project');
+    expect(options.env?.[CLAUDE_CONFIG_DIR_ENV]).toBe(FIXTURE_ARES_HOME);
   });
 
   it('gates the TS-port hooks OFF while riding live Ares (no double-fire with py hooks)', () => {

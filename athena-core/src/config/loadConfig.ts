@@ -142,12 +142,20 @@ export type BuildSessionArgs = {
 
   // ---- Phase 2: ride the live Ares brain ----
   /**
+   * The working directory the session runs in = `$CLAUDE_PROJECT_DIR` (the
+   * USER'S PROJECT). Default `process.cwd()`. This is independent of {@link
+   * aresHome}: riding Ares points the CONFIG dir at the Ares home but must NOT
+   * relocate the working directory, or a real session would run inside the Ares
+   * config tree instead of the project the user invoked Athena from.
+   */
+  cwd?: string;
+  /**
    * Ride the LIVE Ares harness in place. When true: `'user'` is added to
-   * `settingSources`, `CLAUDE_CONFIG_DIR` is injected into the session env pointed
-   * at {@link aresHome}, and `cwd` defaults to the Ares home — so the real Ares
-   * `settings.json` (its 14 `py` hooks, permissions, model, plugins) loads
-   * NATIVELY. On Windows those py hooks fire; the TS ports below are gated OFF in
-   * this mode to avoid double-firing.
+   * `settingSources` and `CLAUDE_CONFIG_DIR` is injected into the session env
+   * pointed at {@link aresHome} — so the real Ares `settings.json` (its 14 `py`
+   * hooks, permissions, model, plugins) loads NATIVELY. It does NOT change `cwd`
+   * (the session still runs in the user's project). On Windows those py hooks
+   * fire; the TS ports below are gated OFF in this mode to avoid double-firing.
    */
   rideAres?: boolean;
   /** Ares config home to ride (default via {@link resolveAresHome}: `ATHENA_ARES_HOME` env → OS home `.claude`). */
@@ -211,6 +219,7 @@ export function buildSession(args: BuildSessionArgs = {}): AthenaSession {
     overrides = {},
     env = process.env,
     baseUrl,
+    cwd: cwdArg,
     rideAres = false,
     aresHome: aresHomeArg,
     aresHooks = {},
@@ -222,18 +231,22 @@ export function buildSession(args: BuildSessionArgs = {}): AthenaSession {
 
   const base = buildBaseOptions(includeProgrammaticHook);
 
+  // The session runs in the USER'S PROJECT (default process.cwd()), NOT the Ares
+  // config dir. Riding Ares relocates the CONFIG dir (below), never the cwd —
+  // otherwise a real turn would execute inside `~/.claude` instead of the project.
+  const cwd = cwdArg ?? process.cwd();
+
   // Spread process.env FIRST (Options.env replaces, not merges), then overlay the
   // provider selection env.
   const sessionEnv: Record<string, string | undefined> = { ...env, ...resolved.sessionEnv };
 
   // Ride the live Ares brain: add the `'user'` tier + point CLAUDE_CONFIG_DIR at
   // the Ares home so its real settings.json (14 py hooks, etc.) loads natively.
+  // aresHome drives ONLY the config dir + the 'user' source — it does NOT set cwd.
   let settingSources = base.settingSources;
-  let cwd = base.cwd;
   if (rideAres) {
     settingSources = mergeUserSource(settingSources);
     sessionEnv[CLAUDE_CONFIG_DIR_ENV] = aresHome;
-    cwd = aresHome;
   }
 
   // Wire the programmatic TS-port hooks. GATE: when riding live Ares the native
