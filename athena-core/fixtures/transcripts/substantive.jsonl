@@ -1,0 +1,6 @@
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Refactor the config loader and add tests"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Reading the files."},{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/a/loadConfig.ts"}},{"type":"tool_use","id":"t2","name":"Grep","input":{"pattern":"buildSession"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"..."}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t3","name":"Edit","input":{"file_path":"/a/loadConfig.ts"}},{"type":"tool_use","id":"t4","name":"Write","input":{"file_path":"/a/test.ts"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t5","name":"Bash","input":{"command":"npm test"}},{"type":"tool_use","id":"t6","name":"Bash","input":{"command":"npm run build"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Done. 6 tool calls, all green."}]}}
