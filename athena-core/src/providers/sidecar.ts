@@ -12,7 +12,7 @@
  * never auto-update.
  */
 
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import {
   createServer,
   type IncomingMessage,
@@ -117,6 +117,43 @@ export const LITELLM_KNOWN_BAD_VERSIONS = ['1.82.7', '1.82.8'] as const;
 export const LITELLM_HEALTH_PATH = '/health/liveliness';
 
 /**
+ * Environment variables the LiteLLM child is ALLOWED to inherit. The parent env
+ * is NOT spread wholesale — a third-party proxy (whose own supply chain was
+ * compromised once) must never receive our ANTHROPIC_* keys, cloud tokens, or
+ * any other ambient secret. Only process basics + locale/encoding pass; the
+ * proxy's own secret (OPENAI_API_KEY) and the local hop key are added
+ * explicitly in buildSpawnCommand. Hosts needing more use `extraEnvAllowlist`.
+ */
+export const SIDECAR_ENV_ALLOWLIST = [
+  'PATH',
+  // POSIX / Windows process basics needed to launch python/litellm:
+  'HOME', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT',
+  'TEMP', 'TMP', 'APPDATA', 'LOCALAPPDATA', 'USERPROFILE',
+  // locale / encoding:
+  'LANG', 'LC_ALL', 'TZ', 'PYTHONUTF8', 'PYTHONIOENCODING',
+] as const;
+
+/** Reads the version of the ACTUALLY-INSTALLED litellm (injectable for tests). */
+export type VersionProbe = (env: Record<string, string | undefined>) => Promise<string>;
+
+/**
+ * Default probe: runs `litellm --version` and extracts a semver token. This is
+ * what verifies the binary that will actually be spawned — a `PATH`-resolved or
+ * hijacked `litellm` cannot be trusted from its configured version string alone.
+ */
+export const defaultVersionProbe: VersionProbe = async (env) =>
+  new Promise<string>((resolve, reject) => {
+    execFile('litellm', ['--version'], { env }, (err, stdout, stderr) => {
+      if (err) return reject(err);
+      const match = `${stdout} ${stderr}`.match(/\d+\.\d+\.\d+/);
+      if (!match) {
+        return reject(new Error(`could not parse LiteLLM version from: ${(stdout || stderr).trim()}`));
+      }
+      resolve(match[0]);
+    });
+  });
+
+/**
  * Capability guard for the REAL spawn. Returns false in this Linux authoring
  * container (product is Windows-only, and LiteLLM is not installed here). Opt in
  * with `ATHENA_ENABLE_SIDECAR_SPAWN=1` on a host that has a pinned LiteLLM.
@@ -145,6 +182,10 @@ export type SidecarManagerOptions = {
   startTimeoutMs?: number;
   /** Injected transport for health checks (default platform fetch). */
   transport?: FetchTransport;
+  /** Extra env-var names the sidecar child may inherit beyond the allowlist. */
+  extraEnvAllowlist?: string[];
+  /** Injected installed-version probe (default runs `litellm --version`). */
+  versionProbe?: VersionProbe;
 };
 
 /** The concrete `litellm` invocation the manager would spawn. */
@@ -171,6 +212,8 @@ export class SidecarManager {
   private readonly env: Record<string, string | undefined>;
   private readonly startTimeoutMs: number;
   private readonly transport: FetchTransport;
+  private readonly extraEnvAllowlist: string[];
+  private readonly versionProbe: VersionProbe;
   private child?: ChildProcess;
 
   constructor(opts: SidecarManagerOptions = {}) {
@@ -183,6 +226,8 @@ export class SidecarManager {
     this.healthPath = opts.healthPath ?? LITELLM_HEALTH_PATH;
     this.startTimeoutMs = opts.startTimeoutMs ?? 30_000;
     this.transport = opts.transport ?? defaultTransport;
+    this.extraEnvAllowlist = opts.extraEnvAllowlist ?? [];
+    this.versionProbe = opts.versionProbe ?? defaultVersionProbe;
   }
 
   /** Unified base_url (`ANTHROPIC_BASE_URL` points here; SDK appends `/v1/messages`). */
@@ -205,12 +250,42 @@ export class SidecarManager {
     return Boolean(this.child && this.child.exitCode === null);
   }
 
-  /** Throw if the configured version is a known-compromised release. */
+  /** Throw unless the configured version is the single vetted, clean pin. */
   assertCleanVersion(): void {
     if ((LITELLM_KNOWN_BAD_VERSIONS as readonly string[]).includes(this.version)) {
       throw new Error(
         `refusing to run LiteLLM ${this.version}: known credential-stealing release. ` +
           `Pin ${LITELLM_PINNED_VERSION} (see PHASE1.md).`,
+      );
+    }
+    // Allowlist-of-one: a denylist alone is fail-open (any non-listed, unvetted
+    // build would pass). The configured version must be the vetted pin; changing
+    // it is a deliberate code change, not a silent runtime option.
+    if (this.version !== LITELLM_PINNED_VERSION) {
+      throw new Error(
+        `refusing to run LiteLLM ${this.version}: only the vetted pin ` +
+          `${LITELLM_PINNED_VERSION} is allowed. Update LITELLM_PINNED_VERSION ` +
+          `(and re-verify the artifact hash) to change it.`,
+      );
+    }
+  }
+
+  /**
+   * Verify the version of the litellm that will ACTUALLY be spawned, not just the
+   * configured string. Guards against a PATH-resolved / hijacked / downgraded
+   * binary. Throws if the installed version is compromised or != the pin.
+   */
+  async assertInstalledVersionMatches(): Promise<void> {
+    const installed = await this.versionProbe(this.env);
+    if ((LITELLM_KNOWN_BAD_VERSIONS as readonly string[]).includes(installed)) {
+      throw new Error(
+        `installed LiteLLM ${installed} is a known credential-stealing release; refusing to spawn.`,
+      );
+    }
+    if (installed !== this.version) {
+      throw new Error(
+        `installed LiteLLM ${installed} does not match pinned ${this.version}; ` +
+          `refusing to spawn (possible PATH hijack or silent downgrade).`,
       );
     }
   }
@@ -224,16 +299,17 @@ export class SidecarManager {
     const args = this.configPath
       ? ['--config', this.configPath, '--port', String(this.port), '--host', this.host]
       : ['--model', `openai/${this.model}`, '--port', String(this.port), '--host', this.host];
-    return {
-      command: 'litellm',
-      args,
-      // The proxy reads OPENAI_API_KEY (its own secret) + optional master key.
-      env: {
-        ...this.env,
-        OPENAI_API_KEY: this.env.OPENAI_API_KEY,
-        LITELLM_MASTER_KEY: this.env.LITELLM_MASTER_KEY,
-      },
-    };
+    // Allowlist, NOT a wholesale spread of the parent env — LiteLLM must never
+    // see our ANTHROPIC_* keys, cloud tokens, or other ambient secrets.
+    const childEnv: Record<string, string | undefined> = {};
+    for (const key of [...SIDECAR_ENV_ALLOWLIST, ...this.extraEnvAllowlist]) {
+      if (this.env[key] !== undefined) childEnv[key] = this.env[key];
+    }
+    // The proxy's own upstream secret + the local SDK->sidecar hop key, explicit.
+    if (this.env.OPENAI_API_KEY !== undefined) childEnv.OPENAI_API_KEY = this.env.OPENAI_API_KEY;
+    if (this.env.LITELLM_MASTER_KEY !== undefined) childEnv.LITELLM_MASTER_KEY = this.env.LITELLM_MASTER_KEY;
+
+    return { command: 'litellm', args, env: childEnv };
   }
 
   /** GET the liveliness probe; true iff HTTP 2xx. Never throws on network error. */
@@ -260,6 +336,7 @@ export class SidecarManager {
       );
     }
     this.assertCleanVersion();
+    await this.assertInstalledVersionMatches();
     if (this.running) return;
 
     const { command, args, env } = this.buildSpawnCommand();

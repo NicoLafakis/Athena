@@ -113,3 +113,59 @@ describe('SidecarManager — guarded spawn + pinned clean version', () => {
     expect(mgr.anthropicMessagesUrl).toBe('http://127.0.0.1:4000/v1/messages');
   });
 });
+
+describe('SidecarManager — env allowlist + installed-version verification (hardening)', () => {
+  it('forwards ONLY allowlisted vars + the proxy secret; drops ANTHROPIC_* and cloud tokens', () => {
+    const mgr = new SidecarManager({
+      env: {
+        PATH: '/usr/bin',
+        OPENAI_API_KEY: 'sk-openai',
+        LITELLM_MASTER_KEY: 'sk-athena-litellm-local',
+        ANTHROPIC_API_KEY: 'sk-ant-SECRET',
+        ANTHROPIC_AUTH_TOKEN: 'kimi-SECRET',
+        AWS_SECRET_ACCESS_KEY: 'aws-SECRET',
+        GITHUB_TOKEN: 'gh-SECRET',
+      },
+    });
+    const env = mgr.buildSpawnCommand().env;
+    // allowed through
+    expect(env.PATH).toBe('/usr/bin');
+    expect(env.OPENAI_API_KEY).toBe('sk-openai');
+    expect(env.LITELLM_MASTER_KEY).toBe('sk-athena-litellm-local');
+    // secrets the proxy has no business seeing
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    expect(env.GITHUB_TOKEN).toBeUndefined();
+  });
+
+  it('extraEnvAllowlist opts specific extra vars through without re-spreading everything', () => {
+    const mgr = new SidecarManager({
+      env: { PATH: '/usr/bin', HTTPS_PROXY: 'http://proxy:8080', ANTHROPIC_API_KEY: 'sk-ant-SECRET' },
+      extraEnvAllowlist: ['HTTPS_PROXY'],
+    });
+    const env = mgr.buildSpawnCommand().env;
+    expect(env.HTTPS_PROXY).toBe('http://proxy:8080');
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
+  it('refuses a non-pinned version even if not-yet-known-bad (allowlist, not denylist)', () => {
+    const mgr = new SidecarManager({ version: '1.90.0' });
+    expect(() => mgr.buildSpawnCommand()).toThrow(/only the vetted pin|1\.93\.0/i);
+  });
+
+  it('assertInstalledVersionMatches passes when the installed binary is the pin', async () => {
+    const mgr = new SidecarManager({ versionProbe: async () => LITELLM_PINNED_VERSION });
+    await expect(mgr.assertInstalledVersionMatches()).resolves.toBeUndefined();
+  });
+
+  it('assertInstalledVersionMatches throws on a mismatched installed binary (PATH hijack / downgrade)', async () => {
+    const mgr = new SidecarManager({ versionProbe: async () => '1.90.0' });
+    await expect(mgr.assertInstalledVersionMatches()).rejects.toThrow(/does not match|hijack|downgrade/i);
+  });
+
+  it('assertInstalledVersionMatches throws when the installed binary is a compromised release', async () => {
+    const mgr = new SidecarManager({ versionProbe: async () => LITELLM_KNOWN_BAD_VERSIONS[0] });
+    await expect(mgr.assertInstalledVersionMatches()).rejects.toThrow(/credential-stealing/i);
+  });
+});
