@@ -6,12 +6,21 @@ export interface DiffLine {
   line: string
 }
 
-/** Line-based LCS diff. */
+/** Above this per-side line count the O(n*m) LCS is skipped so the TUI can't hang. */
+const MAX_LCS_LINES = 500
+
+/** Line-based LCS diff; falls back to a plain old/new listing for very large inputs. */
 export function diffLines(oldText: string, newText: string): DiffLine[] {
   const a = oldText.split('\n')
   const b = newText.split('\n')
   const m = a.length
   const n = b.length
+  if (m > MAX_LCS_LINES || n > MAX_LCS_LINES) {
+    return [
+      ...a.map((line): DiffLine => ({ tag: '-', line })),
+      ...b.map((line): DiffLine => ({ tag: '+', line })),
+    ]
+  }
   // LCS length table
   const dp: number[][] = Array.from({ length: m + 1 }, () => new Array<number>(n + 1).fill(0))
   for (let i = m - 1; i >= 0; i--) {

@@ -36,12 +36,19 @@ export class AgentOrchestrator {
   }
 
   async runAgent(def: AgentDef, prompt: string, parentCtx: ToolContext): Promise<ToolOutput> {
+    // Parent abort must reach the child: if the parent turn is already aborted,
+    // don't start the child at all.
+    if (parentCtx.abortSignal.aborted) {
+      return { output: `Agent ${def.name} aborted before start`, isError: true }
+    }
     const bus = new EngineEventBus()
     let finalText = ''
     let fatalError: string | null = null
+    let aborted = false
     bus.on((e) => {
       if (e.type === 'assistant-text') finalText += e.delta
       if (e.type === 'error' && e.fatal) fatalError = e.message
+      if (e.type === 'error' && !e.fatal && e.message === 'Turn aborted') aborted = true
     })
     const engine = new Engine({
       client: this.opts.clientFactory(),
@@ -58,9 +65,21 @@ export class AgentOrchestrator {
       maxTokens: 8192,
       // askUser deliberately absent: an 'ask' decision denies inside a sub-agent; only rules/mode allow.
     })
-    await engine.runTurn(prompt)
+    // engine.abort() targets the engine's CURRENT controller (runTurn replaces a
+    // pre-aborted one), so the propagation can't hit a stale controller.
+    const onParentAbort = () => engine.abort()
+    parentCtx.abortSignal.addEventListener('abort', onParentAbort)
+    try {
+      await engine.runTurn(prompt)
+    } finally {
+      // Completed children must not leak abort listeners on the parent signal.
+      parentCtx.abortSignal.removeEventListener('abort', onParentAbort)
+    }
     if (fatalError !== null) {
       return { output: `Agent ${def.name} failed: ${fatalError as string}`, isError: true }
+    }
+    if (aborted) {
+      return { output: `Agent ${def.name} aborted`, isError: true }
     }
     // Final text = text of the LAST assistant message (deltas across cycles are accumulated; reset per cycle):
     const last = [...engine.getMessages()].reverse().find((m) => m.role === 'assistant')

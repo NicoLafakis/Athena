@@ -20,9 +20,12 @@ export interface PendingPermission {
   resolve: (a: PermissionAnswer) => void
 }
 
-/** Bridges the Engine's askUser callback into React state. */
+/** Bridges the Engine's askUser callback into React state.
+ *  Concurrent asks (e.g. parallel sub-agents) queue and present one dialog at a time. */
 export class PermissionBridge {
   private setter: ((p: PendingPermission | null) => void) | null = null
+  private current: PendingPermission | null = null
+  private readonly queue: PendingPermission[] = []
 
   bind(setter: (p: PendingPermission | null) => void): void {
     this.setter = setter
@@ -31,15 +34,24 @@ export class PermissionBridge {
   /** Passed to Engine as askUser. */
   ask(req: { toolName: string; input: unknown; summary: string; reason: string }): Promise<PermissionAnswer> {
     return new Promise((resolve) => {
+      if (!this.setter) {
+        resolve('deny') // headless: fail safe
+        return
+      }
       const pending: PendingPermission = {
         ...req,
         resolve: (a) => {
-          this.setter?.(null)
+          this.current = this.queue.shift() ?? null
+          this.setter?.(this.current)
           resolve(a)
         },
       }
-      if (this.setter) this.setter(pending)
-      else resolve('deny') // headless: fail safe
+      if (this.current) {
+        this.queue.push(pending) // one dialog at a time: never clobber the pending ask
+      } else {
+        this.current = pending
+        this.setter(pending)
+      }
     })
   }
 }
@@ -132,6 +144,8 @@ export function reduceEvent(prev: TranscriptEntry[], e: EngineEvent): Transcript
       )
     case 'compaction':
       return [...prev, { kind: 'system', text: `Context compacted. ${e.summary.slice(0, 200)}` }]
+    case 'info':
+      return [...prev, { kind: 'system', text: e.message }]
     case 'error':
       return [...prev, { kind: 'system', text: `Error: ${e.message}` }]
     default:

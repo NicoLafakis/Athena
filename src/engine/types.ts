@@ -11,6 +11,7 @@ export type EngineEvent =
   | { type: 'todo-update'; todos: TodoItem[] }
   | { type: 'turn-done'; usage: TokenUsage }
   | { type: 'compaction'; summary: string }
+  | { type: 'info'; message: string } // system transcript note (slash-command output etc.)
   | { type: 'error'; message: string; fatal: boolean }
 
 export interface TodoItem { text: string; status: 'pending' | 'in_progress' | 'done' }

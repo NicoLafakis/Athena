@@ -1,5 +1,5 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
 import type { EngineEvent } from '../engine/types.js'
@@ -26,10 +26,16 @@ export interface SessionInfo {
 }
 
 export class Session {
+  /** Message count as of the last rewriteOrAppend, for the append-vs-rewrite decision. */
+  private lastLength: number
+
   constructor(
     readonly id: string,
     readonly file: string,
-  ) {}
+    initialMessageCount = 0,
+  ) {
+    this.lastLength = initialMessageCount
+  }
 
   private appendLine(line: SessionLine): void {
     appendFileSync(this.file, JSON.stringify(line) + '\n', 'utf8')
@@ -43,10 +49,30 @@ export class Session {
     this.appendLine({ kind: 'event', ts: new Date().toISOString(), data: event })
   }
 
-  /** Truncate and re-append the full history (used after compaction rewrites messages). */
+  /**
+   * Replace the full history (used after compaction rewrites messages).
+   * Atomic: the new content is written to a temp file in the same directory and
+   * renamed over the original, so a crash mid-rewrite never leaves a torn file,
+   * and appends issued after the rewrite land after the rewritten history.
+   */
   rewrite(messages: MessageParam[]): void {
-    writeFileSync(this.file, '', 'utf8')
-    for (const message of messages) this.appendMessage(message)
+    const ts = new Date().toISOString()
+    const body = messages
+      .map((m) => JSON.stringify({ kind: 'message', ts, data: m } satisfies SessionLine) + '\n')
+      .join('')
+    const tmp = join(dirname(this.file), `.${this.id}.tmp`)
+    writeFileSync(tmp, body, 'utf8')
+    renameSync(tmp, this.file)
+  }
+
+  /** Append when exactly one message was added since last call; otherwise rewrite the file. */
+  rewriteOrAppend(messages: MessageParam[]): void {
+    if (messages.length === this.lastLength + 1) {
+      this.appendMessage(messages[messages.length - 1]!)
+    } else {
+      this.rewrite(messages)
+    }
+    this.lastLength = messages.length
   }
 }
 
