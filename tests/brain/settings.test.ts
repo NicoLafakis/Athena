@@ -66,6 +66,35 @@ describe('loadSettings', () => {
     expect(d2.hooks).toEqual([])
   })
 
+  it('defaults mcpServers to an empty object and fills per-server arg/env defaults', () => {
+    const paths = resolveBrainPaths({ cwd: project, homeOverride: home })
+    expect(loadSettings(paths).mcpServers).toEqual({})
+
+    mkdirSync(join(home, '.athena'), { recursive: true })
+    writeFileSync(
+      join(home, '.athena', 'settings.json'),
+      JSON.stringify({ mcpServers: { fs: { command: 'node' } } }),
+    )
+    const s = loadSettings(resolveBrainPaths({ cwd: project, homeOverride: home }))
+    expect(s.mcpServers['fs']).toEqual({ command: 'node', args: [], env: {} })
+  })
+
+  it('project mcpServers wins wholesale over global', () => {
+    mkdirSync(join(home, '.athena'), { recursive: true })
+    writeFileSync(
+      join(home, '.athena', 'settings.json'),
+      JSON.stringify({ mcpServers: { a: { command: 'global-a' } } }),
+    )
+    mkdirSync(join(project, '.athena'), { recursive: true })
+    writeFileSync(
+      join(project, '.athena', 'settings.json'),
+      JSON.stringify({ mcpServers: { b: { command: 'project-b' } } }),
+    )
+    const s = loadSettings(resolveBrainPaths({ cwd: project, homeOverride: home }))
+    expect(Object.keys(s.mcpServers)).toEqual(['b']) // global 'a' replaced, not merged
+    expect(s.mcpServers['b']!.command).toBe('project-b')
+  })
+
   it('throws a readable error on invalid settings', () => {
     mkdirSync(join(home, '.athena'), { recursive: true })
     writeFileSync(join(home, '.athena', 'settings.json'), JSON.stringify({ permissionMode: 'yolo' }))

@@ -33,6 +33,10 @@ export interface ToolDefinition<I = unknown> {
   name: string
   description: string
   schema: z.ZodType<I>
+  /** When present, used verbatim as the API `input_schema` instead of converting `schema`.
+   *  MCP tools carry a server-authored JSON Schema (not zod); this is the schema the model
+   *  sees, while `schema` stays a permissive local-validation passthrough. */
+  inputSchemaJson?: Record<string, unknown>
   readOnly: boolean
   execute(input: I, ctx: ToolContext): Promise<ToolOutput>
 }

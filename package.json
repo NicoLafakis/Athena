@@ -3,8 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "bin": { "athena": "bin/athena.js" },
-  "engines": { "node": ">=20" },
+  "bin": {
+    "athena": "bin/athena.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
@@ -14,6 +18,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.57.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@vscode/ripgrep": "^1.15.9",
     "ink": "^5.2.0",
     "react": "^18.3.1",

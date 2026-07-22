@@ -11,7 +11,7 @@ import type { EngineEventBus } from './events.js'
 import type { ContextManager } from './context.js'
 import type { ToolRegistry } from '../tools/registry.js'
 import type { HookRunner } from '../harness/hooks.js'
-import type { PermissionGate, ToolContext, ToolOutput, TokenUsage } from './types.js'
+import type { PermissionGate, ToolContext, ToolDefinition, ToolOutput, TokenUsage } from './types.js'
 
 export type AskUserFn = (req: {
   toolName: string
@@ -73,7 +73,7 @@ export class Engine {
     return this.opts.registry.list().map((t) => ({
       name: t.name,
       description: t.description,
-      input_schema: zodToJsonSchema(t.schema),
+      input_schema: toolInputSchema(t),
     }))
   }
 
@@ -460,4 +460,18 @@ export function zodToJsonSchema(schema: z.ZodType<unknown>): Tool['input_schema'
   const { node } = convert(schema as z.ZodTypeAny)
   // Tool inputs must be objects at the top level; anything else degrades to an open object.
   return (node.type === 'object' ? node : { type: 'object', properties: {} }) as Tool['input_schema']
+}
+
+/** The API `input_schema` for a tool. MCP tools supply a server-authored JSON Schema
+ *  verbatim (`inputSchemaJson`); everything else converts its zod `schema`. Either path
+ *  guarantees a top-level object — a non-object JSON Schema degrades to an open object,
+ *  mirroring zodToJsonSchema's guard. */
+export function toolInputSchema(
+  tool: Pick<ToolDefinition, 'schema' | 'inputSchemaJson'>,
+): Tool['input_schema'] {
+  if (tool.inputSchemaJson) {
+    const json = tool.inputSchemaJson
+    return (json['type'] === 'object' ? json : { type: 'object', properties: {} }) as Tool['input_schema']
+  }
+  return zodToJsonSchema(tool.schema)
 }

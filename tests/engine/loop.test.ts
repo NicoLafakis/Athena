@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { EngineEventBus } from '../../src/engine/events.js'
 import { ContextManager } from '../../src/engine/context.js'
-import { Engine, repairDanglingToolUses, zodToJsonSchema, type EngineOptions } from '../../src/engine/loop.js'
+import { Engine, repairDanglingToolUses, zodToJsonSchema, toolInputSchema, type EngineOptions } from '../../src/engine/loop.js'
 import { ToolRegistry } from '../../src/tools/registry.js'
 import { readTool } from '../../src/tools/read.js'
 import { HookRunner } from '../../src/harness/hooks.js'
@@ -599,5 +599,31 @@ describe('zodToJsonSchema', () => {
       },
       required: ['mode'],
     })
+  })
+})
+
+describe('toolInputSchema', () => {
+  it('surfaces inputSchemaJson verbatim, bypassing zod conversion (MCP tools)', () => {
+    const mcpSchema = {
+      type: 'object',
+      properties: { text: { type: 'string' }, count: { type: 'integer' } },
+      required: ['text'],
+    }
+    const result = toolInputSchema({
+      schema: z.object({}).passthrough(), // permissive local schema — must NOT be what surfaces
+      inputSchemaJson: mcpSchema,
+    })
+    expect(result).toBe(mcpSchema) // same object, passed through untouched
+    expect(result).toMatchObject({ properties: { count: { type: 'integer' } }, required: ['text'] })
+  })
+
+  it('falls back to a top-level object when inputSchemaJson is not an object schema', () => {
+    const result = toolInputSchema({ schema: z.object({}), inputSchemaJson: { type: 'string' } })
+    expect(result).toEqual({ type: 'object', properties: {} })
+  })
+
+  it('converts the zod schema when inputSchemaJson is absent', () => {
+    const result = toolInputSchema({ schema: readTool.schema })
+    expect(result).toMatchObject({ type: 'object', properties: { file_path: { type: 'string' } }, required: ['file_path'] })
   })
 })

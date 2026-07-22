@@ -17,6 +17,7 @@ import { importBrain } from './brain/import.js'
 import { ensureBrainScaffold } from './harness/bootstrap.js'
 import { PermissionEngine } from './harness/permissions.js'
 import { HookRunner } from './harness/hooks.js'
+import { McpManager } from './harness/mcp.js'
 import { Session, SessionStore, type SessionInfo } from './harness/sessions.js'
 import { AgentOrchestrator } from './harness/agents.js'
 import { Engine } from './engine/loop.js'
@@ -285,6 +286,12 @@ async function main(): Promise<void> {
   // under tool restriction; register it before Agent (which nests one level only).
   registry.register(makeSkillTool(paths) as ToolDefinition<never>)
 
+  // MCP: connect to configured servers and mount their tools into the BASE registry
+  // BEFORE the orchestrator is built, so sub-agents inherit them under restriction.
+  // Connection failures are non-fatal (handled inside connectAll); an empty config is a no-op.
+  const mcp = new McpManager()
+  await mcp.connectAll(settings.mcpServers, registry, (m) => bus.emit({ type: 'info', message: m }))
+
   const systemPrompt = assembleSystemPrompt({
     constitution: loadConstitution(paths),
     memoryIndex: loadMemoryIndex(paths),
@@ -429,7 +436,13 @@ async function main(): Promise<void> {
   )
   // main() owns the TUI lifetime: an Ink render-phase failure rejects here and is
   // reported by the main().catch below instead of dying as an unhandled rejection.
-  await instance.waitUntilExit()
+  // closeAll runs on the normal exit path (and on a render-phase error) so spawned
+  // MCP server processes are torn down rather than leaked.
+  try {
+    await instance.waitUntilExit()
+  } finally {
+    await mcp.closeAll()
+  }
 }
 
 // Run only when invoked as the CLI entry (bin/athena.js, tsx src/cli.ts, dist/cli.js) —

@@ -12,12 +12,24 @@ export const HookDefSchema = z.object({
 })
 export type HookDef = z.infer<typeof HookDefSchema>
 
+// An MCP (Model Context Protocol) server Athena connects to as a client. stdio
+// transport only for now — command + args spawn the server process; env is layered
+// over the inherited process env. URL/SSE transports are a future seam (add a
+// discriminated `transport` field then, defaulting to 'stdio').
+export const McpServerSchema = z.object({
+  command: z.string(),
+  args: z.array(z.string()).default([]),
+  env: z.record(z.string(), z.string()).default({}),
+})
+export type McpServerConfig = z.infer<typeof McpServerSchema>
+
 export const SettingsSchema = z.object({
   model: z.string().default('claude-sonnet-4-5'),
   permissionMode: z.enum(['normal', 'acceptEdits', 'plan', 'trusted']).default('normal'),
   allow: z.array(z.string()).default([]),
   deny: z.array(z.string()).default([]),
   hooks: z.array(HookDefSchema).default([]),
+  mcpServers: z.record(z.string(), McpServerSchema).default({}),
 })
 export type Settings = z.infer<typeof SettingsSchema>
 
@@ -40,7 +52,9 @@ function readJsonIfExists(file: string): Record<string, unknown> {
 }
 
 /** Cascade: global ~/.athena/settings.json <- project .athena/settings.json.
- *  Scalars: project wins. Rule/hook arrays: concatenated global-first. */
+ *  Scalars: project wins. Rule/hook arrays: concatenated global-first. Object maps
+ *  (mcpServers): project wins wholesale via the base spread — a project that defines
+ *  mcpServers replaces the global map entirely, rather than merging server-by-server. */
 export function loadSettings(paths: BrainPaths): Settings {
   const global = readJsonIfExists(paths.settingsFile)
   const project = paths.projectBrainDir
