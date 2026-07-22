@@ -48,7 +48,12 @@ function runProcess(command: string, payloadJson: string, timeoutMs: number): Pr
       clearTimeout(timer)
       finish({ code, stdout, stderr, failed: false })
     })
-    child.stdin.write(payloadJson)
+    // A hook may close/destroy its stdin before the payload write completes (or never
+    // read it at all). Without an error handler that surfaces as an uncaught EPIPE/EOF
+    // exception and crashes the whole harness process — swallow it; the hook's exit
+    // code and the fail-closed logic above still decide the outcome.
+    child.stdin.on('error', () => {})
+    child.stdin.write(payloadJson, () => {})
     child.stdin.end()
   })
 }

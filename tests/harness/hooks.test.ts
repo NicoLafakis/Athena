@@ -74,4 +74,17 @@ describe('HookRunner', () => {
   it('no hooks registered for an event -> allowed', async () => {
     expect((await new HookRunner([]).run('Stop', {})).allowed).toBe(true)
   })
+
+  it('hook that destroys stdin before the payload write completes does not crash the runner', async () => {
+    const runner = new HookRunner([
+      hook({
+        event: 'PreToolUse',
+        command: `"${node}" -e "process.stdin.destroy();setTimeout(()=>process.exit(0),100)"`,
+      }),
+    ])
+    // Large payload so the stdin write is still in flight when the hook destroys its end.
+    const bigInput = { blob: 'x'.repeat(1_000_000) }
+    const out = await runner.run('PreToolUse', { toolName: 'Bash', input: bigInput })
+    expect(out.allowed).toBe(true)
+  })
 })
