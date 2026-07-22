@@ -17,6 +17,7 @@ function makeHarness() {
         cwd: 'C:/proj',
         gitBranch: 'main',
         model: 'mock',
+        effort: 'high',
         mode: 'normal' as const,
         contextPct: 0,
       },

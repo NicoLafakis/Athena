@@ -2,6 +2,8 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import type { HookEventName, PermissionMode } from '../engine/types.js'
+import type { ModelFamily, Effort } from './models.js'
+import { normalizeModel } from './models.js'
 import type { BrainPaths } from './paths.js'
 
 export const HookDefSchema = z.object({
@@ -24,7 +26,16 @@ export const McpServerSchema = z.object({
 export type McpServerConfig = z.infer<typeof McpServerSchema>
 
 export const SettingsSchema = z.object({
-  model: z.string().default('claude-sonnet-4-5'),
+  // Constrained to the four families. A string (family name OR legacy/full model id) is
+  // normalized before the enum validates; an unrecognized value passes through unchanged so
+  // the enum produces a clear error naming the value.
+  model: z
+    .preprocess(
+      (v) => (typeof v === 'string' ? (normalizeModel(v) ?? v) : v),
+      z.enum(['haiku', 'sonnet', 'opus', 'fable']),
+    )
+    .default('sonnet'),
+  effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('high'),
   permissionMode: z.enum(['normal', 'acceptEdits', 'plan', 'trusted']).default('normal'),
   allow: z.array(z.string()).default([]),
   deny: z.array(z.string()).default([]),
@@ -37,10 +48,16 @@ export type Settings = z.infer<typeof SettingsSchema>
 // contracts in src/engine/types.ts (import from there, never redefine).
 type _AssertPermissionMode = Settings['permissionMode'] extends PermissionMode ? true : never
 type _AssertHookEvent = HookDef['event'] extends HookEventName ? true : never
+type _AssertModel = Settings['model'] extends ModelFamily ? true : never
+type _AssertEffort = Settings['effort'] extends Effort ? true : never
 const _permissionModeInSync: _AssertPermissionMode = true
 const _hookEventInSync: _AssertHookEvent = true
+const _modelInSync: _AssertModel = true
+const _effortInSync: _AssertEffort = true
 void _permissionModeInSync
 void _hookEventInSync
+void _modelInSync
+void _effortInSync
 
 function readJsonIfExists(file: string): Record<string, unknown> {
   if (!existsSync(file)) return {}

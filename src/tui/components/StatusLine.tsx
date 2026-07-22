@@ -17,6 +17,8 @@ export function StatusLine(props: AppStatus & { busy: boolean }) {
         {' · '}
         {props.model}
         {' · '}
+        {props.effort}
+        {' · '}
       </Text>
       <Text color={modeColor(props.mode)} dimColor={modeColor(props.mode) === undefined}>
         {props.mode}

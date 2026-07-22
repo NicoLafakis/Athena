@@ -7,6 +7,7 @@ import { render } from 'ink'
 import React from 'react'
 import { resolveBrainPaths } from './brain/paths.js'
 import { loadSettings } from './brain/settings.js'
+import { normalizeModel, modelLabel, supportsEffort } from './brain/models.js'
 import {
   loadConstitution,
   loadMemoryIndex,
@@ -81,7 +82,7 @@ Usage:
   athena import <path>   one-time import of an ares-style brain (--force to merge)
   athena --help          this help
 
-In-session: /help /clear /resume /compact /model /mode /memory /skills /agents /quit. Esc interrupts a turn.`
+In-session: /help /clear /resume /compact /model /effort /mode /memory /skills /agents /quit. Esc interrupts a turn.`
 
 function gitBranch(cwd: string): string | null {
   try {
@@ -134,7 +135,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
     switch (cmd.kind) {
       case 'help':
         info(
-          'Commands: /help /clear /resume /compact /model <id> /mode <normal|acceptEdits|plan|trusted> /memory /skills /agents /quit\n' +
+          'Commands: /help /clear /resume /compact /model <haiku|sonnet|opus|fable> /effort <low|medium|high|xhigh|max> /mode <normal|acceptEdits|plan|trusted> /memory /skills /agents /quit\n' +
             '/clear clears the screen (transcript display only) — conversation context is unchanged; use /compact to shrink it.',
         )
         break
@@ -143,16 +144,37 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         bus.emit({ type: 'status', patch: { mode: cmd.value } })
         info(`Permission mode: ${cmd.value}`)
         break
-      case 'model':
-        engine.setModel(cmd.value)
-        bus.emit({ type: 'status', patch: { model: cmd.value } })
-        info(`Model: ${cmd.value}`)
+      case 'model': {
+        const fam = normalizeModel(cmd.value)
+        if (!fam) {
+          info(`Unknown model: ${cmd.value} — choose haiku, sonnet, opus, or fable.`)
+          break
+        }
+        engine.setModel(fam)
+        bus.emit({ type: 'status', patch: { model: modelLabel(fam) } })
+        info(
+          supportsEffort(fam)
+            ? `Model: ${modelLabel(fam)} (effort ${engine.getEffort()})`
+            : `Model: ${modelLabel(fam)} — effort/extended thinking not applicable on this model.`,
+        )
         break
+      }
+      case 'effort': {
+        engine.setEffort(cmd.value)
+        bus.emit({ type: 'status', patch: { effort: cmd.value } })
+        const fam = engine.getModel()
+        info(
+          supportsEffort(fam)
+            ? `Effort: ${cmd.value}`
+            : `Effort set to ${cmd.value} — applies to Sonnet/Opus/Fable; ${modelLabel(fam)} ignores it.`,
+        )
+        break
+      }
       case 'compact':
         void (async () => {
           try {
             const { messages, summary } = await contextManager.compact(engine.getMessages(), (p) =>
-              client.complete({ model: engine.getModel(), prompt: p, maxTokens: 2048 }),
+              client.complete({ model: engine.getModelId(), prompt: p, maxTokens: 2048 }),
             )
             if (summary === '') {
               info('Nothing to compact yet.')
@@ -314,6 +336,7 @@ async function main(): Promise<void> {
     gate,
     hooks,
     defaultModel: () => engine.getModel(), // thunk: /model mid-session reaches sub-agents
+    defaultEffort: () => engine.getEffort(), // thunk: /effort mid-session reaches sub-agents
     systemPromptBase: systemPrompt,
   })
   registry.register(makeAgentTool(orchestrator) as ToolDefinition<never>)
@@ -374,6 +397,7 @@ async function main(): Promise<void> {
       abortSignal: new AbortController().signal, // replaced per-turn by the engine's own signal
     },
     model: settings.model,
+    effort: settings.effort,
     systemPrompt,
     maxTokens: 8192,
     askUser: (req) => bridge.ask(req),
@@ -415,7 +439,8 @@ async function main(): Promise<void> {
       status: {
         cwd,
         gitBranch: gitBranch(cwd),
-        model: settings.model,
+        model: modelLabel(settings.model),
+        effort: settings.effort,
         mode: gate.getMode(),
         contextPct: Math.round(contextManager.usedFraction() * 100),
       },

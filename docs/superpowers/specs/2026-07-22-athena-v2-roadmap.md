@@ -18,7 +18,7 @@ v1 is complete: 15/15 tasks, 204/204 tests passing, commits through `6de7bf2`. v
 Each finding below was verified against source on 2026-07-22.
 
 1. **No prompt caching.** `src/engine/client.ts` builds requests with no `cache_control` breakpoints anywhere; zero hits repo-wide. Yet the system prompt is assembled once per session and byte-stable (assembled once in `src/cli.ts` main(), env date frozen at startup) — i.e. perfectly cacheable today. SDK ^0.57.0 supports it. Every turn re-bills constitution + memory index + tool schemas at full input price.
-2. **No extended thinking.** No `thinking` param sent (`src/engine/client.ts` stream/complete); the code listens for thinking deltas but never enables them. Not configurable; maxTokens hardcoded to 8192 (`src/cli.ts`, `src/tools/agent.ts`).
+2. **No extended thinking.** No `thinking` param sent (`src/engine/client.ts` stream/complete); the code listens for thinking deltas but never enables them. Not configurable; maxTokens hardcoded to 8192 (`src/cli.ts`, `src/tools/agent.ts`). *Update (Build 5, 2026-07-22): the thinking gap is CLOSED — model is now a family (`haiku|sonnet|opus|fable`) resolved via `src/brain/models.ts`, and Sonnet/Opus/Fable send `thinking:{type:'adaptive'}` + `output_config.effort` (new `effort` settings key, `/effort` command); Haiku runs bare. maxTokens is still hardcoded (P3.5 remainder).*
 3. **Sequential non-Agent tool execution.** `src/engine/loop.ts`: only all-Agent batches >1 go through Promise.all; any other batch (e.g. three Reads) awaits sequentially in a for loop.
 4. **Shell output not streamed.** `src/tools/shell.ts` buffers stdout/stderr into a string and resolves only on close; the TUI is dead during long commands. Background tasks likewise emit only a single completion result.
 5. **Whole-summary compaction only.** `src/engine/context.ts` compact() replaces everything before a keepRecent tail (default 6) with one summary message at the 80% trigger. No graduated path — no selective pruning of stale tool_result blocks while keeping assistant reasoning.
@@ -26,7 +26,7 @@ Each finding below was verified against source on 2026-07-22.
 7. **Skills unwired.** No Skill tool; loadSkillsIndex is used only by the /skills slash command (prints names). Skills are NOT in the system prompt at all — neither invocable nor advertised to the model. This is the largest missing piece of the ares design DNA.
 8. **No automatic memory recall.** Memory = index in system prompt + manual Memory CRUD tool. No relevance-based injection of memory bodies; no reflection loop that writes memories after corrected/completed tasks.
 9. **Sub-agents invisible.** `src/tools/agent.ts` gives children a fresh EngineEventBus; only final text/errors are captured for the return value. The parent TUI shows one frozen Agent tool card until return. (Per-agent model override DOES already exist via agent frontmatter `model:` — a v1 strength to build on.)
-10. **Settings surface thin.** Keys: model, permissionMode, allow, deny, hooks. No maxTokens, no thinking config. Global ← project cascade works.
+10. **Settings surface thin.** Keys: model, permissionMode, allow, deny, hooks. No maxTokens, no thinking config. Global ← project cascade works. *Update (Build 5): `effort` key added; thinking is now derived per-family from `model` rather than a separate key. maxTokens still absent.*
 11. **Status line static at mount.** /mode and /model now mutate runtime state, but the bar shows stale values until restart (filed in review, deferred).
 12. **'Turn aborted' string coupling** in `src/tools/agent.ts` abort classification (filed, deferred).
 
@@ -69,7 +69,7 @@ The pattern across findings 1–9 is that v1 inherited the operating model's own
 | P3.2 | Parallel read-only tool batches | #3 | Extend the `src/engine/loop.ts` all-Agent fast path to any batch where every tool is readOnly. | S | Low |
 | P3.3 | Streaming shell output | #4 | Incremental output events from `src/tools/shell.ts`, TUI tail rendering; also feeds P3.1. | M | Low |
 | P3.4 | Live status line | #11 | Make mode/model/context%/cost reactive (props → state fed by bus events). | S | Minimal |
-| P3.5 | Extended thinking + settings | #2, #10 | `thinking` + `maxTokens` settings keys; enable thinking with budget; per-agent-frontmatter override already exists for model — mirror the pattern for thinking. | S/M | Low |
+| P3.5 | Extended thinking + settings | #2, #10 | ~~`thinking`~~ + `maxTokens` settings keys; enable thinking with budget; per-agent-frontmatter override already exists for model — mirror the pattern for thinking. **Thinking/effort landed in Build 5** (model families + `effort` key + adaptive thinking); `maxTokens` key still TODO. | S/M | Low |
 
 ### Phase 4 — platform seams (bigger bets, order by Nico's call)
 

@@ -8,6 +8,7 @@ import { grepTool } from '../../src/tools/grep.js'
 import { bashTool, taskOutputTool } from '../../src/tools/shell.js'
 import { HookRunner } from '../../src/harness/hooks.js'
 import type { AgentDef } from '../../src/brain/loader.js'
+import type { ModelFamily } from '../../src/brain/models.js'
 import type { ModelClient, StreamCallbacks, StreamResult } from '../../src/engine/client.js'
 import type { PermissionGate, ToolContext, ToolDefinition } from '../../src/engine/types.js'
 import { makeCtx } from '../helpers/tool-ctx.js'
@@ -65,7 +66,8 @@ function makeOrchestrator(
     baseRegistry: fullRegistry(ref),
     gate: allowAllGate(),
     hooks: new HookRunner([]),
-    defaultModel: () => 'mock',
+    defaultModel: () => 'sonnet',
+    defaultEffort: () => 'high',
     systemPromptBase: 'sys',
     ...overrides,
   })
@@ -205,7 +207,7 @@ describe('AgentOrchestrator + Agent tool', () => {
   })
 
   it('defaultModel is a thunk read at spawn time, so /model reaches later sub-agents', async () => {
-    let model = 'model-a'
+    let model: ModelFamily = 'haiku'
     const seen: string[] = []
     const orchestrator = makeOrchestrator(
       () =>
@@ -213,9 +215,10 @@ describe('AgentOrchestrator + Agent tool', () => {
       { defaultModel: () => model },
     )
     await orchestrator.runAgent(researcherDef(), 'go', makeCtx(process.cwd()))
-    model = 'model-b'
+    model = 'sonnet'
     await orchestrator.runAgent(researcherDef(), 'go', makeCtx(process.cwd()))
-    expect(seen).toEqual(['model-a', 'model-b'])
+    // seen captures the RESOLVED wire id the child stream was called with.
+    expect(seen).toEqual(['claude-haiku-4-5', 'claude-sonnet-5'])
   })
 
   it('fatal child error surfaces as an error tool result', async () => {

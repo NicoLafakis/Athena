@@ -27,7 +27,7 @@ const SAMPLE_AGENT = `---
 name: explorer
 description: Read-only codebase explorer — searches files and reports findings without making changes
 tools: Read, Glob, Grep
-model: claude-sonnet-4-5
+model: sonnet
 ---
 
 You are a read-only codebase explorer. Given a question about the code, you

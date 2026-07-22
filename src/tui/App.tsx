@@ -72,6 +72,7 @@ export interface AppStatus {
   cwd: string
   gitBranch: string | null
   model: string
+  effort: string
   mode: PermissionMode
   contextPct: number
 }

@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { MessageParam, Message, Tool } from '@anthropic-ai/sdk/resources/messages'
+import type { ThinkingParam, Effort } from '../brain/models.js'
 
 export interface StreamCallbacks {
   onTextDelta: (delta: string) => void
@@ -20,6 +21,8 @@ export interface ModelClient {
       tools: Tool[]
       maxTokens: number
       signal: AbortSignal
+      thinking?: ThinkingParam
+      effort?: Effort
     },
     callbacks: StreamCallbacks,
   ): Promise<StreamResult>
@@ -46,14 +49,22 @@ export class AnthropicClient implements ModelClient {
     let deltaEmitted = false
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
+        // Forward-compat pass-through: the installed SDK (0.57) does not yet type
+        // output_config or thinking:{type:'adaptive'}, but it forwards unknown body
+        // fields verbatim to the wire, and both are GA (no beta header). Build the body
+        // untyped and cast at the call. Never send legacy thinking (budget_tokens) here —
+        // it 400s on sonnet-5/opus-4-8/fable-5; resolveModelRequest guarantees we don't.
+        const body: Record<string, unknown> = {
+          model: params.model,
+          system: params.system,
+          messages: params.messages,
+          tools: params.tools,
+          max_tokens: params.maxTokens,
+        }
+        if (params.thinking) body.thinking = params.thinking
+        if (params.effort) body.output_config = { effort: params.effort }
         const stream = this.sdk.messages.stream(
-          {
-            model: params.model,
-            system: params.system,
-            messages: params.messages,
-            tools: params.tools,
-            max_tokens: params.maxTokens,
-          },
+          body as unknown as Parameters<typeof this.sdk.messages.stream>[0],
           { signal: params.signal },
         )
         stream.on('text', (delta) => {

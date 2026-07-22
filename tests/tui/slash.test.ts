@@ -8,6 +8,8 @@ describe('parseSlash', () => {
     ['/resume', { kind: 'resume' }],
     ['/compact', { kind: 'compact' }],
     ['/model claude-opus-4-6', { kind: 'model', value: 'claude-opus-4-6' }],
+    ['/effort xhigh', { kind: 'effort', value: 'xhigh' }],
+    ['/effort bogus', { kind: 'error', value: 'Unknown effort: bogus' }],
     ['/mode plan', { kind: 'mode', value: 'plan' }],
     ['/memory', { kind: 'memory' }],
     ['/skills', { kind: 'skills' }],
@@ -21,7 +23,17 @@ describe('parseSlash', () => {
   })
 
   it('errors on /model with no argument', () => {
-    expect(parseSlash('/model')).toEqual({ kind: 'error', value: 'Usage: /model <model-id>' })
+    expect(parseSlash('/model')).toEqual({
+      kind: 'error',
+      value: 'Usage: /model <haiku|sonnet|opus|fable>',
+    })
+  })
+
+  it('errors on /effort with no argument', () => {
+    expect(parseSlash('/effort')).toEqual({
+      kind: 'error',
+      value: 'Usage: /effort <low|medium|high|xhigh|max>',
+    })
   })
 
   it('errors on /mode with no argument', () => {

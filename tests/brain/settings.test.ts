@@ -25,15 +25,21 @@ describe('loadSettings', () => {
     expect(s.allow).toEqual([])
   })
 
+  it('defaults model to sonnet and effort to high; normalizes a legacy model id', () => {
+    expect(SettingsSchema.parse({}).model).toBe('sonnet')
+    expect(SettingsSchema.parse({}).effort).toBe('high')
+    expect(SettingsSchema.parse({ model: 'claude-opus-4-8' }).model).toBe('opus')
+  })
+
   it('project settings override global scalars and concatenate rule arrays', () => {
     mkdirSync(join(home, '.athena'), { recursive: true })
     writeFileSync(join(home, '.athena', 'settings.json'),
-      JSON.stringify({ model: 'global-model', allow: ['Read(**)'] }))
+      JSON.stringify({ model: 'haiku', allow: ['Read(**)'] }))
     mkdirSync(join(project, '.athena'), { recursive: true })
     writeFileSync(join(project, '.athena', 'settings.json'),
-      JSON.stringify({ model: 'project-model', allow: ['Bash(git:*)'] }))
+      JSON.stringify({ model: 'opus', allow: ['Bash(git:*)'] }))
     const s = loadSettings(resolveBrainPaths({ cwd: project, homeOverride: home }))
-    expect(s.model).toBe('project-model')
+    expect(s.model).toBe('opus')
     expect(s.allow).toEqual(['Read(**)', 'Bash(git:*)'])
   })
 

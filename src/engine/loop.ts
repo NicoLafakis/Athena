@@ -11,6 +11,7 @@ import type { EngineEventBus } from './events.js'
 import type { ContextManager } from './context.js'
 import type { ToolRegistry } from '../tools/registry.js'
 import type { HookRunner } from '../harness/hooks.js'
+import { modelId, resolveModelRequest, type ModelFamily, type Effort } from '../brain/models.js'
 import type { PermissionGate, ToolContext, ToolDefinition, ToolOutput, TokenUsage } from './types.js'
 
 export type AskUserFn = (req: {
@@ -28,7 +29,8 @@ export interface EngineOptions {
   hooks: HookRunner
   contextManager: ContextManager
   toolContext: ToolContext
-  model: string
+  model: ModelFamily
+  effort: Effort
   systemPrompt: string
   maxTokens: number
   askUser?: AskUserFn // TUI wires this; headless default denies
@@ -61,12 +63,25 @@ export class Engine {
     this.abortController.abort()
   }
 
-  setModel(model: string): void {
-    this.opts.model = model
+  setModel(family: ModelFamily): void {
+    this.opts.model = family
   }
 
-  getModel(): string {
+  getModel(): ModelFamily {
     return this.opts.model
+  }
+
+  setEffort(e: Effort): void {
+    this.opts.effort = e
+  }
+
+  getEffort(): Effort {
+    return this.opts.effort
+  }
+
+  /** Resolved wire id for the current family — what the API and the compactor need. */
+  getModelId(): string {
+    return modelId(this.opts.model)
   }
 
   private toApiTools(): Tool[] {
@@ -128,11 +143,16 @@ export class Engine {
         bus.emit({ type: 'error', message: 'Turn aborted', fatal: false })
         break
       }
+      // Resolve family -> wire id + per-family effort/thinking. Haiku returns neither
+      // (both 400 on it); the other three carry effort + adaptive thinking.
+      const req = resolveModelRequest(this.opts.model, this.opts.effort)
       let result
       try {
         result = await client.stream(
           {
-            model: this.opts.model,
+            model: req.model,
+            thinking: req.thinking,
+            effort: req.effort,
             system: this.opts.systemPrompt,
             messages: this.messages,
             tools: this.toApiTools(),
@@ -241,7 +261,7 @@ export class Engine {
       if (contextManager.needsCompaction()) {
         try {
           const { messages: compacted, summary } = await contextManager.compact(this.messages, (p) =>
-            client.complete({ model: this.opts.model, prompt: p, maxTokens: 2048 }),
+            client.complete({ model: this.getModelId(), prompt: p, maxTokens: 2048 }),
           )
           // summary === '' means compaction was skipped (too few messages / no clean
           // boundary) — nothing changed, so no event.
