@@ -123,15 +123,20 @@ export class Engine {
       const toolUses = msg.content.filter((b): b is ToolUseBlock => b.type === 'tool_use')
       if (msg.stop_reason !== 'tool_use' || toolUses.length === 0) break
 
-      // Parallel tool_use blocks are executed sequentially in block order (Task 12 adds the Agent-batch exception).
+      // Parallel tool_use blocks are executed sequentially in block order, EXCEPT a
+      // batch that is entirely Agent calls: sub-agents are independent loops, so they
+      // dispatch concurrently (spec section 7). Mixed batches stay sequential.
       const results: ToolResultBlockParam[] = []
       let abortedMidTools = false
-      for (const block of toolUses) {
-        if (signal.aborted) {
-          // Synthesize an aborted result: every tool_use block must have a tool_result,
-          // or the transcript is invalid on the next API call.
-          abortedMidTools = true
-          const out: ToolOutput = { output: 'Tool execution aborted', isError: true }
+      const allAgentCalls =
+        !signal.aborted && toolUses.length > 1 && toolUses.every((b) => b.name === 'Agent')
+      if (allAgentCalls) {
+        for (const block of toolUses) {
+          bus.emit({ type: 'tool-request', id: block.id, name: block.name, input: block.input })
+        }
+        const outs = await Promise.all(toolUses.map((block) => this.dispatchTool(block, signal)))
+        toolUses.forEach((block, i) => {
+          const out = outs[i]!
           bus.emit({
             type: 'tool-result',
             id: block.id,
@@ -145,23 +150,45 @@ export class Engine {
             content: out.output,
             is_error: out.isError,
           })
-          continue
+        })
+      } else {
+        for (const block of toolUses) {
+          if (signal.aborted) {
+            // Synthesize an aborted result: every tool_use block must have a tool_result,
+            // or the transcript is invalid on the next API call.
+            abortedMidTools = true
+            const out: ToolOutput = { output: 'Tool execution aborted', isError: true }
+            bus.emit({
+              type: 'tool-result',
+              id: block.id,
+              name: block.name,
+              output: out.output,
+              isError: out.isError,
+            })
+            results.push({
+              type: 'tool_result',
+              tool_use_id: block.id,
+              content: out.output,
+              is_error: out.isError,
+            })
+            continue
+          }
+          bus.emit({ type: 'tool-request', id: block.id, name: block.name, input: block.input })
+          const out = await this.dispatchTool(block, signal)
+          bus.emit({
+            type: 'tool-result',
+            id: block.id,
+            name: block.name,
+            output: out.output,
+            isError: out.isError,
+          })
+          results.push({
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: out.output,
+            is_error: out.isError,
+          })
         }
-        bus.emit({ type: 'tool-request', id: block.id, name: block.name, input: block.input })
-        const out = await this.dispatchTool(block, signal)
-        bus.emit({
-          type: 'tool-result',
-          id: block.id,
-          name: block.name,
-          output: out.output,
-          isError: out.isError,
-        })
-        results.push({
-          type: 'tool_result',
-          tool_use_id: block.id,
-          content: out.output,
-          is_error: out.isError,
-        })
       }
       if (results.length > 0) this.push({ role: 'user', content: results })
       if (abortedMidTools) {

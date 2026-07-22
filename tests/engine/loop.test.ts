@@ -177,6 +177,93 @@ describe('Engine.runTurn', () => {
     expect(content.map((b) => b.tool_use_id)).toEqual(['tu_1', 'tu_2'])
   })
 
+  it('a batch of only Agent tool_use blocks dispatches concurrently', async () => {
+    const order: string[] = []
+    let started = 0
+    let releaseAll!: () => void
+    const allStarted = new Promise<void>((r) => (releaseAll = r))
+    const agentStub: ToolDefinition<z.infer<typeof EchoInput>> = {
+      name: 'Agent',
+      description: 'stub agent tool',
+      schema: EchoInput,
+      readOnly: false,
+      async execute(input) {
+        order.push(`start:${input.value}`)
+        started += 1
+        if (started === 2) releaseAll()
+        // Deadlocks (test timeout) unless both blocks start before either finishes.
+        await allStarted
+        order.push(`end:${input.value}`)
+        return { output: `agent: ${input.value}`, isError: false }
+      },
+    }
+    const { engine, client } = makeEngine(
+      [
+        {
+          blocks: [
+            toolUseBlock('tu_1', 'Agent', { value: 'a' }),
+            toolUseBlock('tu_2', 'Agent', { value: 'b' }),
+          ],
+          stopReason: 'tool_use',
+        },
+        { blocks: [textBlock('done')], stopReason: 'end_turn' },
+      ],
+      {},
+      agentStub,
+    )
+    await engine.runTurn('go')
+    expect(order.slice(0, 2)).toEqual(['start:a', 'start:b'])
+    // Result order matches block order regardless of completion order.
+    const resultMsg = client.calls[1]!.at(-1)!
+    const content = resultMsg.content as { tool_use_id: string; content: string }[]
+    expect(content.map((b) => b.tool_use_id)).toEqual(['tu_1', 'tu_2'])
+    expect(content.map((b) => b.content)).toEqual(['agent: a', 'agent: b'])
+  })
+
+  it('a mixed Agent + non-Agent batch stays sequential', async () => {
+    const order: string[] = []
+    const makeSlowTool = (name: string): ToolDefinition<z.infer<typeof EchoInput>> => ({
+      name,
+      description: `stub ${name}`,
+      schema: EchoInput,
+      readOnly: false,
+      async execute(input) {
+        order.push(`start:${input.value}`)
+        await new Promise((r) => setTimeout(r, 0))
+        order.push(`end:${input.value}`)
+        return { output: `${name}: ${input.value}`, isError: false }
+      },
+    })
+    const bus = new EngineEventBus()
+    const registry = new ToolRegistry()
+    registry.register(makeSlowTool('Agent') as ToolDefinition<never>)
+    registry.register(makeSlowTool('Echo') as ToolDefinition<never>)
+    const client = new MockAnthropicClient([
+      {
+        blocks: [
+          toolUseBlock('tu_1', 'Agent', { value: 'a' }),
+          toolUseBlock('tu_2', 'Echo', { value: 'e' }),
+        ],
+        stopReason: 'tool_use',
+      },
+      { blocks: [textBlock('done')], stopReason: 'end_turn' },
+    ])
+    const engine = new Engine({
+      client,
+      bus,
+      registry,
+      model: 'mock',
+      systemPrompt: 'sys',
+      maxTokens: 4096,
+      gate: allowAllGate(),
+      hooks: new HookRunner([]),
+      contextManager: new ContextManager({ modelWindowTokens: 1_000_000 }),
+      toolContext: makeCtx(process.cwd(), { emit: (e) => bus.emit(e) }),
+    })
+    await engine.runTurn('go')
+    expect(order).toEqual(['start:a', 'end:a', 'start:e', 'end:e'])
+  })
+
   it('abort mid-turn stops before the next model call and emits a non-fatal error event', async () => {
     const controller = new AbortController()
     const echo = makeEchoTool(() => {
