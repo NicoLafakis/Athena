@@ -82,6 +82,62 @@ describe('ContextManager', () => {
     expect(captured).not.toContain('m6')
   })
 
+  it('advances the cut point when the tail would start with orphaned tool_result blocks', async () => {
+    // m0 user, m1 assistant(tool_use tu_1), m2 user(tool_result tu_1), m3 assistant, m4 user, m5 assistant
+    const messages: MessageParam[] = [
+      { role: 'user', content: 'm0' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'calling tool' },
+          { type: 'tool_use', id: 'tu_1', name: 'Echo', input: { value: 'x' } },
+        ],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'echo: x' }],
+      },
+      { role: 'assistant', content: 'm3' },
+      { role: 'user', content: 'm4' },
+      { role: 'assistant', content: 'm5' },
+    ]
+    // keepRecent 4 puts the naive cut at m2 — a tool_result whose tool_use (m1) would be summarized away.
+    const mgr = new ContextManager({ modelWindowTokens: 1000, keepRecentMessages: 4 })
+    const { messages: next } = await mgr.compact(messages, async () => 'S')
+    const firstTail = next[1]!
+    expect(JSON.stringify(firstTail.content)).not.toContain('tool_result')
+    expect(next.slice(1)).toEqual(messages.slice(3)) // boundary walked forward past m2
+  })
+
+  it('truncates oversized tool blocks in the summary prompt', async () => {
+    const huge = 'x'.repeat(10_000)
+    const messages: MessageParam[] = [
+      ...makeMessages(8),
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: huge }],
+      },
+      ...makeMessages(4),
+    ]
+    let captured = ''
+    const mgr = new ContextManager({ modelWindowTokens: 1000, keepRecentMessages: 4 })
+    await mgr.compact(messages, async (prompt) => {
+      captured = prompt
+      return 'S'
+    })
+    expect(captured).not.toContain('x'.repeat(2100))
+    expect(captured).toContain('[truncated]')
+  })
+
+  it('guards keepRecentMessages <= 0 by keeping at least one message', async () => {
+    const mgr = new ContextManager({ modelWindowTokens: 1000, keepRecentMessages: 0 })
+    const messages = makeMessages(10)
+    const { messages: next, summary } = await mgr.compact(messages, async () => 'S')
+    expect(summary).toBe('S')
+    expect(next).toHaveLength(2) // summary + one kept message (clamped to 1, not "keep everything")
+    expect(next.at(-1)).toEqual(messages.at(-1))
+  })
+
   it('compact resets usage so needsCompaction is false until the next update', async () => {
     const mgr = new ContextManager({ modelWindowTokens: 1000, keepRecentMessages: 4 })
     mgr.update({ inputTokens: 900, outputTokens: 0, cacheReadTokens: 0 })
