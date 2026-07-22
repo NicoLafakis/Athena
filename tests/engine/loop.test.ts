@@ -176,6 +176,36 @@ describe('Engine.runTurn', () => {
     expect(events.at(-1)).toMatchObject({ type: 'turn-done' })
   })
 
+  it('abort mid-batch synthesizes aborted tool_results so every tool_use stays paired', async () => {
+    const controller = new AbortController()
+    const echo = makeEchoTool(() => {
+      controller.abort() // fires during the FIRST block; second must not execute
+    })
+    const { engine, events, client } = makeEngine(
+      [
+        {
+          blocks: [
+            toolUseBlock('tu_1', 'Echo', { value: 'first' }),
+            toolUseBlock('tu_2', 'Echo', { value: 'second' }),
+          ],
+          stopReason: 'tool_use',
+        },
+        { blocks: [textBlock('never')], stopReason: 'end_turn' },
+      ],
+      { abortController: controller },
+      echo,
+    )
+    await engine.runTurn('go')
+    expect(client.calls).toHaveLength(1)
+    // tu_2 never executed but still has a (synthesized, error) tool_result.
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'tool-result', id: 'tu_2', isError: true }),
+    )
+    const resultMsg = engine.getMessages().at(-1)!
+    const ids = (resultMsg.content as { tool_use_id: string }[]).map((b) => b.tool_use_id)
+    expect(ids).toEqual(['tu_1', 'tu_2'])
+  })
+
   it('unknown tool produces an error tool_result, not a crash', async () => {
     const { engine, events } = makeEngine([
       { blocks: [toolUseBlock('tu_1', 'Nope', { value: 'x' })], stopReason: 'tool_use' },

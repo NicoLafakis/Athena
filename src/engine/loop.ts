@@ -128,8 +128,24 @@ export class Engine {
       let abortedMidTools = false
       for (const block of toolUses) {
         if (signal.aborted) {
+          // Synthesize an aborted result: every tool_use block must have a tool_result,
+          // or the transcript is invalid on the next API call.
           abortedMidTools = true
-          break
+          const out: ToolOutput = { output: 'Tool execution aborted', isError: true }
+          bus.emit({
+            type: 'tool-result',
+            id: block.id,
+            name: block.name,
+            output: out.output,
+            isError: out.isError,
+          })
+          results.push({
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: out.output,
+            is_error: out.isError,
+          })
+          continue
         }
         bus.emit({ type: 'tool-request', id: block.id, name: block.name, input: block.input })
         const out = await this.dispatchTool(block, signal)
