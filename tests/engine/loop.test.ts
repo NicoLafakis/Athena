@@ -129,6 +129,26 @@ describe('Engine.runTurn', () => {
     expect(events).toContainEqual(
       expect.objectContaining({ type: 'tool-result', id: 'tu_1', isError: true }),
     )
+    const result = events.find((e) => e.type === 'tool-result') as { output: string }
+    expect(result.output).toContain('denied (headless')
+    expect(result.output).not.toContain('needs approval') // not the ask reason
+  })
+
+  it('ask denied by a wired askUser says "denied by user"', async () => {
+    const askGate: PermissionGate = {
+      check: () => ({ decision: 'ask', reason: 'needs approval' }),
+      grantSession: () => {},
+    }
+    const { engine, events } = makeEngine(
+      [
+        { blocks: [toolUseBlock('tu_1', 'Echo', { value: 'x' })], stopReason: 'tool_use' },
+        { blocks: [textBlock('ok')], stopReason: 'end_turn' },
+      ],
+      { gate: askGate, askUser: async () => 'deny' },
+    )
+    await engine.runTurn('go')
+    const result = events.find((e) => e.type === 'tool-result') as { output: string }
+    expect(result.output).toContain('denied by user')
   })
 
   it('parallel tool_use blocks execute sequentially in block order', async () => {
@@ -264,6 +284,50 @@ describe('Engine.runTurn', () => {
     // The second model call starts with the summary message.
     const secondCall = client.calls[1]!
     expect(String(secondCall[0]!.content)).toContain('Context compacted')
+  })
+
+  it('survives a failed compaction: emits non-fatal error, turn still completes uncompacted', async () => {
+    const { engine, events, client } = makeEngine(
+      [
+        {
+          blocks: [toolUseBlock('tu_1', 'Echo', { value: 'ping' })],
+          stopReason: 'tool_use',
+          inputTokens: 900,
+        },
+        { blocks: [textBlock('done')], stopReason: 'end_turn', inputTokens: 10 },
+      ],
+      { contextManager: new ContextManager({ modelWindowTokens: 1000, keepRecentMessages: 2 }) },
+    )
+    client.complete = async () => {
+      throw new Error('rate limited')
+    }
+    await engine.runTurn('go')
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'error', fatal: false, message: expect.stringContaining('rate limited') }),
+    )
+    expect(events.at(-1)).toMatchObject({ type: 'turn-done' })
+    expect(events.some((e) => e.type === 'compaction')).toBe(false)
+    // Uncompacted history still fed to the second call.
+    expect(client.calls).toHaveLength(2)
+    expect(String(client.calls[1]![0]!.content)).toBe('go')
+  })
+
+  it('skipped compaction (nothing to compact) emits no compaction event', async () => {
+    // Trips needsCompaction, but only 3 messages exist against keepRecentMessages 6.
+    const { engine, events } = makeEngine(
+      [
+        {
+          blocks: [toolUseBlock('tu_1', 'Echo', { value: 'ping' })],
+          stopReason: 'tool_use',
+          inputTokens: 900,
+        },
+        { blocks: [textBlock('done')], stopReason: 'end_turn', inputTokens: 10 },
+      ],
+      { contextManager: new ContextManager({ modelWindowTokens: 1000, keepRecentMessages: 6 }) },
+    )
+    await engine.runTurn('go')
+    expect(events.some((e) => e.type === 'compaction')).toBe(false)
+    expect(events.at(-1)).toMatchObject({ type: 'turn-done' })
   })
 
   it('runTurn after abort resets the controller so the next turn works', async () => {

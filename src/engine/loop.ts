@@ -170,12 +170,26 @@ export class Engine {
       }
 
       if (contextManager.needsCompaction()) {
-        const { messages: compacted, summary } = await contextManager.compact(this.messages, (p) =>
-          client.complete({ model: this.opts.model, prompt: p, maxTokens: 2048 }),
-        )
-        this.messages = compacted
-        this.opts.onMessagesChanged?.(this.messages)
-        bus.emit({ type: 'compaction', summary })
+        try {
+          const { messages: compacted, summary } = await contextManager.compact(this.messages, (p) =>
+            client.complete({ model: this.opts.model, prompt: p, maxTokens: 2048 }),
+          )
+          // summary === '' means compaction was skipped (too few messages / no clean
+          // boundary) — nothing changed, so no event.
+          if (summary !== '') {
+            this.messages = compacted
+            this.opts.onMessagesChanged?.(this.messages)
+            bus.emit({ type: 'compaction', summary })
+          }
+        } catch (err) {
+          // A failed summarization call (rate limit, network) must not kill the turn:
+          // continue uncompacted and let a later cycle retry.
+          bus.emit({
+            type: 'error',
+            message: `Compaction failed: ${(err as Error).message}`,
+            fatal: false,
+          })
+        }
       }
     }
     await hooks.run('Stop', {})
@@ -195,6 +209,7 @@ export class Engine {
       summary: summarize(block),
     })
     let allowed = decision.decision === 'allow'
+    let denyReason = decision.reason
     if (decision.decision === 'ask') {
       const answer = this.opts.askUser
         ? await this.opts.askUser({
@@ -210,8 +225,13 @@ export class Engine {
       } else {
         allowed = answer === 'allow-once'
       }
+      if (!allowed) {
+        denyReason = this.opts.askUser
+          ? 'denied by user'
+          : 'denied (headless: no approver wired for permission prompts)'
+      }
     }
-    if (!allowed) return { output: `Permission denied: ${decision.reason}`, isError: true }
+    if (!allowed) return { output: `Permission denied: ${denyReason}`, isError: true }
 
     const pre = await hooks.run('PreToolUse', { toolName: block.name, input: block.input })
     if (!pre.allowed) {
