@@ -31,9 +31,20 @@ export class AgentOrchestrator {
     return this.opts.defs.find((d) => d.name === name)
   }
 
-  /** Restricted registry: frontmatter tools (or all), minus Agent — enforces one-level nesting. */
+  /** Restricted registry: frontmatter tools (or all), minus Agent — enforces one-level nesting.
+   *  A shell tool (Bash/PowerShell) implies TaskOutput: shells can start background
+   *  tasks whose output is only readable via TaskOutput (read-only), so an agent
+   *  must never be handed a task id it cannot poll. */
   buildChildRegistry(def: AgentDef): ToolRegistry {
-    return this.opts.baseRegistry.restrict(def.tools, ['Agent'])
+    let names = def.tools
+    if (
+      names !== null &&
+      names.some((n) => n === 'Bash' || n === 'PowerShell') &&
+      !names.includes('TaskOutput')
+    ) {
+      names = [...names, 'TaskOutput']
+    }
+    return this.opts.baseRegistry.restrict(names, ['Agent'])
   }
 
   async runAgent(def: AgentDef, prompt: string, parentCtx: ToolContext): Promise<ToolOutput> {

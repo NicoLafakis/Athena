@@ -1,6 +1,7 @@
 // src/tui/components/PermissionDialog.tsx
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { useMemo } from 'react'
 import { Box, Text, useInput } from 'ink'
 import type { PendingPermission } from '../App.js'
 import { DiffPreview } from './DiffPreview.js'
@@ -37,7 +38,9 @@ export function PermissionDialog({ pending, cwd }: { pending: PendingPermission;
     else if (ch === 'a') pending.resolve('allow-always')
     else if (ch === 'n') pending.resolve('deny')
   })
-  const diff = pendingDiff(pending, cwd)
+  // Memoized on the pending request: pendingDiff reads the target file for
+  // Write, and must not hit the filesystem again on every re-render.
+  const diff = useMemo(() => pendingDiff(pending, cwd), [pending, cwd])
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1}>
       <Text bold color="yellow">

@@ -5,6 +5,7 @@ import { makeAgentTool } from '../../src/tools/agent.js'
 import { ToolRegistry } from '../../src/tools/registry.js'
 import { readTool } from '../../src/tools/read.js'
 import { grepTool } from '../../src/tools/grep.js'
+import { bashTool, taskOutputTool } from '../../src/tools/shell.js'
 import { HookRunner } from '../../src/harness/hooks.js'
 import type { AgentDef } from '../../src/brain/loader.js'
 import type { ModelClient, StreamCallbacks, StreamResult } from '../../src/engine/client.js'
@@ -109,6 +110,21 @@ describe('AgentOrchestrator + Agent tool', () => {
     const unrestricted = orchestrator.buildChildRegistry({ ...researcherDef(), tools: null })
     expect(unrestricted.get('Agent')).toBeUndefined()
     expect(unrestricted.get('Read')).toBeDefined()
+  })
+
+  it('a Bash-capable child also gets TaskOutput (to poll its background tasks); others do not', () => {
+    const registry = new ToolRegistry()
+    registry.register(bashTool as ToolDefinition<never>)
+    registry.register(taskOutputTool as ToolDefinition<never>)
+    registry.register(readTool as ToolDefinition<never>)
+    const orchestrator = makeOrchestrator(() => new MockAnthropicClient([]), {
+      baseRegistry: registry,
+    })
+    const withBash = orchestrator.buildChildRegistry({ ...researcherDef(), tools: ['Bash'] })
+    expect(withBash.list().map((t) => t.name).sort()).toEqual(['Bash', 'TaskOutput'])
+    const withoutShell = orchestrator.buildChildRegistry({ ...researcherDef(), tools: ['Read'] })
+    expect(withoutShell.get('TaskOutput')).toBeUndefined()
+    expect(withoutShell.list().map((t) => t.name)).toEqual(['Read'])
   })
 
   it('child tool calls pass through the SAME permission gate and hook runner instances', async () => {

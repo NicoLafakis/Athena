@@ -39,6 +39,12 @@ Relative rules like `Edit(src/**)` anchor at the project the session runs in,
 and neither `a/../secret/x` nor a `../` escape from a sub-directory can bypass
 a deny rule like `Write(C:/vault/**)`.
 
+Note that this anchoring applies wherever a rule lives: a relative pattern in
+the **global** `~/.athena/settings.json` still resolves against the directory
+Athena was launched in, so `Edit(src/**)` there means `<launch dir>/src/**` and
+its meaning changes per project. Use absolute patterns in global settings when
+you mean a fixed location.
+
 The `Bash(...)`/`PowerShell(...)` command **prefix filter is advisory only**:
 shell metacharacters, subshells, and env tricks can evade a string prefix.
 Real enforcement is the permission ask (mutating tools are deny-by-default
