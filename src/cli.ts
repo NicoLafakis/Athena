@@ -41,6 +41,7 @@ import {
   webfetchTool,
   websearchTool,
 } from './tools/index.js'
+import { makeSkillTool } from './tools/skill.js'
 import { makeAgentTool } from './tools/agent.js'
 import { App, PermissionBridge } from './tui/App.js'
 import { SessionPicker } from './tui/components/SessionPicker.js'
@@ -280,6 +281,9 @@ async function main(): Promise<void> {
   ]) {
     registry.register(t as ToolDefinition<never>)
   }
+  // Skill is read-only and part of the base registry so sub-agents can receive it
+  // under tool restriction; register it before Agent (which nests one level only).
+  registry.register(makeSkillTool(paths) as ToolDefinition<never>)
 
   const systemPrompt = assembleSystemPrompt({
     constitution: loadConstitution(paths),
@@ -287,6 +291,7 @@ async function main(): Promise<void> {
     projectContext: findProjectContextFiles(cwd),
     toolGuidance:
       'Use Read before Write/Edit. Prefer Grep/Glob over shell find. Keep tool outputs focused.',
+    skills: loadSkillsIndex(paths),
     environment: {
       cwd,
       platform: process.platform,

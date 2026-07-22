@@ -11,6 +11,7 @@ describe('assembleSystemPrompt', () => {
       memoryIndex: '# Memory Index\n- [x](x.md) — fact',
       projectContext: [{ file: 'C:/proj/CLAUDE.md', content: 'Project rules' }],
       toolGuidance: 'Use Read before Edit.',
+      skills: [],
       environment: { cwd: 'C:/proj', platform: 'win32', gitBranch: 'main', date: '2026-07-21' },
     })
     const order = ['I am Athena', 'Memory Index', 'Project rules', 'Use Read before Edit', 'cwd: C:/proj']
@@ -25,6 +26,7 @@ describe('assembleSystemPrompt', () => {
       memoryIndex: null,
       projectContext: [],
       toolGuidance: '',
+      skills: [],
       environment: { cwd: 'C:/proj', platform: 'win32', gitBranch: null, date: '2026-07-21' },
     })
     expect(prompt).not.toContain('# Memory')
@@ -40,12 +42,45 @@ describe('assembleSystemPrompt', () => {
       memoryIndex: null,
       projectContext: [],
       toolGuidance: '',
+      skills: [],
       environment: { cwd: 'C:/proj', platform: 'win32', gitBranch: 'main', date: '2026-07-21' },
     })
     expect(prompt).toContain('cwd: C:/proj')
     expect(prompt).toContain('platform: win32')
     expect(prompt).toContain('git branch: main')
     expect(prompt).toContain('date: 2026-07-21')
+  })
+
+  it('renders a # Skills section listing skill names when the skills array is non-empty', () => {
+    const prompt = assembleSystemPrompt({
+      constitution: null,
+      memoryIndex: null,
+      projectContext: [],
+      toolGuidance: 'Use Read before Edit.',
+      skills: [
+        { name: 'commit-flow', description: 'Review and commit cleanly' },
+        { name: 'explorer', description: 'Find things' },
+      ],
+      environment: { cwd: 'C:/proj', platform: 'win32', gitBranch: 'main', date: '2026-07-21' },
+    })
+    expect(prompt).toContain('# Skills')
+    expect(prompt).toContain('- commit-flow — Review and commit cleanly')
+    expect(prompt).toContain('- explorer — Find things')
+    // Placement: after tool guidance, before environment.
+    expect(prompt.indexOf('Use Read before Edit')).toBeLessThan(prompt.indexOf('# Skills'))
+    expect(prompt.indexOf('# Skills')).toBeLessThan(prompt.indexOf('# Environment'))
+  })
+
+  it('omits the # Skills section when the skills array is empty', () => {
+    const prompt = assembleSystemPrompt({
+      constitution: null,
+      memoryIndex: null,
+      projectContext: [],
+      toolGuidance: '',
+      skills: [],
+      environment: { cwd: 'C:/proj', platform: 'win32', gitBranch: null, date: '2026-07-21' },
+    })
+    expect(prompt).not.toContain('# Skills')
   })
 })
 

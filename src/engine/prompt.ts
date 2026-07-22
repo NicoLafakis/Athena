@@ -18,6 +18,7 @@ export interface PromptParts {
   memoryIndex: string | null
   projectContext: ProjectContextFile[]
   toolGuidance: string
+  skills: { name: string; description: string }[]
   environment: EnvironmentInfo
 }
 
@@ -51,6 +52,12 @@ export function assembleSystemPrompt(parts: PromptParts): string {
     sections.push(`# Project context (${pc.file})\n\n${pc.content.trim()}`)
   }
   if (parts.toolGuidance) sections.push(`# Tool guidance\n\n${parts.toolGuidance.trim()}`)
+  if (parts.skills.length > 0) {
+    sections.push(
+      "# Skills\n\nYou can load any of these on demand with the Skill tool (it injects the skill's full instructions):\n\n" +
+        parts.skills.map((s) => `- ${s.name} — ${s.description}`).join('\n'),
+    )
+  }
   const env = parts.environment
   sections.push(
     [
