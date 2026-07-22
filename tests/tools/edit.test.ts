@@ -32,6 +32,17 @@ describe('editTool', () => {
     expect(readFileSync(file, 'utf8')).toBe('alpha BETA gamma')
   })
 
+  it('inserts new_string literally even when it contains $ replacement patterns', async () => {
+    const file = join(dir, 'a.txt')
+    writeFileSync(file, 'alpha beta gamma')
+    const res = await editTool.execute(
+      { file_path: file, old_string: 'beta', new_string: 'a$&b', replace_all: false },
+      ctxWithRead(file),
+    )
+    expect(res.isError).toBe(false)
+    expect(readFileSync(file, 'utf8')).toBe('alpha a$&b gamma')
+  })
+
   it('errors when old_string is not found', async () => {
     const file = join(dir, 'a.txt')
     writeFileSync(file, 'alpha')

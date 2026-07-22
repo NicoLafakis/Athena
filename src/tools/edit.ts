@@ -41,7 +41,7 @@ export const editTool: ToolDefinition<z.infer<typeof EditInput>> = {
     }
     const next = input.replace_all
       ? text.split(input.old_string).join(input.new_string)
-      : text.replace(input.old_string, input.new_string)
+      : text.replace(input.old_string, () => input.new_string) // callback form: literal, no $-pattern expansion
     writeFileSync(abs, next, 'utf8')
     return {
       output: `Replaced ${input.replace_all ? count : 1} occurrence(s) in ${abs}`,
