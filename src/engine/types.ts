@@ -13,6 +13,7 @@ export type EngineEvent =
   | { type: 'compaction'; summary: string }
   | { type: 'info'; message: string } // system transcript note (slash-command output etc.)
   | { type: 'error'; message: string; fatal: boolean }
+  | { type: 'status'; patch: { model?: string; mode?: PermissionMode; contextPct?: number } }
 
 export interface TodoItem { text: string; status: 'pending' | 'in_progress' | 'done' }
 

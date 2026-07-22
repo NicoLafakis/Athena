@@ -138,10 +138,12 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         break
       case 'mode':
         gate.setMode(cmd.value)
+        bus.emit({ type: 'status', patch: { mode: cmd.value } })
         info(`Permission mode: ${cmd.value}`)
         break
       case 'model':
         engine.setModel(cmd.value)
+        bus.emit({ type: 'status', patch: { model: cmd.value } })
         info(`Model: ${cmd.value}`)
         break
       case 'compact':

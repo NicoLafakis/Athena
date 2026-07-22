@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render } from 'ink-testing-library'
-import { App, PermissionBridge } from '../../src/tui/App.js'
+import { App, PermissionBridge, reduceEvent } from '../../src/tui/App.js'
+import type { TranscriptEntry } from '../../src/tui/components/Transcript.js'
 import { EngineEventBus } from '../../src/engine/events.js'
 
 function delay(ms: number): Promise<void> {
@@ -85,5 +86,25 @@ describe('App', () => {
     bus.emit({ type: 'todo-update', todos: [{ text: 'write tests', status: 'in_progress' }] })
     await delay(10)
     expect(lastFrame()).toContain('write tests')
+  })
+
+  it('status events update the status line live (mode changes without remount)', async () => {
+    const { bus, props } = makeHarness()
+    const { lastFrame } = render(<App {...props} />)
+    await delay(0) // let React flush useEffect so the bus subscription exists
+    expect(lastFrame()).toContain('normal')
+    bus.emit({ type: 'status', patch: { mode: 'trusted' } })
+    await delay(10)
+    expect(lastFrame()).toContain('trusted')
+    expect(lastFrame()).not.toContain('normal')
+  })
+})
+
+describe('reduceEvent', () => {
+  it('returns the transcript array unchanged for a status event (no transcript entry)', () => {
+    const prev: TranscriptEntry[] = [{ kind: 'assistant', text: 'hi' }]
+    const next = reduceEvent(prev, { type: 'status', patch: { mode: 'trusted', contextPct: 42 } })
+    expect(next).toBe(prev) // same reference: status is purely a status-line concern
+    expect(next).toEqual([{ kind: 'assistant', text: 'hi' }])
   })
 })

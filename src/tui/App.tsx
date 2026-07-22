@@ -85,11 +85,13 @@ export interface AppProps {
   permissionBridge: PermissionBridge
 }
 
-export function App({ bus, status, onSubmit, onSlash, onAbort, permissionBridge }: AppProps) {
+export function App({ bus, status: statusProp, onSubmit, onSlash, onAbort, permissionBridge }: AppProps) {
   const [entries, setEntries] = useState<TranscriptEntry[]>([])
   const [todos, setTodos] = useState<TodoItem[]>([])
   const [pending, setPending] = useState<PendingPermission | null>(null)
   const [busy, setBusy] = useState(false)
+  // Seeded from the prop, then kept live by 'status' events (/mode, /model, per-turn ctx%).
+  const [status, setStatus] = useState<AppStatus>(statusProp)
   const { exit } = useApp()
 
   useEffect(() => {
@@ -101,6 +103,7 @@ export function App({ bus, status, onSubmit, onSlash, onAbort, permissionBridge 
       bus.on((e: EngineEvent) => {
         setEntries((prev) => reduceEvent(prev, e)) // pure reducer, unit-testable
         if (e.type === 'todo-update') setTodos(e.todos)
+        if (e.type === 'status') setStatus((prev) => ({ ...prev, ...e.patch }))
         if (e.type === 'turn-done' || (e.type === 'error' && e.fatal)) setBusy(false)
       }),
     [bus],

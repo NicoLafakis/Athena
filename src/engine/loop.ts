@@ -262,6 +262,9 @@ export class Engine {
       }
     }
     await hooks.run('Stop', {})
+    // Push the fresh context fill to the status line before signalling turn-done; turn-done
+    // stays the last event of the turn (tests and the TUI both key off that).
+    bus.emit({ type: 'status', patch: { contextPct: Math.round(contextManager.usedFraction() * 100) } })
     bus.emit({ type: 'turn-done', usage })
   }
 

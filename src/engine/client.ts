@@ -64,6 +64,10 @@ export class AnthropicClient implements ModelClient {
           deltaEmitted = true
           callbacks.onThinkingDelta(delta)
         })
+        // The SDK triggers a standalone unhandled Promise.reject on stream 'error' if no
+        // error listener is attached (MessageStream.js). We already surface errors via the
+        // finalMessage() rejection caught below; this no-op listener just disarms that footgun.
+        stream.on('error', () => {})
         return { message: await stream.finalMessage() }
       } catch (err) {
         lastError = err
