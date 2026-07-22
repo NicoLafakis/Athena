@@ -37,6 +37,33 @@ describe('Session', () => {
     expect(JSON.parse(lines[0]!)).toMatchObject({ kind: 'message', data: { role: 'user' } })
   })
 
+  it('appendEvent writes a valid JSONL event line', () => {
+    const store = new SessionStore(sessionsRoot, 'C:/projects/my-app')
+    const session = store.create()
+    session.appendEvent({ type: 'turn-done', usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0 } })
+    const lines = readFileSync(session.file, 'utf8').trim().split('\n')
+    expect(lines).toHaveLength(1)
+    const parsed = JSON.parse(lines[0]!) as { kind: string; ts: string; data: { type: string } }
+    expect(parsed.kind).toBe('event')
+    expect(parsed.data.type).toBe('turn-done')
+    expect(new Date(parsed.ts).getTime()).not.toBeNaN()
+  })
+
+  it('appendEvent lines interleaved with messages are ignored by resume', () => {
+    const store = new SessionStore(sessionsRoot, 'C:/projects/my-app')
+    const session = store.create()
+    session.appendMessage({ role: 'user', content: 'q' })
+    session.appendEvent({ type: 'error', message: 'stream died', fatal: true })
+    session.appendMessage({ role: 'assistant', content: [{ type: 'text', text: 'a', citations: null }] })
+    session.appendEvent({ type: 'turn-done', usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0 } })
+    expect(store.resume(session.id)).toEqual([
+      { role: 'user', content: 'q' },
+      { role: 'assistant', content: [{ type: 'text', text: 'a', citations: null }] },
+    ])
+    // All four lines are still on disk — events are journaled, not dropped.
+    expect(readFileSync(session.file, 'utf8').trim().split('\n')).toHaveLength(4)
+  })
+
   it('rewrite truncates and re-appends the full message array', () => {
     const store = new SessionStore(sessionsRoot, 'C:/p')
     const session = store.create()
@@ -132,7 +159,7 @@ describe('SessionStore', () => {
     expect(store.resume(session.id)).toEqual([{ role: 'user', content: 'intact' }])
   })
 
-  it('non-message lines (e.g. legacy event lines) are preserved on disk but excluded from resume()', () => {
+  it('non-message lines (e.g. hand-written event lines) are preserved on disk but excluded from resume()', () => {
     const store = new SessionStore(sessionsRoot, 'C:/p')
     const session = store.create()
     session.appendMessage({ role: 'user', content: 'q' })

@@ -138,7 +138,13 @@ export function App({ bus, status, onSubmit, onSlash, onAbort, permissionBridge 
       }
       setEntries((prev) => [...prev, { kind: 'user', text }])
       setBusy(true)
-      await onSubmit(text)
+      try {
+        await onSubmit(text)
+      } catch (err) {
+        // A rejected turn must surface in the transcript, not become an unhandled
+        // rejection (Node >=15 kills the process). fatal:true also resets busy above.
+        bus.emit({ type: 'error', message: `Turn crashed: ${(err as Error).message}`, fatal: true })
+      }
     },
     [onSubmit, onSlash, exit, busy, bus],
   )

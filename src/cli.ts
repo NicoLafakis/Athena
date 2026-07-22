@@ -1,6 +1,7 @@
 // src/cli.ts — composition root: brain + engine + harness + TUI.
 import { execSync } from 'node:child_process'
-import { basename } from 'node:path'
+import { appendFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
 import { render } from 'ink'
 import React from 'react'
@@ -327,6 +328,19 @@ async function main(): Promise<void> {
     session = store.create()
   }
 
+  // Event journal: errors, turn completions (with usage), and compactions land in the
+  // session file so a crash is diagnosable from disk. A failed journal write must never
+  // crash or recurse — swallow it here, no bus emit from inside the subscriber.
+  bus.on((e) => {
+    if (e.type === 'error' || e.type === 'turn-done' || e.type === 'compaction') {
+      try {
+        session.appendEvent(e)
+      } catch {
+        /* journaling is best-effort */
+      }
+    }
+  })
+
   const bridge = new PermissionBridge()
   const contextManager = new ContextManager({ modelWindowTokens: 200_000 })
   const engine = new Engine({
@@ -366,7 +380,22 @@ async function main(): Promise<void> {
 
   await hooks.run('SessionStart', { cwd })
 
-  render(
+  // Last-resort crash handlers: an escaped rejection or exception must land on disk
+  // and surface in the TUI, not kill the process (Node >=15 default). Never exit here.
+  const crashHandler = (err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err)
+    const stack = err instanceof Error ? (err.stack ?? message) : message
+    try {
+      appendFileSync(join(paths.brainDir, 'crash.log'), `${new Date().toISOString()} ${stack}\n`, 'utf8')
+    } catch {
+      /* the crash log failing must not itself crash */
+    }
+    bus.emit({ type: 'error', message: `Internal crash (logged to crash.log): ${message}`, fatal: true })
+  }
+  process.on('unhandledRejection', crashHandler)
+  process.on('uncaughtException', crashHandler)
+
+  const instance = render(
     React.createElement(App, {
       bus,
       status: {
@@ -391,6 +420,9 @@ async function main(): Promise<void> {
       }),
     }),
   )
+  // main() owns the TUI lifetime: an Ink render-phase failure rejects here and is
+  // reported by the main().catch below instead of dying as an unhandled rejection.
+  await instance.waitUntilExit()
 }
 
 // Run only when invoked as the CLI entry (bin/athena.js, tsx src/cli.ts, dist/cli.js) —

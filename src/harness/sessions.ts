@@ -10,8 +10,9 @@ export function projectSlug(projectPath: string): string {
     .replace(/[^A-Za-z0-9._-]/g, '-')
 }
 
-// Only 'message' lines are written today; parsing still skips any other kind
-// (tolerates legacy 'event' lines and foreign/torn content).
+// 'message' lines carry conversation history; 'event' lines journal engine events
+// (errors, turn-done, compaction). Message-loading paths skip any non-'message' kind
+// (tolerates event lines and foreign/torn content).
 interface SessionLine {
   kind: string
   ts: string
@@ -44,6 +45,12 @@ export class Session {
 
   appendMessage(message: MessageParam): void {
     this.appendLine({ kind: 'message', ts: new Date().toISOString(), data: message })
+  }
+
+  /** Journal an engine event (error / turn-done / compaction) alongside messages.
+   *  Throws on write failure — callers decide whether that is fatal. */
+  appendEvent(event: object): void {
+    this.appendLine({ kind: 'event', ts: new Date().toISOString(), data: event })
   }
 
   /**
