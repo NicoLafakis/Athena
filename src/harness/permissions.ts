@@ -1,4 +1,4 @@
-import { posix } from 'node:path'
+import { posix, resolve } from 'node:path'
 import type { PermissionDecision, PermissionGate, PermissionMode, PermissionRequest } from '../engine/types.js'
 
 export interface ParsedRule { tool: string; pattern: string | null }
@@ -38,20 +38,50 @@ export function normalizePathTarget(p: string): string {
   return posix.normalize(p.replaceAll('\\', '/'))
 }
 
-/** The string a rule pattern is matched against, per tool. */
-export function matchTarget(toolName: string, input: unknown): string {
+/** True for `/abs`, `C:/abs`, or `C:\abs` shapes (after backslash folding). */
+function isAbsoluteLike(p: string): boolean {
+  return p.startsWith('/') || /^[A-Za-z]:\//.test(p)
+}
+
+/** Canonical-absolute form of a file path: resolved against the session cwd
+ *  (the same base the tools resolve against), forward slashes, dot segments
+ *  folded — so rules and targets are compared in the SAME coordinate system. */
+export function canonicalizePath(p: string, cwd: string): string {
+  return resolve(cwd, p).replaceAll('\\', '/')
+}
+
+/** Canonical-absolute form of a rule pattern: relative patterns (e.g. `src/**`)
+ *  are anchored at the session cwd; absolute ones only get slash/dot folding.
+ *  Glob metacharacters pass through untouched. */
+export function canonicalizePattern(pattern: string, cwd: string): string {
+  const slashed = pattern.replaceAll('\\', '/')
+  const base = cwd.replaceAll('\\', '/').replace(/\/+$/, '')
+  return posix.normalize(isAbsoluteLike(slashed) ? slashed : `${base}/${slashed}`)
+}
+
+/** The string a rule pattern is matched against, per tool. File paths are
+ *  canonicalized against `cwd` — the same resolution the file tools apply. */
+export function matchTarget(toolName: string, input: unknown, cwd?: string): string {
   const obj = (input ?? {}) as Record<string, unknown>
   if (toolName === 'Bash' || toolName === 'PowerShell') return String(obj['command'] ?? '')
-  if (typeof obj['file_path'] === 'string') return normalizePathTarget(obj['file_path'] as string)
+  if (typeof obj['file_path'] === 'string') {
+    return cwd === undefined
+      ? normalizePathTarget(obj['file_path'] as string)
+      : canonicalizePath(obj['file_path'] as string, cwd)
+  }
   if (typeof obj['pattern'] === 'string') return obj['pattern'] as string
   if (typeof obj['url'] === 'string') return obj['url'] as string
   return JSON.stringify(input)
 }
 
-export function matchesRule(rule: ParsedRule, toolName: string, input: unknown): boolean {
+export function matchesRule(
+  rule: ParsedRule,
+  toolName: string,
+  input: unknown,
+  cwd: string = process.cwd(),
+): boolean {
   if (rule.tool !== toolName) return false
   if (rule.pattern === null) return true
-  const target = matchTarget(toolName, input)
   if (toolName === 'Bash' || toolName === 'PowerShell') {
     // Command-prefix semantics: "git:*" matches "git" or "git <anything>", never "gitk".
     // NOTE: this prefix filter is ADVISORY only. Shell commands are not paths —
@@ -59,34 +89,48 @@ export function matchesRule(rule: ParsedRule, toolName: string, input: unknown):
     // or absolute interpreter paths can trivially evade a string prefix. Real
     // enforcement is the permission ask (deny-by-default for mutating tools)
     // plus PreToolUse hooks; deny rules here are a convenience guardrail.
+    const target = matchTarget(toolName, input)
     const prefix = rule.pattern.endsWith(':*') ? rule.pattern.slice(0, -2) : rule.pattern
     return target === prefix || target.startsWith(prefix + ' ')
   }
-  // File-path targets: the target is already normalized by matchTarget; also
-  // normalize backslashes in the rule pattern and compare case-insensitively
-  // on win32, where the filesystem is case-insensitive.
+  // File-path targets: BOTH sides are canonicalized to absolute paths against
+  // the session cwd (the coordinate system the tools actually resolve in), and
+  // compared case-insensitively on win32, where the filesystem is
+  // case-insensitive. This closes the `../` escape (a relative target slipping
+  // past an absolute deny rule) and lets relative allow rules match absolute
+  // targets.
   const isPathTarget = typeof ((input ?? {}) as Record<string, unknown>)['file_path'] === 'string'
   if (isPathTarget) {
-    const pattern = rule.pattern.replaceAll('\\', '/')
+    const pattern = canonicalizePattern(rule.pattern, cwd)
+    const target = matchTarget(toolName, input, cwd)
     return globToRegExp(pattern, process.platform === 'win32').test(target)
   }
-  return globToRegExp(rule.pattern).test(target)
+  return globToRegExp(rule.pattern).test(matchTarget(toolName, input))
 }
 
 const EDIT_TOOLS = new Set(['Write', 'Edit'])
 
-export interface PermissionEngineOptions { mode: PermissionMode; allow: string[]; deny: string[] }
+export interface PermissionEngineOptions {
+  mode: PermissionMode
+  allow: string[]
+  deny: string[]
+  /** Session cwd file-path rules and targets are resolved against — must match
+   *  the ToolContext cwd the tools resolve with. Defaults to process.cwd(). */
+  cwd?: string
+}
 
 export class PermissionEngine implements PermissionGate {
   private mode: PermissionMode
   private readonly allowRules: ParsedRule[]
   private readonly denyRules: ParsedRule[]
   private readonly sessionGrants: ParsedRule[] = []
+  private readonly cwd: string
 
   constructor(opts: PermissionEngineOptions) {
     this.mode = opts.mode
     this.allowRules = opts.allow.map(parseRule)
     this.denyRules = opts.deny.map(parseRule)
+    this.cwd = opts.cwd ?? process.cwd()
   }
 
   setMode(mode: PermissionMode): void { this.mode = mode }
@@ -97,7 +141,7 @@ export class PermissionEngine implements PermissionGate {
   check(req: PermissionRequest): PermissionDecision {
     // 1. Hard deny — no mode bypasses it.
     for (const rule of this.denyRules) {
-      if (matchesRule(rule, req.toolName, req.input)) {
+      if (matchesRule(rule, req.toolName, req.input, this.cwd)) {
         return { decision: 'deny', reason: `Denied by rule ${rule.tool}(${rule.pattern ?? ''})` }
       }
     }
@@ -111,7 +155,7 @@ export class PermissionEngine implements PermissionGate {
     if (req.readOnly) return { decision: 'allow', reason: 'Read-only tool' }
     // 4. Explicit allow rules + session grants.
     for (const rule of [...this.allowRules, ...this.sessionGrants]) {
-      if (matchesRule(rule, req.toolName, req.input)) {
+      if (matchesRule(rule, req.toolName, req.input, this.cwd)) {
         return { decision: 'allow', reason: `Allowed by rule ${rule.tool}(${rule.pattern ?? ''})` }
       }
     }

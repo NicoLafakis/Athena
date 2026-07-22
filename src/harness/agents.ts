@@ -14,7 +14,8 @@ export interface AgentOrchestratorOptions {
   baseRegistry: ToolRegistry
   gate: PermissionGate // SAME instance as the parent — spec section 7
   hooks: HookRunner // SAME instance as the parent
-  defaultModel: string
+  /** Thunk, not a snapshot: read at spawn time so /model mid-session reaches sub-agents. */
+  defaultModel: () => string
   systemPromptBase: string // constitution + environment; agent systemPrompt is appended
   modelWindowTokens?: number
 }
@@ -59,8 +60,11 @@ export class AgentOrchestrator {
       contextManager: new ContextManager({
         modelWindowTokens: this.opts.modelWindowTokens ?? 200_000,
       }),
-      toolContext: { ...parentCtx, todos: [], emit: (e) => bus.emit(e) }, // child gets its own todo list
-      model: def.model ?? this.opts.defaultModel,
+      // Child gets its OWN todo list and fileReadRegistry: sharing the parent's
+      // registry by reference would let a child's Read unlock the parent's
+      // read-before-write gate (and vice versa).
+      toolContext: { ...parentCtx, todos: [], fileReadRegistry: new Set(), emit: (e) => bus.emit(e) },
+      model: def.model ?? this.opts.defaultModel(),
       systemPrompt: `${this.opts.systemPromptBase}\n\n---\n\n# Agent: ${def.name}\n\n${def.systemPrompt}`,
       maxTokens: 8192,
       // askUser deliberately absent: an 'ask' decision denies inside a sub-agent; only rules/mode allow.
@@ -85,14 +89,6 @@ export class AgentOrchestrator {
     const last = [...engine.getMessages()].reverse().find((m) => m.role === 'assistant')
     const text = extractText(last) || finalText
     return { output: text.trim() || `(agent ${def.name} produced no text)`, isError: false }
-  }
-
-  /** Parallel spawn: used by the loop when one assistant message carries several Agent tool_use blocks. */
-  spawnMany(
-    jobs: Array<{ def: AgentDef; prompt: string }>,
-    parentCtx: ToolContext,
-  ): Promise<ToolOutput[]> {
-    return Promise.all(jobs.map((j) => this.runAgent(j.def, j.prompt, parentCtx)))
   }
 }
 

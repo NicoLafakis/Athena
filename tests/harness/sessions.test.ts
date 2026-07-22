@@ -132,15 +132,18 @@ describe('SessionStore', () => {
     expect(store.resume(session.id)).toEqual([{ role: 'user', content: 'intact' }])
   })
 
-  it('appendEvent lines are preserved but excluded from resume()', () => {
+  it('non-message lines (e.g. legacy event lines) are preserved on disk but excluded from resume()', () => {
     const store = new SessionStore(sessionsRoot, 'C:/p')
     const session = store.create()
     session.appendMessage({ role: 'user', content: 'q' })
-    session.appendEvent({ type: 'assistant-text', delta: 'partial' })
+    appendFileSync(
+      session.file,
+      JSON.stringify({ kind: 'event', ts: new Date().toISOString(), data: { type: 'assistant-text', delta: 'partial' } }) + '\n',
+      'utf8',
+    )
     session.appendMessage({ role: 'assistant', content: [{ type: 'text', text: 'a', citations: null }] })
     const lines = readFileSync(session.file, 'utf8').trim().split('\n')
     expect(lines).toHaveLength(3)
-    expect(JSON.parse(lines[1]!)).toMatchObject({ kind: 'event', data: { type: 'assistant-text' } })
     expect(store.resume(session.id)).toEqual([
       { role: 'user', content: 'q' },
       { role: 'assistant', content: [{ type: 'text', text: 'a', citations: null }] },

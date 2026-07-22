@@ -1,3 +1,4 @@
+import { resolve } from 'node:path'
 import type {
   MessageParam,
   Tool,
@@ -39,6 +40,7 @@ export class Engine {
   private messages: MessageParam[] = []
   private readonly opts: EngineOptions
   private abortController: AbortController
+  private turnInFlight = false
 
   constructor(opts: EngineOptions) {
     this.opts = opts
@@ -50,7 +52,9 @@ export class Engine {
   }
 
   loadMessages(history: MessageParam[]): void {
-    this.messages = [...history]
+    // A crash mid-tool persists an assistant tool_use with no tool_result; an
+    // unrepaired resume would 400 on every subsequent API call, forever.
+    this.messages = repairDanglingToolUses(history)
   }
 
   abort(): void {
@@ -75,10 +79,44 @@ export class Engine {
 
   /** One turn: user text in -> model/tool cycles -> turn-done. Never throws for tool errors. */
   async runTurn(userText: string): Promise<void> {
+    // Reentrancy guard: a second prompt mid-turn would interleave a user message
+    // between a tool_use and its tool_result — API 400 + corrupt persisted session.
+    if (this.turnInFlight) {
+      this.opts.bus.emit({
+        type: 'error',
+        message:
+          'A turn is already in progress — wait for it to finish (or Esc to abort) before sending another prompt.',
+        fatal: false,
+      })
+      return
+    }
+    this.turnInFlight = true
+    try {
+      await this.runTurnInner(userText)
+    } finally {
+      this.turnInFlight = false
+    }
+  }
+
+  private async runTurnInner(userText: string): Promise<void> {
     const { bus, client, hooks, contextManager } = this.opts
     if (this.abortController.signal.aborted) this.abortController = new AbortController()
     const signal = this.abortController.signal
     const promptHook = await hooks.run('UserPromptSubmit', { prompt: userText })
+    if (!promptHook.allowed) {
+      // Claude Code semantics: a denying UserPromptSubmit hook blocks the prompt
+      // entirely — nothing is added to history and the API is never called.
+      bus.emit({
+        type: 'error',
+        message: `Prompt blocked by UserPromptSubmit hook: ${promptHook.reason ?? 'no reason given'}`,
+        fatal: false,
+      })
+      bus.emit({
+        type: 'turn-done',
+        usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 },
+      })
+      return
+    }
     const text = promptHook.addedContext
       ? `${userText}\n\n<hook-context>\n${promptHook.addedContext}\n</hook-context>`
       : userText
@@ -251,7 +289,7 @@ export class Engine {
           })
         : ('deny' as const)
       if (answer === 'allow-always') {
-        gate.grantSession(ruleFor(block))
+        gate.grantSession(ruleFor(block, toolContext.cwd))
         allowed = true
       } else {
         allowed = answer === 'allow-once'
@@ -298,17 +336,67 @@ function summarize(block: ToolUseBlock): string {
   return `${block.name}(${input.length > 120 ? input.slice(0, 120) + '…' : input})`
 }
 
-/** "Always allow" rule derived from the request: Bash gets a command-prefix rule, file tools get their path. */
-function ruleFor(block: ToolUseBlock): string {
+/** "Always allow" rule derived from the request: Bash gets a command-prefix rule,
+ *  file tools get their path in canonical-absolute form (resolved against the
+ *  session cwd, forward slashes) so the grant matches however the model spells
+ *  the path on later calls. */
+export function ruleFor(block: ToolUseBlock, cwd: string): string {
   const obj = (block.input ?? {}) as Record<string, unknown>
   if (block.name === 'Bash' || block.name === 'PowerShell') {
     const first = String(obj['command'] ?? '').trim().split(/\s+/)[0] ?? ''
     return `${block.name}(${first}:*)`
   }
   if (typeof obj['file_path'] === 'string') {
-    return `${block.name}(${String(obj['file_path']).replaceAll('\\', '/')})`
+    return `${block.name}(${resolve(cwd, String(obj['file_path'])).replaceAll('\\', '/')})`
   }
   return block.name
+}
+
+/**
+ * Resume repair: for any assistant tool_use block whose id has no tool_result in
+ * the immediately-following user message, synthesize an error tool_result —
+ * the same block shape the abort path synthesizes mid-turn. Missing results are
+ * merged into an existing partial results message, or inserted as a new user
+ * message right after the assistant message.
+ */
+export function repairDanglingToolUses(history: MessageParam[]): MessageParam[] {
+  const out: MessageParam[] = []
+  for (let i = 0; i < history.length; i++) {
+    const msg = history[i]!
+    out.push(msg)
+    if (msg.role !== 'assistant' || typeof msg.content === 'string') continue
+    const toolUses = msg.content.filter(
+      (b): b is ToolUseBlock => (b as { type: string }).type === 'tool_use',
+    )
+    if (toolUses.length === 0) continue
+    const next = history[i + 1]
+    const nextResultIds = new Set<string>()
+    const nextHasResults = next !== undefined && next.role === 'user' && Array.isArray(next.content)
+    if (nextHasResults) {
+      for (const b of next.content as { type: string; tool_use_id?: string }[]) {
+        if (b.type === 'tool_result' && b.tool_use_id !== undefined) nextResultIds.add(b.tool_use_id)
+      }
+    }
+    const missing = toolUses.filter((t) => !nextResultIds.has(t.id))
+    if (missing.length === 0) continue
+    const synthesized: ToolResultBlockParam[] = missing.map((t) => ({
+      type: 'tool_result',
+      tool_use_id: t.id,
+      content: 'Tool execution interrupted (session ended mid-run)',
+      is_error: true,
+    }))
+    if (nextHasResults && nextResultIds.size > 0) {
+      // The following user message already carries SOME results: merge the rest in.
+      out.push({
+        role: 'user',
+        content: [...(next.content as ToolResultBlockParam[]), ...synthesized],
+      })
+      i++ // the original partial message is replaced, not re-emitted
+    } else {
+      out.push({ role: 'user', content: synthesized })
+    }
+  }
+  return out
 }
 
 interface JsonSchemaNode {

@@ -63,6 +63,21 @@ describe('App', () => {
     await expect(answer).resolves.toBe('allow-once')
   })
 
+  it('/clear wipes the transcript display and notes that context is unchanged', async () => {
+    const { bus, props } = makeHarness()
+    const { lastFrame, stdin } = render(<App {...props} />)
+    await delay(0)
+    bus.emit({ type: 'assistant-text', delta: 'old transcript content' })
+    await delay(10)
+    expect(lastFrame()).toContain('old transcript content')
+    stdin.write('/clear')
+    await delay(5)
+    stdin.write('\r')
+    await delay(10)
+    expect(lastFrame()).not.toContain('old transcript content')
+    expect(lastFrame()).toContain('context is unchanged')
+  })
+
   it('todo-update event renders the checklist panel', async () => {
     const { bus, props } = makeHarness()
     const { lastFrame } = render(<App {...props} />)

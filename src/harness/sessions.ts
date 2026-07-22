@@ -2,7 +2,6 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renam
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
-import type { EngineEvent } from '../engine/types.js'
 
 export function projectSlug(projectPath: string): string {
   return projectPath
@@ -11,8 +10,10 @@ export function projectSlug(projectPath: string): string {
     .replace(/[^A-Za-z0-9._-]/g, '-')
 }
 
+// Only 'message' lines are written today; parsing still skips any other kind
+// (tolerates legacy 'event' lines and foreign/torn content).
 interface SessionLine {
-  kind: 'message' | 'event'
+  kind: string
   ts: string
   data: unknown
 }
@@ -43,10 +44,6 @@ export class Session {
 
   appendMessage(message: MessageParam): void {
     this.appendLine({ kind: 'message', ts: new Date().toISOString(), data: message })
-  }
-
-  appendEvent(event: EngineEvent): void {
-    this.appendLine({ kind: 'event', ts: new Date().toISOString(), data: event })
   }
 
   /**

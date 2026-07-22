@@ -133,10 +133,13 @@ export interface BackgroundTask {
 }
 export const backgroundTasks = new Map<string, BackgroundTask>()
 
+/** Tail shown in the completion notice; full output stays readable via TaskOutput. */
+const NOTICE_TAIL_CHARS = 1000
+
 function makeShellTool(spec: ShellSpec): ToolDefinition<ShellInputT> {
   return {
     name: spec.name,
-    description: `Execute a command via ${spec.name}. Default timeout 120s, max 600s. Set run_in_background for long-running commands; completion is reported as a tool-result event.`,
+    description: `Execute a command via ${spec.name}. Default timeout 120s, max 600s. Set run_in_background for long-running commands; you get a task id back, completion is announced as a system notice, and the captured output can be read with the TaskOutput tool.`,
     schema: ShellInput,
     readOnly: false,
     async execute(input, ctx) {
@@ -147,17 +150,50 @@ function makeShellTool(spec: ShellSpec): ToolDefinition<ShellInputT> {
       void runShell(spec, { ...input, run_in_background: false }, ctx).then((res) => {
         task.status = res.isError ? 'failed' : 'done'
         task.output = res.output
+        // An info notice, NOT a tool-result: a tool-result here would be an
+        // orphan (no matching tool_use id in the transcript or the TUI).
+        const tail =
+          res.output.length > NOTICE_TAIL_CHARS
+            ? `…${res.output.slice(-NOTICE_TAIL_CHARS)}`
+            : res.output
         ctx.emit({
-          type: 'tool-result',
-          id,
-          name: spec.name,
-          output: `[background ${id} ${task.status}]\n${res.output}`,
-          isError: res.isError,
+          type: 'info',
+          message: `Background task ${id} finished (${task.status}): ${task.command}\n${tail}`,
         })
       })
-      return { output: `Started background task ${id}: ${input.command}`, isError: false }
+      return {
+        output: `Started background task ${id}: ${input.command} (poll with TaskOutput)`,
+        isError: false,
+      }
     },
   }
+}
+
+const TaskOutputInput = z.object({ taskId: z.string() })
+
+/** Read-only poll over backgroundTasks so the model can retrieve background
+ *  shell results. Finished entries are pruned once read (bounded map). */
+export const taskOutputTool: ToolDefinition<z.infer<typeof TaskOutputInput>> = {
+  name: 'TaskOutput',
+  description:
+    'Read the status and captured output of a background shell task by id (bg-xxxx). Finished tasks are removed from the registry once read.',
+  schema: TaskOutputInput,
+  readOnly: true,
+  async execute(input) {
+    const task = backgroundTasks.get(input.taskId)
+    if (!task) {
+      const known = [...backgroundTasks.keys()].join(', ') || '(none)'
+      return { output: `Unknown background task: ${input.taskId}. Known tasks: ${known}`, isError: true }
+    }
+    if (task.status === 'running') {
+      return { output: `Task ${task.id} is still running: ${task.command}`, isError: false }
+    }
+    backgroundTasks.delete(task.id) // prune once read
+    return {
+      output: `Task ${task.id} ${task.status} (${task.command})\n${task.output}`,
+      isError: task.status === 'failed',
+    }
+  },
 }
 
 export const bashTool = makeShellTool(SPECS[0]!)

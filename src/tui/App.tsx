@@ -119,8 +119,15 @@ export function App({ bus, status, onSubmit, onSlash, onAbort, permissionBridge 
       const slash = parseSlash(text)
       if (slash) {
         if (slash.kind === 'quit') exit()
-        else if (slash.kind === 'clear') setEntries([])
-        else if (busy && (slash.kind === 'compact' || slash.kind === 'model')) {
+        else if (slash.kind === 'clear') {
+          // Display-only: the engine's message history (and the session file) keep
+          // the full conversation — /compact is the tool that shrinks context.
+          setEntries([])
+          bus.emit({
+            type: 'info',
+            message: 'Screen cleared (transcript display only) — conversation context is unchanged.',
+          })
+        } else if (busy && (slash.kind === 'compact' || slash.kind === 'model')) {
           // Mutating engine state mid-turn corrupts the in-flight transcript.
           bus.emit({
             type: 'info',
@@ -140,8 +147,10 @@ export function App({ bus, status, onSubmit, onSlash, onAbort, permissionBridge 
     <Box flexDirection="column">
       <Transcript entries={entries} />
       {todos.length > 0 && <TodoPanel todos={todos} />}
-      {pending && <PermissionDialog pending={pending} />}
-      <InputBox onSubmit={handleSubmit} disabled={pending !== null} />
+      {pending && <PermissionDialog pending={pending} cwd={status.cwd} />}
+      {/* busy included: a prompt submitted mid-turn would start a second runTurn
+          and interleave a user message between a tool_use and its tool_result. */}
+      <InputBox onSubmit={handleSubmit} disabled={busy || pending !== null} />
       <StatusLine {...status} busy={busy} />
     </Box>
   )

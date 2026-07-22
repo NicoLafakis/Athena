@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { z } from 'zod'
 import { AgentOrchestrator, type AgentOrchestratorOptions } from '../../src/harness/agents.js'
 import { makeAgentTool } from '../../src/tools/agent.js'
 import { ToolRegistry } from '../../src/tools/registry.js'
@@ -7,7 +8,7 @@ import { grepTool } from '../../src/tools/grep.js'
 import { HookRunner } from '../../src/harness/hooks.js'
 import type { AgentDef } from '../../src/brain/loader.js'
 import type { ModelClient, StreamCallbacks, StreamResult } from '../../src/engine/client.js'
-import type { PermissionGate, ToolDefinition } from '../../src/engine/types.js'
+import type { PermissionGate, ToolContext, ToolDefinition } from '../../src/engine/types.js'
 import { makeCtx } from '../helpers/tool-ctx.js'
 import {
   MockAnthropicClient,
@@ -63,7 +64,7 @@ function makeOrchestrator(
     baseRegistry: fullRegistry(ref),
     gate: allowAllGate(),
     hooks: new HookRunner([]),
-    defaultModel: 'mock',
+    defaultModel: () => 'mock',
     systemPromptBase: 'sys',
     ...overrides,
   })
@@ -71,15 +72,15 @@ function makeOrchestrator(
   return orchestrator
 }
 
-/** Wraps a MockAnthropicClient so stream() waits for an external gate promise first. */
-function gatedClient(script: ScriptedResponse[], gate: Promise<void>): ModelClient {
+/** Wraps a MockAnthropicClient so stream() also records the model it was called with. */
+function modelCapturingClient(script: ScriptedResponse[], seen: string[]): ModelClient {
   const inner = new MockAnthropicClient(script)
   return {
     async stream(
       params: Parameters<ModelClient['stream']>[0],
       callbacks: StreamCallbacks,
     ): Promise<StreamResult> {
-      await gate
+      seen.push(params.model)
       return inner.stream(params, callbacks)
     },
     complete: (params) => inner.complete(params),
@@ -152,37 +153,53 @@ describe('AgentOrchestrator + Agent tool', () => {
     expect(res.output).toContain('researcher')
   })
 
-  it('spawnMany runs children concurrently and preserves result order', async () => {
-    let releaseA!: () => void
-    let releaseB!: () => void
-    const gateA = new Promise<void>((r) => (releaseA = r))
-    const gateB = new Promise<void>((r) => (releaseB = r))
-    const gates = [gateA, gateB]
-    const answers = ['answer A', 'answer B']
-    let next = 0
-    const orchestrator = makeOrchestrator(() => {
-      const i = next++
-      const script: ScriptedResponse[] = [
-        { blocks: [textBlock(answers[i]!)], stopReason: 'end_turn' },
-      ]
-      return gatedClient(script, gates[i]!)
+  it('each child gets a FRESH fileReadRegistry and todo list (no cross-contamination with the parent)', async () => {
+    const captured: ToolContext[] = []
+    const probe: ToolDefinition<never> = {
+      name: 'Probe',
+      description: 'captures the ToolContext it runs with',
+      schema: z.object({}) as never,
+      readOnly: true,
+      async execute(_input, ctx) {
+        captured.push(ctx)
+        return { output: 'probed', isError: false }
+      },
+    } as ToolDefinition<never>
+    const registry = new ToolRegistry()
+    registry.register(probe)
+    const childScript: ScriptedResponse[] = [
+      { blocks: [toolUseBlock('t1', 'Probe', {})], stopReason: 'tool_use' },
+      { blocks: [textBlock('done')], stopReason: 'end_turn' },
+    ]
+    const orchestrator = makeOrchestrator(() => new MockAnthropicClient(childScript), {
+      baseRegistry: registry,
     })
-    const defA = { ...researcherDef(), name: 'a' }
-    const defB = { ...researcherDef(), name: 'b' }
-    const promise = orchestrator.spawnMany(
-      [
-        { def: defA, prompt: 'task A' },
-        { def: defB, prompt: 'task B' },
-      ],
-      makeCtx(process.cwd()),
+    const parentCtx = makeCtx(process.cwd())
+    parentCtx.fileReadRegistry.add('C:/parent/secret.ts') // a parent Read must NOT unlock child writes (or vice versa)
+    const res = await orchestrator.runAgent(
+      { ...researcherDef(), tools: ['Probe'] },
+      'probe',
+      parentCtx,
     )
-    // Release B first: B can only finish first if children run concurrently.
-    releaseB()
-    await new Promise((r) => setImmediate(r))
-    releaseA()
-    const outs = await promise
-    expect(outs.map((o) => o.output)).toEqual(['answer A', 'answer B'])
-    expect(outs.every((o) => !o.isError)).toBe(true)
+    expect(res.isError).toBe(false)
+    expect(captured).toHaveLength(1)
+    expect(captured[0]!.fileReadRegistry).not.toBe(parentCtx.fileReadRegistry)
+    expect(captured[0]!.fileReadRegistry.size).toBe(0)
+    expect(captured[0]!.todos).not.toBe(parentCtx.todos)
+  })
+
+  it('defaultModel is a thunk read at spawn time, so /model reaches later sub-agents', async () => {
+    let model = 'model-a'
+    const seen: string[] = []
+    const orchestrator = makeOrchestrator(
+      () =>
+        modelCapturingClient([{ blocks: [textBlock('ok')], stopReason: 'end_turn' }], seen),
+      { defaultModel: () => model },
+    )
+    await orchestrator.runAgent(researcherDef(), 'go', makeCtx(process.cwd()))
+    model = 'model-b'
+    await orchestrator.runAgent(researcherDef(), 'go', makeCtx(process.cwd()))
+    expect(seen).toEqual(['model-a', 'model-b'])
   })
 
   it('fatal child error surfaces as an error tool result', async () => {

@@ -11,8 +11,10 @@ const MAX_LCS_LINES = 500
 
 /** Line-based LCS diff; falls back to a plain old/new listing for very large inputs. */
 export function diffLines(oldText: string, newText: string): DiffLine[] {
-  const a = oldText.split('\n')
-  const b = newText.split('\n')
+  // Empty text means "no lines" (new or emptied file), not one empty line —
+  // otherwise a Write of a new file shows a bogus leading "-" removal.
+  const a = oldText === '' ? [] : oldText.split('\n')
+  const b = newText === '' ? [] : newText.split('\n')
   const m = a.length
   const n = b.length
   if (m > MAX_LCS_LINES || n > MAX_LCS_LINES) {

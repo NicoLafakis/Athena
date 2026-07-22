@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest'
+import { resolve } from 'node:path'
+import type { ToolUseBlock } from '@anthropic-ai/sdk/resources/messages'
 import {
   PermissionEngine,
   matchesRule,
@@ -6,7 +8,13 @@ import {
   globToRegExp,
   normalizePathTarget,
 } from '../../src/harness/permissions.js'
+import { ruleFor } from '../../src/engine/loop.js'
 import type { PermissionMode, PermissionRequest } from '../../src/engine/types.js'
+
+/** Platform-portable absolute path with forward slashes (C:/x on win32, /x on POSIX). */
+function abs(p: string): string {
+  return resolve(p).replaceAll('\\', '/')
+}
 
 function req(toolName: string, input: unknown, readOnly: boolean): PermissionRequest {
   return { toolName, input, readOnly, summary: `${toolName}` }
@@ -85,6 +93,71 @@ describe('path normalization hardening', () => {
       summary: 'Edit',
     })
     expect(decision.decision).toBe('deny')
+  })
+})
+
+describe('canonical-absolute path matching (cwd-aware)', () => {
+  it('deny Write(<vault>/**) catches a relative ../ escape from a sub-cwd', () => {
+    const vault = abs('/vault')
+    const engine = new PermissionEngine({
+      mode: 'trusted',
+      allow: [],
+      deny: [`Write(${vault}/**)`],
+      cwd: `${vault}/sub`,
+    })
+    const decision = engine.check({
+      toolName: 'Write',
+      input: { file_path: '../secrets.txt', content: 'x' },
+      readOnly: false,
+      summary: 'Write',
+    })
+    expect(decision.decision).toBe('deny')
+  })
+
+  it('relative allow rule Edit(src/**) matches an absolute target inside cwd', () => {
+    const proj = abs('/proj')
+    const engine = new PermissionEngine({ mode: 'normal', allow: ['Edit(src/**)'], deny: [], cwd: proj })
+    const inside = engine.check({
+      toolName: 'Edit',
+      input: { file_path: `${proj}/src/x.ts`, old_string: 'a', new_string: 'b' },
+      readOnly: false,
+      summary: 'Edit',
+    })
+    expect(inside.decision).toBe('allow')
+    // The same rule must NOT match a look-alike path outside cwd.
+    const outside = engine.check({
+      toolName: 'Edit',
+      input: { file_path: `${abs('/other')}/src/x.ts`, old_string: 'a', new_string: 'b' },
+      readOnly: false,
+      summary: 'Edit',
+    })
+    expect(outside.decision).toBe('ask')
+  })
+
+  it('allow-always grant (ruleFor) round-trips: relative grant matches later absolute call and vice versa', () => {
+    const proj = abs('/proj')
+    const engine = new PermissionEngine({ mode: 'normal', allow: [], deny: [], cwd: proj })
+    const block = {
+      type: 'tool_use',
+      id: 't1',
+      name: 'Write',
+      input: { file_path: 'src/new.ts', content: '' },
+    } as ToolUseBlock
+    expect(
+      engine.check({ toolName: 'Write', input: block.input, readOnly: false, summary: 'Write' })
+        .decision,
+    ).toBe('ask')
+    engine.grantSession(ruleFor(block, proj))
+    for (const file_path of ['src/new.ts', `${proj}/src/new.ts`, 'src\\new.ts']) {
+      expect(
+        engine.check({
+          toolName: 'Write',
+          input: { file_path, content: '' },
+          readOnly: false,
+          summary: 'Write',
+        }).decision,
+      ).toBe('allow')
+    }
   })
 })
 

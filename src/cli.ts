@@ -34,6 +34,7 @@ import {
   grepTool,
   bashTool,
   powershellTool,
+  taskOutputTool,
   todoTool,
   memoryTool,
   webfetchTool,
@@ -130,7 +131,8 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
     switch (cmd.kind) {
       case 'help':
         info(
-          'Commands: /help /clear /resume /compact /model <id> /mode <normal|acceptEdits|plan|trusted> /memory /skills /agents /quit',
+          'Commands: /help /clear /resume /compact /model <id> /mode <normal|acceptEdits|plan|trusted> /memory /skills /agents /quit\n' +
+            '/clear clears the screen (transcript display only) — conversation context is unchanged; use /compact to shrink it.',
         )
         break
       case 'mode':
@@ -252,6 +254,7 @@ async function main(): Promise<void> {
     mode: settings.permissionMode,
     allow: settings.allow,
     deny: settings.deny,
+    cwd, // same coordinate system the tools resolve file_path against
   })
   const hooks = new HookRunner(settings.hooks)
   const bus = new EngineEventBus()
@@ -266,6 +269,7 @@ async function main(): Promise<void> {
     grepTool,
     bashTool,
     powershellTool,
+    taskOutputTool, // read-only poll over background shell tasks; flows to sub-agents via the base registry
     todoTool,
     memoryTool,
     webfetchTool,
@@ -294,7 +298,7 @@ async function main(): Promise<void> {
     baseRegistry: registry,
     gate,
     hooks,
-    defaultModel: settings.model,
+    defaultModel: () => engine.getModel(), // thunk: /model mid-session reaches sub-agents
     systemPromptBase: systemPrompt,
   })
   registry.register(makeAgentTool(orchestrator) as ToolDefinition<never>)

@@ -50,7 +50,7 @@ function makeOrchestrator(client: ModelClient): AgentOrchestrator {
     baseRegistry: registry,
     gate,
     hooks: new HookRunner([]),
-    defaultModel: 'mock',
+    defaultModel: () => 'mock',
     systemPromptBase: 'sys',
   })
 }

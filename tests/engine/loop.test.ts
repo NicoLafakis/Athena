@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { EngineEventBus } from '../../src/engine/events.js'
 import { ContextManager } from '../../src/engine/context.js'
-import { Engine, zodToJsonSchema, type EngineOptions } from '../../src/engine/loop.js'
+import { Engine, repairDanglingToolUses, zodToJsonSchema, type EngineOptions } from '../../src/engine/loop.js'
 import { ToolRegistry } from '../../src/tools/registry.js'
 import { readTool } from '../../src/tools/read.js'
 import { HookRunner } from '../../src/harness/hooks.js'
@@ -417,6 +417,64 @@ describe('Engine.runTurn', () => {
     expect(events.at(-1)).toMatchObject({ type: 'turn-done' })
   })
 
+  it('a second runTurn while one is in flight is rejected without touching the transcript', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    let started!: () => void
+    const startedP = new Promise<void>((r) => (started = r))
+    const echo = makeEchoTool(async () => {
+      started()
+      await gate
+    })
+    const { engine, events } = makeEngine(
+      [
+        { blocks: [toolUseBlock('tu_1', 'Echo', { value: 'x' })], stopReason: 'tool_use' },
+        { blocks: [textBlock('done')], stopReason: 'end_turn' },
+      ],
+      {},
+      echo,
+    )
+    const first = engine.runTurn('first prompt')
+    await startedP // the first turn is mid-tool
+    await engine.runTurn('second prompt') // must be a no-op, not an interleave
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'error',
+        fatal: false,
+        message: expect.stringContaining('already in progress'),
+      }),
+    )
+    release()
+    await first
+    const msgs = engine.getMessages()
+    expect(JSON.stringify(msgs)).not.toContain('second prompt')
+    // Valid alternation: user, assistant(tool_use), user(tool_result), assistant.
+    expect(msgs.map((m) => m.role)).toEqual(['user', 'assistant', 'user', 'assistant'])
+  })
+
+  it('UserPromptSubmit deny blocks the turn: no API call, no message, turn-done emitted', async () => {
+    const hooks = new HookRunner([])
+    hooks.run = async (event) =>
+      event === 'UserPromptSubmit'
+        ? { allowed: false, reason: 'blocked prompt' }
+        : { allowed: true }
+    const { engine, events, client } = makeEngine(
+      [{ blocks: [textBlock('never')], stopReason: 'end_turn' }],
+      { hooks },
+    )
+    await engine.runTurn('bad prompt')
+    expect(client.calls).toHaveLength(0)
+    expect(engine.getMessages()).toHaveLength(0)
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'error',
+        fatal: false,
+        message: expect.stringContaining('blocked prompt'),
+      }),
+    )
+    expect(events.at(-1)).toMatchObject({ type: 'turn-done' })
+  })
+
   it('runTurn after abort resets the controller so the next turn works', async () => {
     const controller = new AbortController()
     controller.abort()
@@ -426,6 +484,88 @@ describe('Engine.runTurn', () => {
     )
     await engine.runTurn('hello again')
     expect(events).toContainEqual({ type: 'assistant-text', delta: 'back' })
+  })
+})
+
+describe('loadMessages resume repair (dangling tool_use)', () => {
+  const INTERRUPTED = 'Tool execution interrupted (session ended mid-run)'
+
+  it('synthesizes an error tool_result for a tool_use with no following message', () => {
+    const { engine } = makeEngine([])
+    engine.loadMessages([
+      { role: 'user', content: 'do it' },
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'tu_1', name: 'Echo', input: { value: 'x' } }],
+      },
+    ])
+    const msgs = engine.getMessages()
+    expect(msgs).toHaveLength(3)
+    expect(msgs[2]).toEqual({
+      role: 'user',
+      content: [
+        { type: 'tool_result', tool_use_id: 'tu_1', content: INTERRUPTED, is_error: true },
+      ],
+    })
+  })
+
+  it('merges missing ids into a following user message that has only partial results', () => {
+    const { engine } = makeEngine([])
+    engine.loadMessages([
+      { role: 'user', content: 'go' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'tu_1', name: 'Echo', input: { value: 'a' } },
+          { type: 'tool_use', id: 'tu_2', name: 'Echo', input: { value: 'b' } },
+        ],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'echo: a' }],
+      },
+    ])
+    const msgs = engine.getMessages()
+    expect(msgs).toHaveLength(3) // merged, not inserted
+    const results = msgs[2]!.content as { type: string; tool_use_id: string; is_error?: boolean }[]
+    expect(results.map((b) => b.tool_use_id).sort()).toEqual(['tu_1', 'tu_2'])
+    const synthesized = results.find((b) => b.tool_use_id === 'tu_2')!
+    expect(synthesized).toMatchObject({ type: 'tool_result', is_error: true, content: INTERRUPTED })
+  })
+
+  it('leaves fully-paired history untouched', () => {
+    const history = [
+      { role: 'user', content: 'go' },
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'tu_1', name: 'Echo', input: { value: 'a' } }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'echo: a' }],
+      },
+      { role: 'assistant', content: [{ type: 'text', text: 'done', citations: null }] },
+    ] as Parameters<typeof repairDanglingToolUses>[0]
+    expect(repairDanglingToolUses(history)).toEqual(history)
+  })
+
+  it('repairs a dangling tool_use in the middle of history (next message is plain user text)', () => {
+    const repaired = repairDanglingToolUses([
+      { role: 'user', content: 'go' },
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'tu_1', name: 'Echo', input: { value: 'a' } }],
+      },
+      { role: 'user', content: 'a later prompt' },
+    ] as Parameters<typeof repairDanglingToolUses>[0])
+    expect(repaired).toHaveLength(4)
+    expect(repaired[2]).toEqual({
+      role: 'user',
+      content: [
+        { type: 'tool_result', tool_use_id: 'tu_1', content: INTERRUPTED, is_error: true },
+      ],
+    })
+    expect(repaired[3]).toEqual({ role: 'user', content: 'a later prompt' })
   })
 })
 

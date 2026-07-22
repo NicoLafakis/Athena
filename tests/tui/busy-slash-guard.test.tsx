@@ -49,6 +49,16 @@ describe('busy-turn slash guard', () => {
     expect(props.onSlash).not.toHaveBeenCalled()
   })
 
+  it('typing a second prompt while a turn is busy is a no-op (no second runTurn)', async () => {
+    const { props } = makeHarness()
+    const { stdin } = render(<App {...props} />)
+    await delay(0)
+    await type(stdin, 'first prompt')
+    expect(props.onSubmit).toHaveBeenCalledTimes(1)
+    await type(stdin, 'second prompt')
+    expect(props.onSubmit).toHaveBeenCalledTimes(1)
+  })
+
   it('still forwards /compact when idle', async () => {
     const { props } = makeHarness()
     const { stdin } = render(<App {...props} />)

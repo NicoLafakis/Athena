@@ -41,6 +41,9 @@ export class AnthropicClient implements ModelClient {
     callbacks: StreamCallbacks,
   ): Promise<StreamResult> {
     let lastError: unknown
+    // Only clean-slate failures are retried: once any delta reached the caller,
+    // a retry would re-stream the same text into the transcript (double render).
+    let deltaEmitted = false
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
         const stream = this.sdk.messages.stream(
@@ -53,15 +56,21 @@ export class AnthropicClient implements ModelClient {
           },
           { signal: params.signal },
         )
-        stream.on('text', (delta) => callbacks.onTextDelta(delta))
-        stream.on('thinking', (delta) => callbacks.onThinkingDelta(delta))
+        stream.on('text', (delta) => {
+          deltaEmitted = true
+          callbacks.onTextDelta(delta)
+        })
+        stream.on('thinking', (delta) => {
+          deltaEmitted = true
+          callbacks.onThinkingDelta(delta)
+        })
         return { message: await stream.finalMessage() }
       } catch (err) {
         lastError = err
         if (params.signal.aborted) throw err
         const status = (err as { status?: number }).status
         const retryable = status === 429 || status === 529 || (status !== undefined && status >= 500)
-        if (!retryable || attempt === MAX_RETRIES - 1) throw err
+        if (!retryable || deltaEmitted || attempt === MAX_RETRIES - 1) throw err
         await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt))
       }
     }
