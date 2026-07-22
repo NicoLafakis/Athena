@@ -2,7 +2,13 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { bashTool, powershellTool, backgroundTasks } from '../../src/tools/shell.js'
+import {
+  bashTool,
+  powershellTool,
+  backgroundTasks,
+  makeOutputBuffer,
+  killProcessTree,
+} from '../../src/tools/shell.js'
 import { makeCtx } from '../helpers/tool-ctx.js'
 
 let dir: string
@@ -73,6 +79,68 @@ describe('powershellTool', () => {
     )
     expect(backgroundTasks.get(id!)?.status).toBe('done')
   }, 40_000)
+})
+
+describe('makeOutputBuffer', () => {
+  it('passes output through untouched under the cap', () => {
+    const buf = makeOutputBuffer(100)
+    buf.append('hello ')
+    buf.append('world')
+    expect(buf.truncated).toBe(false)
+    expect(buf.value()).toBe('hello world')
+  })
+
+  it('caps accumulation at the limit with a single truncation notice', () => {
+    const buf = makeOutputBuffer(100)
+    buf.append('x'.repeat(80))
+    buf.append('y'.repeat(80))
+    expect(buf.truncated).toBe(true)
+    const v = buf.value()
+    expect(v.startsWith('x'.repeat(80))).toBe(true)
+    expect(v).toContain('(truncated: output exceeded 100 chars)')
+    expect(v.length).toBeLessThan(200)
+  })
+
+  it('stops buffering entirely once truncated (no unbounded growth)', () => {
+    const buf = makeOutputBuffer(10)
+    for (let i = 0; i < 1000; i++) buf.append('x'.repeat(100))
+    expect(buf.truncated).toBe(true)
+    expect(buf.value().length).toBeLessThan(100)
+  })
+})
+
+describe('killProcessTree', () => {
+  function fakes() {
+    const spawnCalls: Array<[string, string[]]> = []
+    const fakeSpawn = ((cmd: string, args: string[]) => {
+      spawnCalls.push([cmd, args])
+      return { on: () => ({}) }
+    }) as unknown as typeof import('node:child_process').spawn
+    const child = { pid: 1234 as number | undefined, kill: vi.fn() }
+    return { spawnCalls, fakeSpawn, child }
+  }
+
+  it('uses taskkill /T /F on win32 to kill the whole tree', () => {
+    const { spawnCalls, fakeSpawn, child } = fakes()
+    killProcessTree(child, 'win32', fakeSpawn)
+    expect(spawnCalls).toEqual([['taskkill', ['/pid', '1234', '/T', '/F']]])
+    expect(child.kill).not.toHaveBeenCalled()
+  })
+
+  it('falls back to child.kill on win32 when pid is undefined', () => {
+    const { spawnCalls, fakeSpawn, child } = fakes()
+    child.pid = undefined
+    killProcessTree(child, 'win32', fakeSpawn)
+    expect(spawnCalls).toEqual([])
+    expect(child.kill).toHaveBeenCalled()
+  })
+
+  it('uses a plain signal kill on non-win32 platforms', () => {
+    const { spawnCalls, fakeSpawn, child } = fakes()
+    killProcessTree(child, 'linux', fakeSpawn)
+    expect(spawnCalls).toEqual([])
+    expect(child.kill).toHaveBeenCalled()
+  })
 })
 
 describe('bashTool', () => {

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { webfetchTool, htmlToText } from '../../src/tools/webfetch.js'
+import { webfetchTool, htmlToText, readBodyCapped } from '../../src/tools/webfetch.js'
 import { makeCtx } from '../helpers/tool-ctx.js'
 
 let dir: string
@@ -89,6 +89,67 @@ describe('webfetchTool', () => {
 
   it('rejects non-URL input via schema', () => {
     expect(webfetchTool.schema.safeParse({ url: 'not a url' }).success).toBe(false)
+  })
+
+  it('rejects file: and ftp: schemes without fetching', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    for (const url of ['file:///etc/passwd', 'ftp://example.com/x']) {
+      const res = await webfetchTool.execute({ url }, makeCtx(dir))
+      expect(res.isError).toBe(true)
+      expect(res.output).toMatch(/scheme/i)
+    }
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('upgrades plain http to https for non-local hosts', async () => {
+    const fetchMock = vi.fn(
+      async (_url: string | URL) =>
+        new Response('ok', { status: 200, headers: { 'content-type': 'text/plain' } }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const res = await webfetchTool.execute({ url: 'http://example.com/page' }, makeCtx(dir))
+    expect(res.isError).toBe(false)
+    expect(String(fetchMock.mock.calls[0]![0])).toBe('https://example.com/page')
+  })
+
+  it('leaves http alone for localhost and 127.0.0.1', async () => {
+    const fetchMock = vi.fn(
+      async (_url: string | URL) =>
+        new Response('ok', { status: 200, headers: { 'content-type': 'text/plain' } }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    await webfetchTool.execute({ url: 'http://localhost:3000/x' }, makeCtx(dir))
+    await webfetchTool.execute({ url: 'http://127.0.0.1:8080/y' }, makeCtx(dir))
+    expect(String(fetchMock.mock.calls[0]![0])).toBe('http://localhost:3000/x')
+    expect(String(fetchMock.mock.calls[1]![0])).toBe('http://127.0.0.1:8080/y')
+  })
+
+  it('blocks the cloud metadata host without fetching', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    for (const url of [
+      'http://169.254.169.254/latest/meta-data/',
+      'https://169.254.169.254/latest/meta-data/',
+    ]) {
+      const res = await webfetchTool.execute({ url }, makeCtx(dir))
+      expect(res.isError).toBe(true)
+    }
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('readBodyCapped', () => {
+  it('reads small bodies fully', async () => {
+    const { text, truncated } = await readBodyCapped(new Response('hello'), 2_000_000)
+    expect(text).toBe('hello')
+    expect(truncated).toBe(false)
+  })
+
+  it('stops reading past the raw cap', async () => {
+    const { text, truncated } = await readBodyCapped(new Response('x'.repeat(2_500_000)), 2_000_000)
+    expect(truncated).toBe(true)
+    expect(text.length).toBe(2_000_000)
   })
 })
 

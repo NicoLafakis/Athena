@@ -73,6 +73,14 @@ export const memoryTool: ToolDefinition<z.infer<typeof MemoryInput>> = {
     const abs = safeResolve(memDir, input.path)
     if (!abs) return { output: `Path escapes memory dir: ${input.path}`, isError: true }
     const rel = relative(memDir, abs)
+    // MEMORY.md is the index this tool maintains; direct writes/deletes would corrupt it.
+    const isIndex = rel.replaceAll('\\', '/').toLowerCase() === 'memory.md'
+    if (isIndex && (input.op === 'write' || input.op === 'delete')) {
+      return {
+        output: 'MEMORY.md is the reserved index maintained by this tool; write facts to another file',
+        isError: true,
+      }
+    }
     switch (input.op) {
       case 'read': {
         if (!existsSync(abs)) return { output: `No memory at ${rel}`, isError: true }

@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { PermissionEngine, matchesRule, parseRule } from '../../src/harness/permissions.js'
+import {
+  PermissionEngine,
+  matchesRule,
+  parseRule,
+  globToRegExp,
+  normalizePathTarget,
+} from '../../src/harness/permissions.js'
 import type { PermissionMode, PermissionRequest } from '../../src/engine/types.js'
 
 function req(toolName: string, input: unknown, readOnly: boolean): PermissionRequest {
@@ -23,6 +29,62 @@ describe('parseRule / matchesRule', () => {
   ]
   it.each(cases)('%s vs %s %j -> %s', (rule, tool, input, expected) => {
     expect(matchesRule(parseRule(rule), tool, input)).toBe(expected)
+  })
+})
+
+describe('path normalization hardening', () => {
+  const cases: Array<[rule: string, tool: string, input: unknown, expected: boolean]> = [
+    // Traversal segments must not bypass deny-style rules.
+    ['Edit(secret/**)',    'Edit', { file_path: 'a/../secret/x' }, true],
+    ['Edit(**/secret/**)', 'Edit', { file_path: 'a/../secret/x' }, true],
+    ['Edit(secret/**)',    'Edit', { file_path: './secret/x' }, true],
+    // Backslash variants normalize to forward slashes.
+    ['Edit(secret/**)',    'Edit', { file_path: 'secret\\x' }, true],
+    ['Edit(**/secret/**)', 'Edit', { file_path: 'a\\..\\secret\\x' }, true],
+    // **/ matches zero or more leading segments.
+    ['Edit(**/secret/**)', 'Edit', { file_path: 'deep/nest/secret/x' }, true],
+    ['Edit(**/secret/**)', 'Edit', { file_path: 'secret/x' }, true],
+    // Non-matching paths still fall through.
+    ['Edit(secret/**)',    'Edit', { file_path: 'a/../other/x' }, false],
+    // Ordinary globs keep working on already-clean paths.
+    ['Edit(src/**)',       'Edit', { file_path: 'src/deep/x.ts' }, true],
+    ['Edit(src/**)',       'Edit', { file_path: 'docs/x.md' }, false],
+  ]
+  it.each(cases)('%s vs %s %j -> %s', (rule, tool, input, expected) => {
+    expect(matchesRule(parseRule(rule), tool, input)).toBe(expected)
+  })
+
+  it.runIf(process.platform === 'win32')('matches file paths case-insensitively on win32', () => {
+    expect(matchesRule(parseRule('Edit(secret/**)'), 'Edit', { file_path: 'SECRET\\X.TS' })).toBe(true)
+    expect(matchesRule(parseRule('Edit(secret/**)'), 'Edit', { file_path: 'Secret/x' })).toBe(true)
+  })
+
+  it('globToRegExp supports an explicit case-insensitive flag', () => {
+    expect(globToRegExp('**/secret/**', true).test('SECRET/x')).toBe(true)
+    expect(globToRegExp('**/secret/**').test('SECRET/x')).toBe(false)
+  })
+
+  it('normalizePathTarget resolves dot segments and backslashes', () => {
+    expect(normalizePathTarget('a\\..\\secret\\x')).toBe('secret/x')
+    expect(normalizePathTarget('./a/./b')).toBe('a/b')
+    expect(normalizePathTarget('a/../../x')).toBe('../x')
+  })
+
+  it('Bash command prefix matching is untouched by path normalization', () => {
+    expect(matchesRule(parseRule('Bash(git:*)'), 'Bash', { command: 'git diff ../x' })).toBe(true)
+    expect(matchesRule(parseRule('Bash(git:*)'), 'Bash', { command: 'GIT status' })).toBe(false)
+    expect(matchesRule(parseRule('Bash(cat secret/x)'), 'Bash', { command: 'cat a/../secret/x' })).toBe(false)
+  })
+
+  it('deny rule with traversal input denies end-to-end', () => {
+    const engine = new PermissionEngine({ mode: 'trusted', allow: [], deny: ['Edit(**/secret/**)'] })
+    const decision = engine.check({
+      toolName: 'Edit',
+      input: { file_path: 'a/../secret/creds.txt', old_string: 'a', new_string: 'b' },
+      readOnly: false,
+      summary: 'Edit',
+    })
+    expect(decision.decision).toBe('deny')
   })
 })
 

@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -41,29 +41,69 @@ const SPECS: ShellSpec[] = [
   },
 ]
 
-function cap(s: string): string {
-  return s.length > OUTPUT_CAP
-    ? s.slice(0, OUTPUT_CAP) + `\n(truncated: output exceeded ${OUTPUT_CAP} chars)`
-    : s
+/** Bounded output accumulator: stops buffering once the cap is reached, so a
+ *  runaway command cannot OOM the harness while it streams gigabytes. */
+export function makeOutputBuffer(capChars = OUTPUT_CAP): {
+  append(chunk: string): void
+  value(): string
+  readonly truncated: boolean
+} {
+  let out = ''
+  let truncated = false
+  return {
+    append(chunk: string) {
+      if (truncated) return
+      out += chunk
+      if (out.length > capChars) {
+        out = out.slice(0, capChars)
+        truncated = true
+      }
+    },
+    value() {
+      return truncated ? out + `\n(truncated: output exceeded ${capChars} chars)` : out
+    },
+    get truncated() {
+      return truncated
+    },
+  }
+}
+
+/** Kill a spawned command. On win32 `child.kill()` only signals the direct
+ *  child and orphans grandchildren (e.g. node started by a .cmd shim), so use
+ *  `taskkill /T /F` on the process tree; elsewhere a signal suffices.
+ *  `platform`/`spawnFn` are injectable for tests. */
+export function killProcessTree(
+  child: Pick<ChildProcess, 'pid' | 'kill'>,
+  platform: NodeJS.Platform = process.platform,
+  spawnFn: typeof spawn = spawn,
+): void {
+  if (platform === 'win32' && child.pid !== undefined) {
+    spawnFn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true }).on(
+      'error',
+      () => child.kill(),
+    )
+  } else {
+    child.kill()
+  }
 }
 
 function runShell(spec: ShellSpec, input: ShellInputT, ctx: ToolContext): Promise<ToolOutput> {
   const timeout = input.timeout ?? DEFAULT_TIMEOUT
   return new Promise((resolvePromise) => {
     const child = spawn(spec.bin, spec.args(input.command), { cwd: ctx.cwd, windowsHide: true })
-    let out = ''
+    const buf = makeOutputBuffer()
     let timedOut = false
     const timer = setTimeout(() => {
       timedOut = true
-      child.kill()
+      killProcessTree(child)
     }, timeout)
-    const onAbort = () => child.kill()
+    const onAbort = () => killProcessTree(child)
     ctx.abortSignal.addEventListener('abort', onAbort, { once: true })
     child.stdout.on('data', (d: Buffer) => {
-      out += d.toString('utf8')
+      buf.append(d.toString('utf8'))
     })
     child.stderr.on('data', (d: Buffer) => {
-      out += d.toString('utf8')
+      buf.append(d.toString('utf8'))
     })
     child.on('error', (e) => {
       clearTimeout(timer)
@@ -75,12 +115,12 @@ function runShell(spec: ShellSpec, input: ShellInputT, ctx: ToolContext): Promis
       ctx.abortSignal.removeEventListener('abort', onAbort)
       if (timedOut) {
         resolvePromise({
-          output: cap(out) + `\n(command timed out after ${timeout}ms)`,
+          output: buf.value() + `\n(command timed out after ${timeout}ms)`,
           isError: true,
         })
         return
       }
-      resolvePromise({ output: cap(out) || '(no output)', isError: code !== 0 })
+      resolvePromise({ output: buf.value() || '(no output)', isError: code !== 0 })
     })
   })
 }

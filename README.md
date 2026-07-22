@@ -29,6 +29,18 @@ In-session: `/help /clear /resume /compact /model /mode /memory /skills /agents 
 model, permissionMode (`normal | acceptEdits | plan | trusted`), allow/deny rules like
 `"Bash(git:*)"` or `"Edit(src/**)"`, and hooks (`SessionStart | UserPromptSubmit | PreToolUse | PostToolUse | Stop`).
 
+## Security model
+
+Permission rules for file tools match against normalized paths (backslashes
+folded to `/`, `.`/`..` segments resolved, case-insensitive on Windows), so
+`a/../secret/x` cannot bypass a deny rule like `Edit(secret/**)`.
+
+The `Bash(...)`/`PowerShell(...)` command **prefix filter is advisory only**:
+shell metacharacters, subshells, and env tricks can evade a string prefix.
+Real enforcement is the permission ask (mutating tools are deny-by-default
+outside `trusted` mode) plus PreToolUse hooks; command deny rules are a
+convenience guardrail, not a sandbox.
+
 ## Development
 
     pnpm typecheck && pnpm lint && pnpm test && pnpm build

@@ -75,6 +75,26 @@ describe('memoryTool', () => {
     expect(res.isError).toBe(true)
   })
 
+  it('rejects write and delete of the reserved MEMORY.md index (any case)', async () => {
+    const ctx = makeCtx(dir)
+    for (const name of ['MEMORY.md', 'memory.md', 'Memory.MD', './MEMORY.md']) {
+      const res = await memoryTool.execute({ op: 'write', path: name, content: 'x' }, ctx)
+      expect(res.isError).toBe(true)
+      expect(res.output).toMatch(/reserved/i)
+    }
+    const del = await memoryTool.execute({ op: 'delete', path: 'MEMORY.md' }, ctx)
+    expect(del.isError).toBe(true)
+    expect(del.output).toMatch(/reserved/i)
+  })
+
+  it('still allows reading MEMORY.md', async () => {
+    const ctx = makeCtx(dir)
+    await memoryTool.execute({ op: 'write', path: 'x.md', content: 'fact' }, ctx)
+    const res = await memoryTool.execute({ op: 'read', path: 'MEMORY.md' }, ctx)
+    expect(res.isError).toBe(false)
+    expect(res.output).toContain('[x.md]')
+  })
+
   it('list on empty memory reports empty', async () => {
     const ctx = makeCtx(dir)
     const res = await memoryTool.execute({ op: 'list' }, ctx)
