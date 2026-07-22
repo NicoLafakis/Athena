@@ -8,5 +8,8 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'warn',
     },
   },
-  { ignores: ['dist/**', 'bin/**', 'node_modules/**'] },
+  // Root-level configs (eslint.config.js, tsup.config.ts, vitest.config.ts) are
+  // linted: `pnpm lint` runs `eslint .`, and only build output and deps are ignored.
+  // bin/athena.js is a launcher shim linted like everything else.
+  { ignores: ['dist/**', 'node_modules/**'] },
 )
