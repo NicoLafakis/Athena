@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
@@ -62,7 +62,17 @@ export class Session {
       .join('')
     const tmp = join(dirname(this.file), `.${this.id}.tmp`)
     writeFileSync(tmp, body, 'utf8')
-    renameSync(tmp, this.file)
+    try {
+      renameSync(tmp, this.file)
+    } catch (err) {
+      // Never orphan the temp file; the original stays intact.
+      try {
+        unlinkSync(tmp)
+      } catch {
+        /* best effort */
+      }
+      throw err
+    }
   }
 
   /** Append when exactly one message was added since last call; otherwise rewrite the file. */

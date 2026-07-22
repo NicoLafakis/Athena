@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { SettingsSchema } from '../brain/settings.js'
 import type { BrainPaths } from '../brain/paths.js'
 
 const DEFAULT_CONSTITUTION = `# Athena
@@ -15,13 +16,8 @@ I am Athena, a terminal coding agent. This file is my constitution: identity fir
 3. Run the project's own gates (typecheck, lint, tests) before declaring work done.
 `
 
-const DEFAULT_SETTINGS = {
-  model: 'claude-sonnet-4-5',
-  permissionMode: 'normal',
-  allow: [],
-  deny: [],
-  hooks: [],
-}
+// Single source of truth for defaults: the settings schema itself.
+const DEFAULT_SETTINGS = SettingsSchema.parse({})
 
 /** First-run scaffold for ~/.athena. Creates missing dirs/files; NEVER overwrites existing ones. */
 export function ensureBrainScaffold(paths: BrainPaths): void {

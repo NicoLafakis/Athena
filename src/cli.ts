@@ -5,7 +5,7 @@ import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
 import { render } from 'ink'
 import React from 'react'
 import { resolveBrainPaths } from './brain/paths.js'
-import { loadSettings, type Settings } from './brain/settings.js'
+import { loadSettings } from './brain/settings.js'
 import {
   loadConstitution,
   loadMemoryIndex,
@@ -59,6 +59,9 @@ export function parseArgs(argv: string[]): CliCommand {
       return { command: 'error', message: 'Usage: athena import <path> [--force]' }
     return { command: 'import', sourceDir, force: argv.includes('--force') }
   }
+  const known = new Set(['--help', '-h', '--resume', '--continue'])
+  const unknown = argv.find((a) => !known.has(a))
+  if (unknown) return { command: 'error', message: `Unknown argument: ${unknown} (try --help)` }
   if (argv.includes('--help') || argv.includes('-h')) return { command: 'help' }
   if (argv.includes('--resume')) return { command: 'resume' }
   if (argv.includes('--continue')) return { command: 'continue' }
@@ -115,14 +118,13 @@ interface SlashDeps {
   gate: PermissionEngine
   contextManager: ContextManager
   client: AnthropicClient
-  settings: Settings
   store: SessionStore
   session: Session | null
   paths: BrainPaths
 }
 
 export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
-  const { bus, engine, gate, contextManager, client, settings, store, session, paths } = deps
+  const { bus, engine, gate, contextManager, client, store, session, paths } = deps
   const info = (message: string) => bus.emit({ type: 'info', message })
   return (cmd) => {
     switch (cmd.kind) {
@@ -143,7 +145,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         void (async () => {
           try {
             const { messages, summary } = await contextManager.compact(engine.getMessages(), (p) =>
-              client.complete({ model: settings.model, prompt: p, maxTokens: 2048 }),
+              client.complete({ model: engine.getModel(), prompt: p, maxTokens: 2048 }),
             )
             if (summary === '') {
               info('Nothing to compact yet.')
@@ -343,7 +345,18 @@ async function main(): Promise<void> {
     systemPrompt,
     maxTokens: 8192,
     askUser: (req) => bridge.ask(req),
-    onMessagesChanged: (messages) => session.rewriteOrAppend(messages),
+    onMessagesChanged: (messages) => {
+      // A full disk / locked file must not kill the TUI mid-turn.
+      try {
+        session.rewriteOrAppend(messages)
+      } catch (err) {
+        bus.emit({
+          type: 'error',
+          message: `Session write failed: ${(err as Error).message}`,
+          fatal: false,
+        })
+      }
+    },
   })
   if (history.length > 0) engine.loadMessages(history)
 
@@ -368,7 +381,6 @@ async function main(): Promise<void> {
         gate,
         contextManager,
         client,
-        settings,
         store,
         session,
         paths,
@@ -381,5 +393,10 @@ async function main(): Promise<void> {
 // importing this module from tests must not launch the TUI or scaffold ~/.athena.
 const entryBase = process.argv[1] ? basename(process.argv[1]) : ''
 if (['athena', 'athena.js', 'athena.cmd', 'cli.js', 'cli.mjs', 'cli.ts'].includes(entryBase)) {
-  void main()
+  // Top-level error boundary: malformed settings.json, a vanished session file, etc.
+  // must exit with a clean message, not an unhandled-rejection stack trace.
+  main().catch((err: Error) => {
+    console.error(err.message)
+    process.exitCode = 1
+  })
 }

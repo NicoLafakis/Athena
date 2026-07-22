@@ -36,4 +36,25 @@ describe('PermissionBridge concurrent-ask queue', () => {
     const bridge = new PermissionBridge()
     await expect(bridge.ask(req('Bash'))).resolves.toBe('deny')
   })
+
+  it('cancelAll denies the current AND queued asks and clears the dialog', async () => {
+    const shown: Array<PendingPermission | null> = []
+    const bridge = new PermissionBridge()
+    bridge.bind((p) => shown.push(p))
+
+    const first = bridge.ask(req('Bash'))
+    const second = bridge.ask(req('Write'))
+    expect(shown.at(-1)?.toolName).toBe('Bash')
+
+    bridge.cancelAll()
+    await expect(first).resolves.toBe('deny')
+    await expect(second).resolves.toBe('deny')
+    expect(shown.at(-1)).toBeNull()
+
+    // Bridge still works for fresh asks afterwards.
+    const third = bridge.ask(req('Edit'))
+    expect(shown.at(-1)?.toolName).toBe('Edit')
+    shown.at(-1)!.resolve('allow-once')
+    await expect(third).resolves.toBe('allow-once')
+  })
 })

@@ -61,6 +61,10 @@ export class Engine {
     this.opts.model = model
   }
 
+  getModel(): string {
+    return this.opts.model
+  }
+
   private toApiTools(): Tool[] {
     return this.opts.registry.list().map((t) => ({
       name: t.name,

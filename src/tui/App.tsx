@@ -54,6 +54,18 @@ export class PermissionBridge {
       }
     })
   }
+
+  /** Abort path: deny the current and all queued asks so no dialog survives a dead turn. */
+  cancelAll(): void {
+    // Clear the queue BEFORE resolving: each wrapped resolve advances the (now empty)
+    // queue, so nothing stale gets re-presented.
+    const all = [this.current, ...this.queue.splice(0)].filter(
+      (p): p is PendingPermission => p !== null,
+    )
+    this.current = null
+    this.setter?.(null)
+    for (const p of all) p.resolve('deny')
+  }
 }
 
 export interface AppStatus {
@@ -95,7 +107,11 @@ export function App({ bus, status, onSubmit, onSlash, onAbort, permissionBridge 
   )
 
   useInput((_ch, key) => {
-    if (key.escape && busy) onAbort()
+    if (key.escape && busy) {
+      onAbort()
+      // No permission dialog may survive a dead turn (queued sub-agent asks included).
+      permissionBridge.cancelAll()
+    }
   })
 
   const handleSubmit = useCallback(
@@ -104,14 +120,20 @@ export function App({ bus, status, onSubmit, onSlash, onAbort, permissionBridge 
       if (slash) {
         if (slash.kind === 'quit') exit()
         else if (slash.kind === 'clear') setEntries([])
-        else onSlash(slash)
+        else if (busy && (slash.kind === 'compact' || slash.kind === 'model')) {
+          // Mutating engine state mid-turn corrupts the in-flight transcript.
+          bus.emit({
+            type: 'info',
+            message: `/${slash.kind} is unavailable while a turn is running — finish or Esc the current turn first.`,
+          })
+        } else onSlash(slash)
         return
       }
       setEntries((prev) => [...prev, { kind: 'user', text }])
       setBusy(true)
       await onSubmit(text)
     },
-    [onSubmit, onSlash, exit],
+    [onSubmit, onSlash, exit, busy, bus],
   )
 
   return (

@@ -73,4 +73,15 @@ describe('parseArgs', () => {
     expect(parseArgs(['--help'])).toEqual({ command: 'help' })
     expect(parseArgs(['-h'])).toEqual({ command: 'help' })
   })
+
+  it('errors on unknown arguments instead of silently starting a fresh session', () => {
+    expect(parseArgs(['--continu'])).toEqual({
+      command: 'error',
+      message: 'Unknown argument: --continu (try --help)',
+    })
+    expect(parseArgs(['--resume', 'extra'])).toEqual({
+      command: 'error',
+      message: 'Unknown argument: extra (try --help)',
+    })
+  })
 })
