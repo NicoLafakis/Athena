@@ -35,8 +35,8 @@ const MAX_RETRIES = 3
 export class AnthropicClient implements ModelClient {
   private readonly sdk: Anthropic
 
-  constructor(apiKey?: string) {
-    this.sdk = new Anthropic({ apiKey })
+  constructor(apiKey?: string, baseURL?: string) {
+    this.sdk = new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}) })
   }
 
   async stream(
