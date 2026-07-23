@@ -1,7 +1,8 @@
 // src/engine/client-holder.ts — one mutable indirection over ModelClient. The engine,
 // the orchestrator's clientFactory, and the compactor's complete() all hold THIS object,
 // so a /provider swap reaches every call site at once — sub-agents and compaction can
-// never be left on the old provider's client.
+// never be left on the old provider's client. A swap does not affect requests already started;
+// they finish on the old client via the call-time read of `current`.
 import type { ModelClient, StreamCallbacks, StreamResult } from './client.js'
 
 export class ClientHolder implements ModelClient {
@@ -13,10 +14,6 @@ export class ClientHolder implements ModelClient {
 
   swap(next: ModelClient): void {
     this.current = next
-  }
-
-  get(): ModelClient {
-    return this.current
   }
 
   stream(

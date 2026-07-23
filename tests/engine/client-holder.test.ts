@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { ClientHolder } from '../../src/engine/client-holder.js'
 import { AnthropicClient } from '../../src/engine/client.js'
 import type { ModelClient, StreamResult } from '../../src/engine/client.js'
@@ -36,7 +36,18 @@ describe('ClientHolder', () => {
     await holder.complete({ model: 'm', prompt: 'p', maxTokens: 10 })
     holder.swap(namedClient('b', log))
     await holder.complete({ model: 'm', prompt: 'p', maxTokens: 10 })
-    expect(log).toEqual(['a:stream', 'a:complete', 'b:complete'])
+    await holder.stream(
+      {
+        model: 'm',
+        system: 's',
+        messages: [],
+        tools: [],
+        maxTokens: 10,
+        signal: new AbortController().signal,
+      },
+      { onTextDelta: () => {}, onThinkingDelta: () => {} },
+    )
+    expect(log).toEqual(['a:stream', 'a:complete', 'b:complete', 'b:stream'])
   })
 
   it('is itself a ModelClient, so engine/orchestrator/compactor can hold it directly', () => {
@@ -47,6 +58,10 @@ describe('ClientHolder', () => {
 })
 
 describe('AnthropicClient baseURL', () => {
+  beforeEach(() => {
+    delete process.env['ANTHROPIC_BASE_URL']
+  })
+
   it('passes baseURL through to the SDK when given', () => {
     const c = new AnthropicClient('sk-x', 'https://api.moonshot.ai/anthropic')
     const sdk = (c as unknown as { sdk: { baseURL: string } }).sdk

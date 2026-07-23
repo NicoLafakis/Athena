@@ -36,7 +36,7 @@ export class AnthropicClient implements ModelClient {
   private readonly sdk: Anthropic
 
   constructor(apiKey?: string, baseURL?: string) {
-    this.sdk = new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}) })
+    this.sdk = new Anthropic({ apiKey, baseURL })
   }
 
   async stream(
