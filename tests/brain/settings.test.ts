@@ -127,7 +127,7 @@ describe('provider-scoped model validation', () => {
   it('kimi schema accepts kimi keys and defaults to kimi-k3', () => {
     const schema = makeSettingsSchema('kimi')
     expect(schema.parse({ model: 'kimi-k2.7-code' }).model).toBe('kimi-k2.7-code')
-    expect(schema.parse({ model: 'kimi-k3' }).model).toBe('kimi-k3')
+    expect(schema.parse({ model: 'kimi-k3[1m]' }).model).toBe('kimi-k3')
     expect(schema.parse({}).model).toBe('kimi-k3')
   })
 
