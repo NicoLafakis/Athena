@@ -145,6 +145,34 @@ describe('provider-scoped model validation', () => {
     writeFileSync(join(home, '.athena', 'settings.json'), JSON.stringify({ model: 'opus' }))
     const paths = resolveBrainPaths({ cwd: project, homeOverride: home })
     expect(loadSettings(paths, 'anthropic').model).toBe('opus')
-    expect(() => loadSettings(paths, 'kimi')).toThrow(/unknown model 'opus' for provider 'kimi'/)
+    // Invalid-for-provider must NEVER throw (settings.json is scaffolded with an
+    // anthropic model; a throw here is a permanent crash loop for every Kimi run).
+    const warnings: string[] = []
+    const s = loadSettings(paths, 'kimi', (m) => warnings.push(m))
+    expect(s.model).toBe('kimi-k3')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('opus')
+    expect(warnings[0]).toContain('kimi')
+  })
+
+  it('scaffold parity: model sonnet under kimi falls back to kimi-k3 with one warning', () => {
+    mkdirSync(join(home, '.athena'), { recursive: true })
+    writeFileSync(join(home, '.athena', 'settings.json'), JSON.stringify({ model: 'sonnet' }))
+    const paths = resolveBrainPaths({ cwd: project, homeOverride: home })
+    const warnings: string[] = []
+    const s = loadSettings(paths, 'kimi', (m) => warnings.push(m))
+    expect(s.model).toBe('kimi-k3')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('sonnet')
+    expect(warnings[0]).toContain('kimi')
+  })
+
+  it('the same file under anthropic returns sonnet with no warning', () => {
+    mkdirSync(join(home, '.athena'), { recursive: true })
+    writeFileSync(join(home, '.athena', 'settings.json'), JSON.stringify({ model: 'sonnet' }))
+    const paths = resolveBrainPaths({ cwd: project, homeOverride: home })
+    const warnings: string[] = []
+    expect(loadSettings(paths, 'anthropic', (m) => warnings.push(m)).model).toBe('sonnet')
+    expect(warnings).toEqual([])
   })
 })

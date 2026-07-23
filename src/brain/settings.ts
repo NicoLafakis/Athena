@@ -86,7 +86,11 @@ function readJsonIfExists(file: string): Record<string, unknown> {
  *  (mcpServers): project wins wholesale via the base spread — a project that defines
  *  mcpServers replaces the global map entirely, rather than merging server-by-server.
  *  `provider` scopes model validation to the ACTIVE provider's keys. */
-export function loadSettings(paths: BrainPaths, provider: ProviderId = 'anthropic'): Settings {
+export function loadSettings(
+  paths: BrainPaths,
+  provider: ProviderId = 'anthropic',
+  onWarn?: (msg: string) => void,
+): Settings {
   const global = readJsonIfExists(paths.settingsFile)
   const project = paths.projectBrainDir
     ? readJsonIfExists(join(paths.projectBrainDir, 'settings.json'))
@@ -94,6 +98,17 @@ export function loadSettings(paths: BrainPaths, provider: ProviderId = 'anthropi
   const merged: Record<string, unknown> = { ...global, ...project }
   for (const key of ['allow', 'deny', 'hooks'] as const) {
     merged[key] = [...((global[key] as unknown[]) ?? []), ...((project[key] as unknown[]) ?? [])]
+  }
+  // A model that does not resolve under the ACTIVE provider falls back to that
+  // provider's default with a warning instead of throwing. The scaffold writes an
+  // anthropic model into a fresh settings.json, so a strict parse under any other
+  // provider would be a permanent crash loop; settings must never be one. The
+  // schema refine below stays as the backstop.
+  if (typeof merged['model'] === 'string' && !normalizeModel(provider, merged['model'])) {
+    onWarn?.(
+      `settings model '${merged['model']}' is not valid for provider '${provider}', using ${PROVIDERS[provider].defaultModel}`,
+    )
+    merged['model'] = PROVIDERS[provider].defaultModel
   }
   const result = makeSettingsSchema(provider).safeParse(merged)
   if (!result.success) {

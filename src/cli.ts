@@ -407,7 +407,9 @@ async function main(): Promise<void> {
     const done = await runAuthWizard({ paths, provider })
     resolved = { key: done.key, source: 'file' }
   }
-  const settings = loadSettings(paths, provider)
+  // Settings warnings (e.g. a model that is invalid for the active provider falling
+  // back to the provider default) surface on stderr before the TUI mounts.
+  const settings = loadSettings(paths, provider, (msg) => console.error(msg))
   const gate = new PermissionEngine({
     mode: settings.permissionMode,
     allow: settings.allow,
