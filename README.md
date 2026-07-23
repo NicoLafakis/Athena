@@ -8,9 +8,19 @@ permission engine, scriptable hooks, sub-agents, and a file-based brain in `~/.a
     pnpm install
     pnpm build
     npm link          # puts `athena` on PATH
-    set ANTHROPIC_API_KEY=sk-ant-...
     cd path/to/your/project
     athena
+
+Set your API key first:
+
+    # PowerShell (current session)
+    $env:ANTHROPIC_API_KEY = "sk-ant-..."
+
+    # PowerShell (persist for future sessions, then reopen the shell)
+    [Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY","sk-ant-...","User")
+
+    # bash/zsh
+    export ANTHROPIC_API_KEY=sk-ant-...
 
 First run scaffolds `~/.athena` (constitution, settings, memory, skills, agents, hooks, sessions).
 
