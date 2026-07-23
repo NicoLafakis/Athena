@@ -106,8 +106,8 @@ export function supportsEffort(provider: ProviderId, key: ModelKey): boolean {
 
 /** Accepts a model key (case-insensitive, trimmed) OR a legacy/full model id and maps
  *  it to a key WITHIN the given provider only. Exact key/id match first, then a
- *  longest-key substring pass so `claude-sonnet-4-5` -> sonnet stays working and
- *  `kimi-k2-turbo-preview` hits kimi-k2-turbo, not kimi-k2. Returns null for anything
+ *  longest-key substring pass so `claude-sonnet-4-5` -> sonnet stays working and, when
+ *  two keys share a prefix, the longer key wins. Returns null for anything
  *  unrecognized so callers can surface a clear error. */
 export function normalizeModel(provider: ProviderId, input: string): ModelKey | null {
   const s = input.trim().toLowerCase()
