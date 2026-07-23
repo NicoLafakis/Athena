@@ -217,7 +217,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         info(
           supportsEffort(provider, key)
             ? `Model: ${modelLabel(provider, key)} (effort ${engine.getEffort()})`
-            : `Model: ${modelLabel(provider, key)} — effort/extended thinking not applicable on this model.`,
+            : `Model: ${modelLabel(provider, key)} - effort/extended thinking not applicable on this model.`,
         )
         break
       }
@@ -261,7 +261,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         info(
           supportsEffort(provider, key)
             ? `Effort: ${cmd.value}`
-            : `Effort set to ${cmd.value} — ${modelLabel(provider, key)} ignores it.`,
+            : `Effort set to ${cmd.value} - ${modelLabel(provider, key)} ignores it.`,
         )
         break
       }
@@ -398,6 +398,17 @@ async function main(): Promise<void> {
   }
   let provider: ProviderId = cmd.provider ?? credentials.activeProvider
   let resolved = resolveApiKey(provider, credentials)
+  if (!resolved && cmd.provider === undefined) {
+    // The default provider has no key but another one does (e.g. no credentials file
+    // and only MOONSHOT_API_KEY set, while activeProvider defaults to anthropic):
+    // adopt the keyed provider for the session instead of forcing the wizard.
+    const withKey = PROVIDER_IDS.find((p) => resolveApiKey(p, credentials))
+    if (withKey) {
+      provider = withKey
+      resolved = resolveApiKey(provider, credentials)!
+      console.log(`Using ${PROVIDERS[provider].label} (only provider with a configured key).`)
+    }
+  }
   if (!resolved) {
     if (cmd.provider === undefined && PROVIDER_IDS.every((p) => !resolveApiKey(p, credentials))) {
       // True cold start: no --provider flag and no key anywhere. Run the FULL wizard

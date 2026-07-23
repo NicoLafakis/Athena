@@ -76,6 +76,26 @@ function ask(question: string): Promise<string> {
   })
 }
 
+export type EscState = 'none' | 'esc' | 'csi'
+
+/** Pure state transition for filtering ANSI escape sequences out of masked input.
+ *  `consume` = the character belongs to an escape sequence and must never reach the key.
+ *  After ESC (0x1b), an introducer '[' (CSI) or 'O' (SS3) opens a multi-byte sequence
+ *  that terminates on the NEXT byte in the '@'-'~' range; any other byte after ESC is a
+ *  single-char sequence, consumed as its final byte. (The introducers themselves sit
+ *  inside '@'-'~', so a naive "terminate on @-~" check would end one byte early and
+ *  leak e.g. the 'A' of 'ESC [ A' into the key.) */
+export function escFilter(state: EscState, ch: string): { state: EscState; consume: boolean } {
+  if (state === 'csi') {
+    return { state: ch >= '@' && ch <= '~' ? 'none' : 'csi', consume: true }
+  }
+  if (state === 'esc') {
+    return { state: ch === '[' || ch === 'O' ? 'csi' : 'none', consume: true }
+  }
+  if (ch.charCodeAt(0) === 27) return { state: 'esc', consume: true }
+  return { state: 'none', consume: false }
+}
+
 /** Masked input: raw mode, echo '*' per char, handle backspace/Ctrl-C/Enter manually. */
 export function promptMasked(question: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -89,7 +109,7 @@ export function promptMasked(question: string): Promise<string> {
     stdin.setRawMode(true)
     stdin.resume()
     let value = ''
-    let inEscape = false // inside an ANSI escape (ESC ... terminator in @-~)
+    let esc: EscState = 'none'
     const finish = (): void => {
       stdin.off('data', onData)
       stdin.setRawMode(wasRaw)
@@ -121,17 +141,11 @@ export function promptMasked(question: string): Promise<string> {
           }
           continue
         }
-        // CSI/escape sequences (arrow keys, paste-bracketing, etc.): after ESC (0x1b),
-        // swallow every byte until the terminator in the @-~ range so 'ESC [ A' never
-        // leaks printable characters like '[' or 'A' into the key.
-        if (inEscape) {
-          if (ch >= '@' && ch <= '~') inEscape = false
-          continue
-        }
-        if (ch.charCodeAt(0) === 27) {
-          inEscape = true
-          continue
-        }
+        // CSI/escape sequences (arrow keys, paste-bracketing, etc.): the pure state
+        // machine above swallows the whole sequence so none of it reaches the key.
+        const step = escFilter(esc, ch)
+        esc = step.state
+        if (step.consume) continue
         if (ch < ' ' || ch === '\u007f') continue // other control chars: never into the key
         value += ch
         process.stdout.write('*')

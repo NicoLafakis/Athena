@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { resolveBrainPaths } from '../../src/brain/paths.js'
 import { loadCredentials } from '../../src/brain/credentials.js'
-import { runAuthWizard, type WizardIO } from '../../src/auth/wizard.js'
+import { runAuthWizard, escFilter, type EscState, type WizardIO } from '../../src/auth/wizard.js'
 import type { ProviderId } from '../../src/brain/models.js'
 
 let home: string
@@ -95,5 +95,43 @@ describe('runAuthWizard', () => {
       },
     })
     expect(validated).toEqual(['sk-ok'])
+  })
+})
+
+describe('escFilter (masked-input ANSI escape filtering)', () => {
+  const ESC = String.fromCharCode(27)
+
+  /** Feed a string through the state machine; return the characters that survive. */
+  function survivors(input: string): string {
+    let state: EscState = 'none'
+    let out = ''
+    for (const ch of input) {
+      const step = escFilter(state, ch)
+      state = step.state
+      if (!step.consume) out += ch
+    }
+    return out
+  }
+
+  it('consumes a full CSI sequence: ESC [ A never leaks the terminator', () => {
+    // The introducer '[' is itself in the @-~ range; a naive terminator check ends
+    // one byte early and leaks 'A' into the key.
+    expect(survivors(`${ESC}[Aabc`)).toBe('abc')
+  })
+
+  it('consumes an SS3 sequence: ESC O A (application-mode arrow keys)', () => {
+    expect(survivors(`${ESC}OAxyz`)).toBe('xyz')
+  })
+
+  it('consumes multi-parameter CSI sequences in full', () => {
+    expect(survivors(`${ESC}[1;5Hkey`)).toBe('key')
+  })
+
+  it('a non-introducer byte after ESC is a single-char sequence, consumed', () => {
+    expect(survivors(`${ESC}cabc`)).toBe('abc')
+  })
+
+  it('plain text passes through untouched', () => {
+    expect(survivors('sk-ant-abc123')).toBe('sk-ant-abc123')
   })
 })
