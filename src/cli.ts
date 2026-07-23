@@ -331,7 +331,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
 }
 
 function makeClient(provider: ProviderId, key: string): AnthropicClient {
-  return new AnthropicClient(key, PROVIDERS[provider].baseURL ?? undefined)
+  return new AnthropicClient(key, PROVIDERS[provider].baseURL ?? undefined, PROVIDERS[provider].authMode)
 }
 
 async function main(): Promise<void> {

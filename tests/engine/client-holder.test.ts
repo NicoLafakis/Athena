@@ -60,6 +60,8 @@ describe('ClientHolder', () => {
 describe('AnthropicClient baseURL', () => {
   beforeEach(() => {
     delete process.env['ANTHROPIC_BASE_URL']
+    delete process.env['ANTHROPIC_API_KEY']
+    delete process.env['ANTHROPIC_AUTH_TOKEN']
   })
 
   it('passes baseURL through to the SDK when given', () => {
@@ -72,5 +74,31 @@ describe('AnthropicClient baseURL', () => {
     const c = new AnthropicClient('sk-x')
     const sdk = (c as unknown as { sdk: { baseURL: string } }).sdk
     expect(sdk.baseURL).toBe('https://api.anthropic.com')
+  })
+})
+
+describe('AnthropicClient authMode', () => {
+  beforeEach(() => {
+    delete process.env['ANTHROPIC_BASE_URL']
+    delete process.env['ANTHROPIC_API_KEY']
+    delete process.env['ANTHROPIC_AUTH_TOKEN']
+  })
+
+  type SdkAuth = { sdk: { apiKey: string | null; authToken: string | null | undefined } }
+
+  it("bearer mode sends the key as authToken (Authorization: Bearer) with apiKey null'd out", () => {
+    // apiKey must be explicitly null so the SDK never auto-picks ANTHROPIC_API_KEY
+    // from the env and sends BOTH headers (Moonshot 401s on x-api-key).
+    const c = new AnthropicClient('sk-x', 'https://api.moonshot.ai/anthropic', 'bearer')
+    const { sdk } = c as unknown as SdkAuth
+    expect(sdk.authToken).toBe('sk-x')
+    expect(sdk.apiKey).toBeNull()
+  })
+
+  it('x-api-key mode (the default) keeps the key on apiKey with no authToken', () => {
+    const c = new AnthropicClient('sk-x')
+    const { sdk } = c as unknown as SdkAuth
+    expect(sdk.apiKey).toBe('sk-x')
+    expect(sdk.authToken == null).toBe(true)
   })
 })

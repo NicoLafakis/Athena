@@ -26,6 +26,15 @@ describe('provider registry', () => {
     expect(PROVIDERS.kimi.envVar).toBe('MOONSHOT_API_KEY')
   })
 
+  it('anthropic authenticates via x-api-key; kimi via Authorization: Bearer', () => {
+    expect(PROVIDERS.anthropic.authMode).toBe('x-api-key')
+    expect(PROVIDERS.kimi.authMode).toBe('bearer')
+  })
+
+  it('kimi carries the .ai/.cn platform-split key hint', () => {
+    expect(PROVIDERS.kimi.keyHint).toContain('platform.kimi.ai')
+  })
+
   it('per-provider default and validation models exist in that provider registry', () => {
     for (const p of PROVIDER_IDS) {
       expect(modelKeys(p)).toContain(PROVIDERS[p].defaultModel)

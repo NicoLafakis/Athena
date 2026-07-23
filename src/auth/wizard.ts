@@ -21,7 +21,11 @@ export type ValidateFn = (provider: ProviderId, key: string) => Promise<string |
 /** Live check: one minimal message to the provider's cheapest model. */
 export async function validateKey(provider: ProviderId, key: string): Promise<string | null> {
   try {
-    const client = new AnthropicClient(key, PROVIDERS[provider].baseURL ?? undefined)
+    const client = new AnthropicClient(
+      key,
+      PROVIDERS[provider].baseURL ?? undefined,
+      PROVIDERS[provider].authMode,
+    )
     await client.complete({
       model: modelId(provider, PROVIDERS[provider].validationModel),
       prompt: 'hi',
@@ -52,7 +56,12 @@ export async function runAuthWizard(opts: {
     io.say(`Validating against ${PROVIDERS[provider].label}…`)
     const error = await validate(provider, key)
     if (error !== null) {
-      io.say(`Key rejected: ${error}\nTry again (Ctrl-C to abort).`)
+      // Providers with a keyHint (e.g. Kimi's .ai/.cn platform split) get it appended
+      // so a rejected key comes with the likely cause, not just the raw error.
+      const hint = PROVIDERS[provider].keyHint
+      io.say(
+        `Key rejected: ${error}\n${hint !== undefined ? `${hint}\n` : ''}Try again (Ctrl-C to abort).`,
+      )
       continue
     }
     setProviderKey(opts.paths, provider, key)

@@ -35,8 +35,15 @@ const MAX_RETRIES = 3
 export class AnthropicClient implements ModelClient {
   private readonly sdk: Anthropic
 
-  constructor(apiKey?: string, baseURL?: string) {
-    this.sdk = new Anthropic({ apiKey, baseURL })
+  constructor(apiKey?: string, baseURL?: string, authMode: 'x-api-key' | 'bearer' = 'x-api-key') {
+    // Bearer (Moonshot's Anthropic-compatible endpoint): the key goes out as
+    // Authorization: Bearer via authToken. apiKey: null is REQUIRED — otherwise the
+    // SDK auto-picks ANTHROPIC_API_KEY from the env and sends BOTH auth headers,
+    // which Moonshot rejects with invalid_authentication_error.
+    this.sdk =
+      authMode === 'bearer'
+        ? new Anthropic({ apiKey: null, authToken: apiKey, baseURL })
+        : new Anthropic({ apiKey, baseURL })
   }
 
   async stream(

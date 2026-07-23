@@ -29,6 +29,10 @@ export interface ProviderEntry {
   defaultModel: ModelKey
   /** Cheapest model — the auth wizard's live validation call targets this. */
   validationModel: ModelKey
+  /** How the key is sent: Anthropic wants x-api-key; Moonshot's compat endpoint wants Authorization: Bearer. */
+  authMode: 'x-api-key' | 'bearer'
+  /** Provider-specific key guidance, shown by the auth wizard when validation fails. */
+  keyHint?: string
 }
 
 export const PROVIDERS: Record<ProviderId, ProviderEntry> = {
@@ -38,6 +42,7 @@ export const PROVIDERS: Record<ProviderId, ProviderEntry> = {
     envVar: 'ANTHROPIC_API_KEY',
     defaultModel: 'sonnet',
     validationModel: 'haiku',
+    authMode: 'x-api-key',
   },
   kimi: {
     label: 'Kimi (Moonshot)',
@@ -45,6 +50,9 @@ export const PROVIDERS: Record<ProviderId, ProviderEntry> = {
     envVar: 'MOONSHOT_API_KEY',
     defaultModel: 'kimi-k3',
     validationModel: 'kimi-k2.6',
+    authMode: 'bearer',
+    keyHint:
+      'Create keys at platform.kimi.ai (global). Keys from platform.moonshot.cn do not work on api.moonshot.ai.',
   },
 }
 

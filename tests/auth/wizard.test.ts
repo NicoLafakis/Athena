@@ -79,7 +79,24 @@ describe('runAuthWizard', () => {
     expect(validated).toEqual(['sk-bad', 'sk-good'])
     expect(result.key).toBe('sk-good')
     expect(said.join('\n')).toMatch(/invalid x-api-key/)
+    // Anthropic has no keyHint — the rejection must NOT drag in Kimi's platform hint.
+    expect(said.join('\n')).not.toContain('platform.kimi.ai')
     expect(loadCredentials(paths).providers.anthropic?.apiKey).toBe('sk-good')
+  })
+
+  it('kimi rejection surfaces the .ai/.cn platform-split keyHint', async () => {
+    const paths = resolveBrainPaths({ cwd: project, homeOverride: home })
+    const said: string[] = []
+    await runAuthWizard({
+      paths,
+      provider: 'kimi',
+      io: fakeIO('kimi', ['sk-cn-key', 'sk-ai-key'], said),
+      validate: async (_p, key) => (key === 'sk-cn-key' ? 'invalid_authentication_error' : null),
+    })
+    const rejection = said.find((m) => m.includes('Key rejected'))
+    expect(rejection).toBeDefined()
+    expect(rejection).toContain('invalid_authentication_error')
+    expect(rejection).toContain('platform.kimi.ai')
   })
 
   it('re-prompts on an empty key without calling validate', async () => {
