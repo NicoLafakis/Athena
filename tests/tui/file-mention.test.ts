@@ -57,6 +57,39 @@ describe('extractMentionBlocks', () => {
     const mentioned = new Map([['src/a.ts', { content: 'x', truncated: false }]])
     expect(extractMentionBlocks('a message with no mentions left', mentioned)).toEqual([])
   })
+
+  it('a mentioned path that is a literal prefix of another mentioned path in the same ' +
+    'turn does not spuriously match inside the longer one (e.g. "@src/a.ts" vs ' +
+    '"@src/a.ts.bak")', () => {
+    const mentioned = new Map([
+      ['src/a.ts', { content: 'short file', truncated: false }],
+      ['src/a.ts.bak', { content: 'backup file', truncated: false }],
+    ])
+    // Only the longer path is actually still present in the submitted text.
+    const blocks = extractMentionBlocks('please diff against @src/a.ts.bak', mentioned)
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]).toContain('backup file')
+    expect(blocks[0]).not.toContain('short file')
+  })
+
+  it('still matches the shorter path on its own when the longer one is not mentioned', () => {
+    const mentioned = new Map([
+      ['src/a.ts', { content: 'short file', truncated: false }],
+      ['src/a.ts.bak', { content: 'backup file', truncated: false }],
+    ])
+    const blocks = extractMentionBlocks('please review @src/a.ts', mentioned)
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]).toContain('short file')
+  })
+
+  it('mentioning both the shorter and longer path produces both blocks', () => {
+    const mentioned = new Map([
+      ['src/a.ts', { content: 'short file', truncated: false }],
+      ['src/a.ts.bak', { content: 'backup file', truncated: false }],
+    ])
+    const blocks = extractMentionBlocks('compare @src/a.ts against @src/a.ts.bak', mentioned)
+    expect(blocks).toHaveLength(2)
+  })
 })
 
 describe('formatMentionBlock', () => {

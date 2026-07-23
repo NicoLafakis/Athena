@@ -621,6 +621,7 @@ async function main(): Promise<void> {
       onAbort: () => engine.abort(),
       permissionBridge: bridge,
       commands,
+      agents: orchestrator.listDefs(),
       onSlash: makeSlashHandler({
         bus,
         engine,

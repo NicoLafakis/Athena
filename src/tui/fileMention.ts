@@ -75,16 +75,41 @@ export function formatMentionBlock(relPath: string, content: string, truncated: 
   return `--- @${relPath} ---\n\`\`\`\n${content}\n\`\`\`${note}\n--- end @${relPath} ---`
 }
 
+/** Characters that can continue a mention token once one has started, for FILE paths —
+ *  word characters plus '.', '/', '-' (what actually occurs in the forward-slash
+ *  relative paths walkMentionFiles emits). Checked immediately after a matched
+ *  `@relPath` so a mentioned path that's a literal prefix of another mentioned path in
+ *  the same turn (e.g. "@src/a.ts" vs "@src/a.ts.bak", both selected this turn) can't
+ *  spuriously match inside the longer one — defense-in-depth alongside
+ *  agentMention.ts's identical boundary check, even though this function's blast radius
+ *  is smaller (it only iterates paths actually mentioned this turn via the picker, never
+ *  the full project file universe). */
+const FILE_PATH_CONTINUATION_CHARS = 'A-Za-z0-9_./-'
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** True if `@relPath` appears in `text` as a whole mention token — i.e. not merely as a
+ *  substring prefix of some longer `@relPath...` token also present in the text. */
+function hasWholeFileMention(text: string, relPath: string): boolean {
+  const re = new RegExp(`@${escapeRegExp(relPath)}(?![${FILE_PATH_CONTINUATION_CHARS}])`)
+  return re.test(text)
+}
+
 /** Scans the literal submitted text for @mentions and returns context blocks only for
  *  paths that still appear in it. This is what makes history-recalled drafts or a
- *  backspaced-away mention NOT silently drag along a stale file's content. */
+ *  backspaced-away mention NOT silently drag along a stale file's content. Each
+ *  candidate path is matched as a WHOLE mention token (hasWholeFileMention), not a bare
+ *  substring, so a mentioned path that's a textual prefix of another mentioned path
+ *  can't falsely "still be present" just because the longer one is. */
 export function extractMentionBlocks(
   text: string,
   mentionedFiles: ReadonlyMap<string, MentionFileContent>,
 ): string[] {
   const blocks: string[] = []
   for (const [relPath, file] of mentionedFiles) {
-    if (text.includes(`@${relPath}`)) blocks.push(formatMentionBlock(relPath, file.content, file.truncated))
+    if (hasWholeFileMention(text, relPath)) blocks.push(formatMentionBlock(relPath, file.content, file.truncated))
   }
   return blocks
 }

@@ -10,6 +10,7 @@ import { TodoPanel } from './components/TodoPanel.js'
 import { InputBox } from './components/InputBox.js'
 import { parseSlash, type SlashCommand, type CustomCommandDef } from './slash.js'
 import { createFullscreenController } from './fullscreen.js'
+import type { AgentMentionSource } from './agentMention.js'
 
 // Rows reserved below the transcript's flexible area in fullscreen mode: status line (1)
 // plus headroom for the input box growing to a couple of wrapped lines and an occasional
@@ -96,6 +97,10 @@ export interface AppProps {
   /** Directory-backed custom commands (see brain/loader.js loadCommandsIndex), keyed by name.
    *  Optional so existing callers/tests that don't wire any stay unaffected. */
   commands?: ReadonlyMap<string, CustomCommandDef>
+  /** Invocable agents (AgentOrchestrator.listDefs(), plugin-aware — see cli.ts), threaded
+   *  straight through to InputBox's combined '@' picker the same way `commands` is.
+   *  Optional so existing callers/tests that don't wire any stay unaffected. */
+  agents?: readonly AgentMentionSource[]
 }
 
 /** Live terminal row count, kept in sync with resize events. Ink's `useStdout` exposes
@@ -123,6 +128,7 @@ export function App({
   onAbort,
   permissionBridge,
   commands,
+  agents,
 }: AppProps) {
   const [entries, setEntries] = useState<TranscriptEntry[]>([])
   const [todos, setTodos] = useState<TodoItem[]>([])
@@ -272,6 +278,7 @@ export function App({
         disabled={busy || pending !== null}
         cwd={status.cwd}
         commands={commands}
+        agents={agents}
       />
       <StatusLine {...status} busy={busy} />
     </Box>

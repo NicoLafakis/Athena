@@ -1,15 +1,20 @@
 // src/tui/components/InputBox.tsx
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
-import { FileMentionPopup } from './FileMentionPopup.js'
+import { MentionPopup } from './MentionPopup.js'
 import { SlashMenuPopup } from './SlashMenuPopup.js'
 import {
   extractMentionBlocks,
-  rankFileMatches,
   readMentionFile,
   walkMentionFiles,
   type MentionFileContent,
 } from '../fileMention.js'
+import {
+  extractAgentMentionBlocks,
+  rankMentionCandidates,
+  type AgentMentionSource,
+  type MentionCandidate,
+} from '../agentMention.js'
 import { buildSlashCatalog, filterSlashCommands } from '../slashMenu.js'
 import type { CustomCommandDef } from '../slash.js'
 
@@ -86,6 +91,7 @@ export function InputBox({
   disabled,
   cwd,
   commands,
+  agents,
 }: {
   onSubmit: (text: string) => void
   disabled: boolean
@@ -96,6 +102,11 @@ export function InputBox({
    *  straight through) — unioned with the built-ins to populate the live "/" menu.
    *  Optional so existing callers/tests that don't wire any stay unaffected. */
   commands?: ReadonlyMap<string, CustomCommandDef>
+  /** Invocable agents (AgentOrchestrator.listDefs(), threaded through from App the
+   *  same way `commands` is — see cli.ts) — unioned with project files to populate
+   *  the combined '@' picker. Optional so existing callers/tests that don't wire any
+   *  stay unaffected. */
+  agents?: readonly AgentMentionSource[]
 }) {
   const [value, setValue] = useState('')
   const [history, setHistory] = useState<string[]>([])
@@ -131,18 +142,23 @@ export function InputBox({
   }, [cwd])
 
   const query = mention ? value.slice(mention.start + 1) : ''
-  const matches = mention && allFiles ? rankFileMatches(query, allFiles) : []
+  // Combined files+agents ranking (agentMention.ts): agent matches are already
+  // available synchronously (no walk to wait on), so they can appear even before
+  // `allFiles` resolves — only the file half of the list waits on the walk.
+  const matches = mention ? rankMentionCandidates(query, allFiles ?? [], agents ?? []) : []
 
   const slashQuery = slashMenu ? value.slice(1) : ''
   const slashMatches = slashMenu ? filterSlashCommands(slashCatalog, slashQuery) : []
 
-  function selectMention(relPath: string): void {
+  function selectMention(candidate: MentionCandidate): void {
     if (!mention) return
     const before = value.slice(0, mention.start)
-    setValue(`${before}@${relPath} `)
+    setValue(`${before}@${candidate.value} `)
     setMention(null)
-    if (!mentionedFiles.current.has(relPath)) {
-      mentionedFiles.current.set(relPath, readMentionFile(cwd, relPath))
+    // Only file rows have content to cache — agent guidance is re-derived fresh from
+    // the `agents` prop at submit time (extractAgentMentionBlocks), no caching needed.
+    if (candidate.kind === 'file' && !mentionedFiles.current.has(candidate.value)) {
+      mentionedFiles.current.set(candidate.value, readMentionFile(cwd, candidate.value))
     }
   }
 
@@ -257,8 +273,13 @@ export function InputBox({
         setHistoryIndex(history.length + 1)
         // Splice in context blocks for every @mention still literally present in the
         // submitted text — history recall or a backspaced-away mention must not drag
-        // a stale file's content along (src/tui/fileMention.ts: extractMentionBlocks).
-        const blocks = extractMentionBlocks(text, mentionedFiles.current)
+        // a stale file's content (fileMention.ts: extractMentionBlocks) or a removed
+        // agent's guidance (agentMention.ts: extractAgentMentionBlocks) along. Additive:
+        // a single message can carry both kinds, each producing its own labeled block.
+        const blocks = [
+          ...extractMentionBlocks(text, mentionedFiles.current),
+          ...extractAgentMentionBlocks(text, agents ?? []),
+        ]
         const finalText = blocks.length > 0 ? `${text}\n\n${blocks.join('\n\n')}` : text
         setValue('')
         setDraft('')
@@ -317,7 +338,7 @@ export function InputBox({
   const lines = value.split('\n')
   return (
     <Box flexDirection="column">
-      {mention && <FileMentionPopup query={query} matches={matches} index={mention.index} loading={!allFiles} />}
+      {mention && <MentionPopup query={query} matches={matches} index={mention.index} loading={!allFiles} />}
       {slashMenu && <SlashMenuPopup query={slashQuery} matches={slashMatches} index={slashMenu.index} />}
       {lines.map((line, idx) => (
         <Text key={idx}>

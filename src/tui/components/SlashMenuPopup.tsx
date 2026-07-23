@@ -10,7 +10,7 @@ export interface SlashMenuPopupProps {
   index: number
 }
 
-/** Live "/" command popup, overlaid above InputBox the same way FileMentionPopup is —
+/** Live "/" command popup, overlaid above InputBox the same way MentionPopup is —
  *  bordered box, windowed scrollable list, inverse highlight on the active row (same
  *  visual language as the @-mention popup, in a different accent color so the two
  *  never get confused for one another at a glance). Purely presentational: InputBox

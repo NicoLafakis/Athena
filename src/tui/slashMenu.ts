@@ -3,7 +3,7 @@
 // plugin command catalog, and filtering it against whatever's been typed after the
 // '/' so far. Kept Ink-free and side-effect-free so it's unit-testable without
 // rendering anything — same rationale as fileMention.ts's split from
-// FileMentionPopup.tsx. This is UI-only: it never touches parseSlash/dispatch (slash.ts).
+// MentionPopup.tsx. This is UI-only: it never touches parseSlash/dispatch (slash.ts).
 import type { CustomCommandDef } from './slash.js'
 
 export type SlashCommandSource = 'builtin' | 'custom' | 'plugin'
