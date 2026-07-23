@@ -12,6 +12,7 @@ export type SlashCommand =
   | { kind: 'agents' }
   | { kind: 'quit' }
   | { kind: 'model'; value: string }
+  | { kind: 'provider'; value: string }
   | { kind: 'effort'; value: Effort }
   | { kind: 'mode'; value: PermissionMode }
   | { kind: 'error'; value: string }
@@ -29,6 +30,10 @@ export function parseSlash(input: string): SlashCommand | null {
     return arg
       ? { kind: 'model', value: arg }
       : { kind: 'error', value: 'Usage: /model <haiku|sonnet|opus|fable>' }
+  if (cmd === 'provider')
+    return arg
+      ? { kind: 'provider', value: arg }
+      : { kind: 'error', value: 'Usage: /provider <anthropic|kimi>' }
   if (cmd === 'effort') {
     if (!arg) return { kind: 'error', value: 'Usage: /effort <low|medium|high|xhigh|max>' }
     if (!EFFORT_SET.has(arg)) return { kind: 'error', value: `Unknown effort: ${arg}` }

@@ -196,7 +196,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
     switch (cmd.kind) {
       case 'help':
         info(
-          'Commands: /help /clear /resume /compact /model <haiku|sonnet|opus|fable> /effort <low|medium|high|xhigh|max> /mode <normal|acceptEdits|plan|trusted> /memory /skills /agents /quit\n' +
+          'Commands: /help /clear /resume /compact /model <haiku|sonnet|opus|fable> /effort <low|medium|high|xhigh|max> /provider <anthropic|kimi> /mode <normal|acceptEdits|plan|trusted> /memory /skills /agents /quit\n' +
             '/clear clears the screen (transcript display only) — conversation context is unchanged; use /compact to shrink it.',
         )
         break
@@ -218,6 +218,38 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
           supportsEffort(provider, key)
             ? `Model: ${modelLabel(provider, key)} (effort ${engine.getEffort()})`
             : `Model: ${modelLabel(provider, key)} — effort/extended thinking not applicable on this model.`,
+        )
+        break
+      }
+      case 'provider': {
+        const p = normalizeProvider(cmd.value)
+        if (!p) {
+          info(`Unknown provider: ${cmd.value} — choose ${PROVIDER_IDS.join(' or ')}.`)
+          break
+        }
+        if (p === engine.getProvider()) {
+          info(`Already on ${PROVIDERS[p].label}.`)
+          break
+        }
+        let resolved
+        try {
+          resolved = resolveApiKey(p, loadCredentials(paths))
+        } catch (err) {
+          info((err as Error).message)
+          break
+        }
+        if (!resolved) {
+          info(
+            `No API key configured for ${PROVIDERS[p].label} — run \`athena auth\` (or restart with \`athena --provider ${p}\`) to add one.`,
+          )
+          break
+        }
+        client.swap(makeClient(p, resolved.key))
+        engine.setProvider(p)
+        engine.setModel(PROVIDERS[p].defaultModel)
+        bus.emit({ type: 'status', patch: { model: modelLabel(p, PROVIDERS[p].defaultModel) } })
+        info(
+          `Provider: ${PROVIDERS[p].label}, model ${modelLabel(p, PROVIDERS[p].defaultModel)} (session-only; \`athena auth\` changes the default).`,
         )
         break
       }

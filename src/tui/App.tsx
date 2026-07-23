@@ -131,7 +131,7 @@ export function App({ bus, status: statusProp, onSubmit, onSlash, onAbort, permi
             type: 'info',
             message: 'Screen cleared (transcript display only) — conversation context is unchanged.',
           })
-        } else if (busy && (slash.kind === 'compact' || slash.kind === 'model')) {
+        } else if (busy && (slash.kind === 'compact' || slash.kind === 'model' || slash.kind === 'provider')) {
           // Mutating engine state mid-turn corrupts the in-flight transcript.
           bus.emit({
             type: 'info',

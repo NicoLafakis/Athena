@@ -40,3 +40,17 @@ describe('parseSlash', () => {
     expect(parseSlash('/mode')).toEqual({ kind: 'error', value: 'Unknown mode: (none)' })
   })
 })
+
+describe('/provider', () => {
+  it('parses /provider with a value', () => {
+    expect(parseSlash('/provider kimi')).toEqual({ kind: 'provider', value: 'kimi' })
+    expect(parseSlash('/provider anthropic')).toEqual({ kind: 'provider', value: 'anthropic' })
+  })
+
+  it('errors without a value', () => {
+    expect(parseSlash('/provider')).toEqual({
+      kind: 'error',
+      value: 'Usage: /provider <anthropic|kimi>',
+    })
+  })
+})
