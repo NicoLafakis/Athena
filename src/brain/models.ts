@@ -43,8 +43,8 @@ export const PROVIDERS: Record<ProviderId, ProviderEntry> = {
     label: 'Kimi (Moonshot)',
     baseURL: 'https://api.moonshot.ai/anthropic',
     envVar: 'MOONSHOT_API_KEY',
-    defaultModel: 'kimi-k2',
-    validationModel: 'kimi-k2',
+    defaultModel: 'kimi-k3',
+    validationModel: 'kimi-k2.6',
   },
 }
 
@@ -55,9 +55,9 @@ export interface ModelEntry {
   supportsThinking: boolean
 }
 
-// NOTE: verify the current Kimi ids against https://platform.moonshot.ai docs at
-// implementation time; the kimi-k2-*-preview ids below are the documented lineage
-// as of planning.
+// NOTE: Kimi ids verified against https://platform.kimi.ai/docs/models on 2026-07-23
+// (k2-preview lineage EOL'd 2026-05-25). Keys equal wire ids — Moonshot's Anthropic-compatible
+// endpoint accepts the same ids as the OpenAI one.
 export const MODELS: Record<ProviderId, Record<ModelKey, ModelEntry>> = {
   anthropic: {
     haiku: { id: 'claude-haiku-4-5', label: 'Haiku 4.5', supportsEffort: false, supportsThinking: false },
@@ -66,8 +66,9 @@ export const MODELS: Record<ProviderId, Record<ModelKey, ModelEntry>> = {
     fable: { id: 'claude-fable-5', label: 'Fable 5', supportsEffort: true, supportsThinking: true },
   },
   kimi: {
-    'kimi-k2': { id: 'kimi-k2-0711-preview', label: 'Kimi K2', supportsEffort: false, supportsThinking: false },
-    'kimi-k2-turbo': { id: 'kimi-k2-turbo-preview', label: 'Kimi K2 Turbo', supportsEffort: false, supportsThinking: false },
+    'kimi-k3': { id: 'kimi-k3', label: 'Kimi K3', supportsEffort: false, supportsThinking: false },
+    'kimi-k2.7-code': { id: 'kimi-k2.7-code', label: 'Kimi K2.7 Code', supportsEffort: false, supportsThinking: false },
+    'kimi-k2.6': { id: 'kimi-k2.6', label: 'Kimi K2.6', supportsEffort: false, supportsThinking: false },
   },
 }
 

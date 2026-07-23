@@ -71,7 +71,7 @@ describe('provider-scoped model registry', () => {
 
   it('modelId throws a clear error for a cross-provider key', () => {
     expect(() => modelId('kimi', 'sonnet')).toThrow(/Unknown model 'sonnet' for provider 'kimi'/)
-    expect(() => modelId('anthropic', 'kimi-k2')).toThrow(/Unknown model 'kimi-k2'/)
+    expect(() => modelId('anthropic', 'kimi-k3')).toThrow(/Unknown model 'kimi-k3'/)
   })
 })
 
@@ -97,17 +97,17 @@ describe('normalizeModel (scoped to the active provider)', () => {
     expect(normalizeModel('anthropic', input)).toBe(expected)
   })
 
-  it('kimi: resolves keys and full ids, preferring the longest key on substrings', () => {
-    expect(normalizeModel('kimi', 'kimi-k2')).toBe('kimi-k2')
-    expect(normalizeModel('kimi', 'kimi-k2-0711-preview')).toBe('kimi-k2')
-    expect(normalizeModel('kimi', 'kimi-k2-turbo')).toBe('kimi-k2-turbo')
-    expect(normalizeModel('kimi', 'kimi-k2-turbo-preview')).toBe('kimi-k2-turbo')
+  it('kimi: resolves keys case-insensitively, including the [1m] suffix form', () => {
+    expect(normalizeModel('kimi', 'kimi-k3')).toBe('kimi-k3')
+    expect(normalizeModel('kimi', 'KIMI-K3 ')).toBe('kimi-k3')
+    expect(normalizeModel('kimi', 'kimi-k2.7-code')).toBe('kimi-k2.7-code')
+    expect(normalizeModel('kimi', 'kimi-k3[1m]')).toBe('kimi-k3') // Moonshot's 1M-context suffix form still resolves
   })
 
   it('does NOT resolve cross-provider names', () => {
     expect(normalizeModel('kimi', 'sonnet')).toBeNull()
     expect(normalizeModel('kimi', 'claude-opus-4-8')).toBeNull()
-    expect(normalizeModel('anthropic', 'kimi-k2')).toBeNull()
+    expect(normalizeModel('anthropic', 'kimi-k3')).toBeNull()
   })
 
   it.each(['', '   ', 'gpt-4', 'gemini', 'bogus'])('returns null for unrecognized %j', (input) => {
