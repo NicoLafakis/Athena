@@ -27,9 +27,12 @@ export type Credentials = z.infer<typeof CredentialsSchema>
  *  parse stack): names the file and offers `athena auth` to regenerate. */
 export function loadCredentials(paths: BrainPaths): Credentials {
   if (!existsSync(paths.credentialsFile)) return CredentialsSchema.parse({})
+  // Read failures (EPERM/EACCES/locks) propagate untagged: they are NOT regeneration
+  // cases, and setProviderKey must rethrow them rather than clobber a valid file.
+  const text = readFileSync(paths.credentialsFile, 'utf8')
   let raw: unknown
   try {
-    raw = JSON.parse(readFileSync(paths.credentialsFile, 'utf8'))
+    raw = JSON.parse(text)
   } catch {
     throw Object.assign(
       new Error(

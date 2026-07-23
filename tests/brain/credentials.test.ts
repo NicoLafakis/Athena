@@ -94,6 +94,16 @@ describe('credentials load/save', () => {
     const p = paths()
     mkdirSync(join(home, '.athena'), { recursive: true })
     mkdirSync(p.credentialsFile) // credentialsFile is now a directory, not a file
+    // First verify the error from loadCredentials is NOT tagged (i/o error, not validation)
+    let thrown: unknown
+    try {
+      loadCredentials(p)
+    } catch (err) {
+      thrown = err
+    }
+    expect(thrown).toBeTruthy()
+    expect((thrown as { code?: string }).code).not.toBe('ATHENA_CREDENTIALS_INVALID')
+    // Then verify setProviderKey rethrows it rather than regenerating
     expect(() => setProviderKey(p, 'anthropic', 'sk-ant-x')).toThrow()
   })
 
