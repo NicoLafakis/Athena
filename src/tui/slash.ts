@@ -2,9 +2,14 @@
 import type { PermissionMode } from '../engine/types.js'
 import { EFFORTS, type Effort } from '../brain/models.js'
 
-/** Minimal shape parseSlash needs from brain/loader.js's CommandDef — kept structural
- *  (rather than importing the type) so this file stays framework/layer-agnostic. */
+/** Minimal shape parseSlash (and the live "/" menu — see tui/slashMenu.ts) need from
+ *  brain/loader.js's CommandDef — kept structural (rather than importing the type) so
+ *  this file stays framework/layer-agnostic. `description` isn't read by parseSlash
+ *  itself; it rides along because every real caller (loader.ts's CommandDef) already
+ *  carries it, and InputBox/slashMenu.ts need it for the popup without inventing a
+ *  second near-duplicate structural type. */
 export interface CustomCommandDef {
+  description: string
   template: string
 }
 

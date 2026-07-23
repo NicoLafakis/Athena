@@ -62,7 +62,7 @@ describe('/provider', () => {
 
 describe('custom commands (directory-backed registry)', () => {
   function registry(entries: Record<string, string>): Map<string, CustomCommandDef> {
-    return new Map(Object.entries(entries).map(([name, template]) => [name, { template }]))
+    return new Map(Object.entries(entries).map(([name, template]) => [name, { template, description: '' }]))
   }
 
   it('matches a registered custom command not in the built-in set', () => {

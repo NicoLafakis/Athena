@@ -267,7 +267,12 @@ export function App({
       {pending && <PermissionDialog pending={pending} cwd={status.cwd} />}
       {/* busy included: a prompt submitted mid-turn would start a second runTurn
           and interleave a user message between a tool_use and its tool_result. */}
-      <InputBox onSubmit={handleSubmit} disabled={busy || pending !== null} cwd={status.cwd} />
+      <InputBox
+        onSubmit={handleSubmit}
+        disabled={busy || pending !== null}
+        cwd={status.cwd}
+        commands={commands}
+      />
       <StatusLine {...status} busy={busy} />
     </Box>
   )

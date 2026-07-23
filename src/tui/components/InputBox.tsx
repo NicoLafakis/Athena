@@ -1,7 +1,8 @@
 // src/tui/components/InputBox.tsx
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
 import { FileMentionPopup } from './FileMentionPopup.js'
+import { SlashMenuPopup } from './SlashMenuPopup.js'
 import {
   extractMentionBlocks,
   rankFileMatches,
@@ -9,12 +10,22 @@ import {
   walkMentionFiles,
   type MentionFileContent,
 } from '../fileMention.js'
+import { buildSlashCatalog, filterSlashCommands } from '../slashMenu.js'
+import type { CustomCommandDef } from '../slash.js'
 
 /** Tracks an in-progress @-mention: `start` is the index of the triggering '@' inside
  *  `value`, so the filter query is always derived as value.slice(start + 1) rather
  *  than duplicated into its own bit of state that could drift out of sync. */
 interface MentionState {
   start: number
+  index: number
+}
+
+/** Tracks an in-progress live "/" command menu. Unlike MentionState there's no
+ *  `start` to track: a slash menu can only ever begin at position 0 (see
+ *  beginSlashComposition below), so `index` (the highlighted row) is all the state
+ *  that's needed — the filter query is always `value.slice(1)`. */
+interface SlashMenuState {
   index: number
 }
 
@@ -53,16 +64,38 @@ export function applyTypedChars(
   return { value: v, mention: m }
 }
 
+/** Burst-safe counterpart of applyTypedChars for the live "/" menu: simulates a run of
+ *  characters arriving in a single Ink input event, keystroke by keystroke, starting
+ *  from an empty box whose very first character is '/' (the only position a slash menu
+ *  is ever allowed to arm from — see the requirement that '/' NOT as the first
+ *  character must never trigger it). Composition ends at the first whitespace
+ *  character in the run (mirroring applyTypedChars' space-ends-mention rule); anything
+ *  from that whitespace onward is handed back as `rest` so the caller can replay it
+ *  through the normal (mention-aware) typing path — e.g. a pasted "/tui fullscreen"
+ *  closes the slash menu at the space and types " fullscreen" as ordinary text. */
+export function beginSlashComposition(chars: string): { value: string; slash: SlashMenuState | null; rest: string } {
+  const afterSlash = chars.slice(1)
+  const wsIndex = afterSlash.search(/\s/)
+  if (wsIndex === -1) return { value: chars, slash: { index: 0 }, rest: '' }
+  const boundary = wsIndex + 1 // index within `chars` of the whitespace character
+  return { value: chars.slice(0, boundary), slash: { index: 0 }, rest: chars.slice(boundary) }
+}
+
 export function InputBox({
   onSubmit,
   disabled,
   cwd,
+  commands,
 }: {
   onSubmit: (text: string) => void
   disabled: boolean
   /** Project root the @-mention file walk runs from — same coordinate system the
    *  tools resolve file_path against. */
   cwd: string
+  /** Directory-backed + plugin custom commands (App's own `commands` prop, threaded
+   *  straight through) — unioned with the built-ins to populate the live "/" menu.
+   *  Optional so existing callers/tests that don't wire any stay unaffected. */
+  commands?: ReadonlyMap<string, CustomCommandDef>
 }) {
   const [value, setValue] = useState('')
   const [history, setHistory] = useState<string[]>([])
@@ -72,6 +105,10 @@ export function InputBox({
 
   const [mention, setMention] = useState<MentionState | null>(null)
   const [allFiles, setAllFiles] = useState<string[] | null>(null)
+  const [slashMenu, setSlashMenu] = useState<SlashMenuState | null>(null)
+  // Stable across the session (App threads the same Map down every render) — memoized
+  // so a busy App re-rendering on every streamed event doesn't rebuild the array.
+  const slashCatalog = useMemo(() => buildSlashCatalog(commands), [commands])
   // Every file selected via @-mention this turn, keyed by relative path — read once,
   // reused if the same file is mentioned again before the turn is submitted. A ref
   // because populating it must never itself trigger a re-render.
@@ -95,6 +132,9 @@ export function InputBox({
 
   const query = mention ? value.slice(mention.start + 1) : ''
   const matches = mention && allFiles ? rankFileMatches(query, allFiles) : []
+
+  const slashQuery = slashMenu ? value.slice(1) : ''
+  const slashMatches = slashMenu ? filterSlashCommands(slashCatalog, slashQuery) : []
 
   function selectMention(relPath: string): void {
     if (!mention) return
@@ -145,6 +185,66 @@ export function InputBox({
         return
       }
 
+      // --- live "/" command menu: same precedence discipline as @-mention above (this
+      // branch never runs while `mention` is truthy, and vice versa — the two modes
+      // are armed mutually exclusively, see beginSlashComposition/the typing branch
+      // below). Enter/Tab select; the one deliberate exception is a Return on an
+      // already-exact, unambiguous command name, which passes through to the ordinary
+      // submit path below instead of "selecting" a no-op completion of itself — see
+      // the report for why (keeps a fully-typed built-in like /compact submitting on a
+      // single Enter, matching pre-existing behavior/tests). ---
+      if (slashMenu) {
+        if (key.escape) {
+          setSlashMenu(null) // typed '/query' stays as plain literal text
+          return
+        }
+        if (key.upArrow) {
+          setSlashMenu({ index: Math.max(0, slashMenu.index - 1) })
+          return
+        }
+        if (key.downArrow) {
+          const maxIndex = Math.max(slashMatches.length - 1, 0)
+          setSlashMenu({ index: Math.min(maxIndex, slashMenu.index + 1) })
+          return
+        }
+        if (key.tab || key.return) {
+          const picked = slashMatches[slashMenu.index]
+          const typedName = value.slice(1)
+          const nothingLeftToComplete =
+            key.return && !!picked && slashMatches.length === 1 && picked.name === typedName
+          if (nothingLeftToComplete) {
+            setSlashMenu(null) // fall through to the shared Enter-submit logic below
+          } else if (picked) {
+            setValue(`/${picked.name} `)
+            setSlashMenu(null)
+            return
+          } else {
+            setSlashMenu(null) // nothing under the cursor: close, keep typed text
+            return
+          }
+        } else if (key.backspace || key.delete) {
+          const next = value.slice(0, -1)
+          setValue(next)
+          if (next.length === 0) setSlashMenu(null) // deleted the '/' itself
+          return
+        } else if (key.ctrl || key.meta) {
+          return
+        } else if (ch) {
+          if (/\s/.test(ch)) {
+            // Whitespace ends composition per spec; the '/word' typed so far is kept
+            // as ordinary text rather than swallowed.
+            setValue(value + ch)
+            setSlashMenu(null)
+          } else {
+            setValue(value + ch)
+            setSlashMenu({ index: 0 }) // filter narrowed: re-anchor highlight to top
+          }
+          return
+        } else {
+          return
+        }
+      }
+
       if (key.return) {
         if (value.endsWith('\\')) {
           // Backslash continuation: strip the backslash, insert a newline.
@@ -187,6 +287,25 @@ export function InputBox({
       }
       if (key.ctrl || key.meta || key.escape || key.tab) return
       if (ch) {
+        // A bare '/' only ever arms the live menu as the very first character of an
+        // empty box (never mid-text) — mirrored here burst-safe via
+        // beginSlashComposition for the same reason applyTypedChars simulates '@'
+        // char-by-char: fast typing can deliver a whole word in one Ink input event.
+        if (value === '' && ch[0] === '/') {
+          const begun = beginSlashComposition(ch)
+          if (begun.rest) {
+            // Composition ended mid-burst (whitespace arrived in the same chunk, e.g.
+            // a pasted "/tui fullscreen") — replay the remainder through the normal
+            // (mention-aware) typing path so a trailing @mention still arms correctly.
+            const after = applyTypedChars(begun.value, null, begun.rest)
+            setValue(after.value)
+            if (after.mention) setMention(after.mention)
+          } else {
+            setValue(begun.value)
+            setSlashMenu(begun.slash)
+          }
+          return
+        }
         const result = applyTypedChars(value, null, ch)
         setValue(result.value)
         if (result.mention) setMention(result.mention)
@@ -199,6 +318,7 @@ export function InputBox({
   return (
     <Box flexDirection="column">
       {mention && <FileMentionPopup query={query} matches={matches} index={mention.index} loading={!allFiles} />}
+      {slashMenu && <SlashMenuPopup query={slashQuery} matches={slashMatches} index={slashMenu.index} />}
       {lines.map((line, idx) => (
         <Text key={idx}>
           {idx === 0 ? '❯ ' : '… '}
