@@ -29,7 +29,7 @@ export function parseSlash(input: string): SlashCommand | null {
   if (cmd === 'model')
     return arg
       ? { kind: 'model', value: arg }
-      : { kind: 'error', value: 'Usage: /model <haiku|sonnet|opus|fable>' }
+      : { kind: 'error', value: 'Usage: /model <name>' }
   if (cmd === 'provider')
     return arg
       ? { kind: 'provider', value: arg }

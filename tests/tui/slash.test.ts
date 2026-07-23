@@ -25,7 +25,7 @@ describe('parseSlash', () => {
   it('errors on /model with no argument', () => {
     expect(parseSlash('/model')).toEqual({
       kind: 'error',
-      value: 'Usage: /model <haiku|sonnet|opus|fable>',
+      value: 'Usage: /model <name>',
     })
   })
 

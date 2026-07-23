@@ -196,7 +196,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
     switch (cmd.kind) {
       case 'help':
         info(
-          'Commands: /help /clear /resume /compact /model <haiku|sonnet|opus|fable> /effort <low|medium|high|xhigh|max> /provider <anthropic|kimi> /mode <normal|acceptEdits|plan|trusted> /memory /skills /agents /quit\n' +
+          `Commands: /help /clear /resume /compact /model <${modelKeys(engine.getProvider()).join('|')}> /effort <low|medium|high|xhigh|max> /provider <anthropic|kimi> /mode <normal|acceptEdits|plan|trusted> /memory /skills /agents /quit\n` +
             '/clear clears the screen (transcript display only) — conversation context is unchanged; use /compact to shrink it.',
         )
         break
@@ -224,7 +224,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
       case 'provider': {
         const p = normalizeProvider(cmd.value)
         if (!p) {
-          info(`Unknown provider: ${cmd.value} — choose ${PROVIDER_IDS.join(' or ')}.`)
+          info(`Unknown provider: ${cmd.value}, choose ${PROVIDER_IDS.join(' or ')}.`)
           break
         }
         if (p === engine.getProvider()) {
@@ -240,7 +240,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         }
         if (!resolved) {
           info(
-            `No API key configured for ${PROVIDERS[p].label} — run \`athena auth\` (or restart with \`athena --provider ${p}\`) to add one.`,
+            `No API key configured for ${PROVIDERS[p].label}. Run \`athena auth\` (or restart with \`athena --provider ${p}\`) to add one.`,
           )
           break
         }
