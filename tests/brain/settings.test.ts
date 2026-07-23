@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { resolveBrainPaths } from '../../src/brain/paths.js'
-import { loadSettings, SettingsSchema } from '../../src/brain/settings.js'
+import { loadSettings, SettingsSchema, makeSettingsSchema } from '../../src/brain/settings.js'
 
 let home: string
 let project: string
@@ -113,5 +113,38 @@ describe('loadSettings', () => {
     writeFileSync(join(home, '.athena', 'settings.json'), '{ not json')
     expect(() => loadSettings(resolveBrainPaths({ cwd: project, homeOverride: home })))
       .toThrow(/Malformed JSON/)
+  })
+})
+
+describe('provider-scoped model validation', () => {
+  it('anthropic schema accepts the four family names and normalizes legacy ids', () => {
+    const schema = makeSettingsSchema('anthropic')
+    expect(schema.parse({ model: 'fable' }).model).toBe('fable')
+    expect(schema.parse({ model: 'claude-opus-4-8' }).model).toBe('opus')
+    expect(schema.parse({}).model).toBe('sonnet')
+  })
+
+  it('kimi schema accepts kimi keys and defaults to kimi-k3', () => {
+    const schema = makeSettingsSchema('kimi')
+    expect(schema.parse({ model: 'kimi-k2.7-code' }).model).toBe('kimi-k2.7-code')
+    expect(schema.parse({ model: 'kimi-k3' }).model).toBe('kimi-k3')
+    expect(schema.parse({}).model).toBe('kimi-k3')
+  })
+
+  it('rejects cross-provider keys with an error naming the provider and valid keys', () => {
+    expect(() => makeSettingsSchema('kimi').parse({ model: 'sonnet' })).toThrow(
+      /unknown model 'sonnet' for provider 'kimi'.*kimi-k3/,
+    )
+    expect(() => makeSettingsSchema('anthropic').parse({ model: 'kimi-k3' })).toThrow(
+      /unknown model 'kimi-k3' for provider 'anthropic'.*haiku, sonnet, opus, fable/,
+    )
+  })
+
+  it('loadSettings validates against the provider it is given', () => {
+    mkdirSync(join(home, '.athena'), { recursive: true })
+    writeFileSync(join(home, '.athena', 'settings.json'), JSON.stringify({ model: 'opus' }))
+    const paths = resolveBrainPaths({ cwd: project, homeOverride: home })
+    expect(loadSettings(paths, 'anthropic').model).toBe('opus')
+    expect(() => loadSettings(paths, 'kimi')).toThrow(/unknown model 'opus' for provider 'kimi'/)
   })
 })
