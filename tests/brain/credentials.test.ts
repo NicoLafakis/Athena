@@ -89,6 +89,25 @@ describe('credentials load/save', () => {
     expect(creds.providers.anthropic?.apiKey).toBe('sk-ant-new')
     expect(loadCredentials(p).activeProvider).toBe('anthropic')
   })
+
+  it('setProviderKey rethrows I/O errors (credentialsFile is a directory)', () => {
+    const p = paths()
+    mkdirSync(join(home, '.athena'), { recursive: true })
+    mkdirSync(p.credentialsFile) // credentialsFile is now a directory, not a file
+    expect(() => setProviderKey(p, 'anthropic', 'sk-ant-x')).toThrow()
+  })
+
+  it('loadCredentials rejects unknown top-level keys (typo in activeProvider)', () => {
+    const p = paths()
+    mkdirSync(join(home, '.athena'), { recursive: true })
+    writeFileSync(
+      p.credentialsFile,
+      JSON.stringify({ activProvider: 'kimi', providers: {} }),
+      'utf8',
+    )
+    expect(() => loadCredentials(p)).toThrow(/activProvider/)
+    expect(() => loadCredentials(p)).toThrow(/athena auth/)
+  })
 })
 
 describe('resolveApiKey (env over file, per provider)', () => {
@@ -123,5 +142,11 @@ describe('redactKey', () => {
   it('never leaks short keys', () => {
     expect(redactKey('short')).toBe('***')
     expect(redactKey('')).toBe('***')
+  })
+  it('boundary: length 17 collapses to ***', () => {
+    expect(redactKey('12345678901234567')).toBe('***')
+  })
+  it('boundary: length 18 shows redacted form', () => {
+    expect(redactKey('123456789012345678')).toBe('123456...5678')
   })
 })

@@ -9,16 +9,18 @@ import type { BrainPaths } from './paths.js'
 
 const ProviderCredSchema = z.object({ apiKey: z.string().min(1) })
 
-export const CredentialsSchema = z.object({
-  providers: z
-    .object({
-      anthropic: ProviderCredSchema.optional(),
-      kimi: ProviderCredSchema.optional(),
-    })
-    .strict() // unknown providers are rejected, not silently kept
-    .default({}),
-  activeProvider: z.enum(['anthropic', 'kimi']).default('anthropic'),
-})
+export const CredentialsSchema = z
+  .object({
+    providers: z
+      .object({
+        anthropic: ProviderCredSchema.optional(),
+        kimi: ProviderCredSchema.optional(),
+      })
+      .strict() // unknown providers are rejected, not silently kept
+      .default({}),
+    activeProvider: z.enum(['anthropic', 'kimi']).default('anthropic'),
+  })
+  .strict() // unknown top-level keys are rejected, not silently kept
 export type Credentials = z.infer<typeof CredentialsSchema>
 
 /** Missing file -> defaults. Malformed/invalid file -> actionable error (never a raw
@@ -29,15 +31,21 @@ export function loadCredentials(paths: BrainPaths): Credentials {
   try {
     raw = JSON.parse(readFileSync(paths.credentialsFile, 'utf8'))
   } catch {
-    throw new Error(
-      `Malformed credentials file ${paths.credentialsFile} — run \`athena auth\` to regenerate it.`,
+    throw Object.assign(
+      new Error(
+        `Malformed credentials file ${paths.credentialsFile} — run \`athena auth\` to regenerate it.`,
+      ),
+      { code: 'ATHENA_CREDENTIALS_INVALID' },
     )
   }
   const result = CredentialsSchema.safeParse(raw)
   if (!result.success) {
     const issues = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
-    throw new Error(
-      `Invalid credentials file ${paths.credentialsFile} (${issues}) — run \`athena auth\` to regenerate it.`,
+    throw Object.assign(
+      new Error(
+        `Invalid credentials file ${paths.credentialsFile} (${issues}) — run \`athena auth\` to regenerate it.`,
+      ),
+      { code: 'ATHENA_CREDENTIALS_INVALID' },
     )
   }
   return result.data
@@ -47,7 +55,10 @@ export function loadCredentials(paths: BrainPaths): Credentials {
  *  Windows/NTFS, where the file relies on the user-profile directory ACL. */
 export function saveCredentials(paths: BrainPaths, creds: Credentials): void {
   mkdirSync(dirname(paths.credentialsFile), { recursive: true })
-  writeFileSync(paths.credentialsFile, JSON.stringify(creds, null, 2) + '\n', 'utf8')
+  writeFileSync(paths.credentialsFile, JSON.stringify(creds, null, 2) + '\n', {
+    mode: 0o600,
+    encoding: 'utf8',
+  })
   try {
     chmodSync(paths.credentialsFile, 0o600)
   } catch {
@@ -61,7 +72,8 @@ export function setProviderKey(paths: BrainPaths, provider: ProviderId, key: str
   let creds: Credentials
   try {
     creds = loadCredentials(paths)
-  } catch {
+  } catch (err) {
+    if ((err as { code?: string }).code !== 'ATHENA_CREDENTIALS_INVALID') throw err
     creds = CredentialsSchema.parse({})
   }
   const next: Credentials = {
@@ -89,9 +101,10 @@ export function resolveApiKey(
   return null
 }
 
-/** `sk-ant-api03-...abc4` -> `sk-ant...abc4`. Short keys collapse to '***' so a
- *  redacted rendering can never reconstruct the key. */
+/** `sk-ant-api03-abcdefabc4` -> `sk-ant...abc4`: prefix (6 chars) + ellipsis + last 4.
+ *  At least 8 characters are always hidden; anything shorter than 18 collapses to '***'
+ *  so a redacted rendering can never reconstruct the key. */
 export function redactKey(key: string): string {
-  if (key.length <= 10) return '***'
+  if (key.length < 18) return '***'
   return `${key.slice(0, 6)}...${key.slice(-4)}`
 }
