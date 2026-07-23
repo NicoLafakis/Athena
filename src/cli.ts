@@ -25,13 +25,12 @@ import {
 } from './brain/credentials.js'
 import { runAuthWizard } from './auth/wizard.js'
 import { ClientHolder } from './engine/client-holder.js'
+import { loadConstitution, loadMemoryIndex } from './brain/loader.js'
 import {
-  loadConstitution,
-  loadMemoryIndex,
-  loadSkillsIndex,
-  loadAgentsIndex,
-  loadCommandsIndex,
-} from './brain/loader.js'
+  loadSkillsIndexWithPlugins,
+  loadAgentsIndexWithPlugins,
+  loadCommandsIndexWithPlugins,
+} from './brain/plugins.js'
 import { importBrain } from './brain/import.js'
 import { ensureBrainScaffold } from './harness/bootstrap.js'
 import { PermissionEngine } from './harness/permissions.js'
@@ -145,7 +144,8 @@ Usage:
   athena --help          this help
 
 In-session: /help /clear /resume /compact /model /effort /provider /mode /memory /skills /agents /quit. Esc interrupts a turn.
-Custom commands: drop a .md file (with description/argument-hint frontmatter) into .athena/commands/ or ~/.athena/commands/ to add /<name>.`
+Custom commands: drop a .md file (with description/argument-hint frontmatter) into .athena/commands/ or ~/.athena/commands/ to add /<name>.
+Plugins: drop a bundle into ~/.athena/plugins/<plugin-id>/{skills,agents,commands}/ (optional plugin.json for metadata) to add namespaced <plugin-id>:<name> skills/agents/commands, without overriding anything you already have.`
 
 function gitBranch(cwd: string): string | null {
   try {
@@ -303,7 +303,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         info(loadMemoryIndex(paths) ?? '(no memory index)')
         break
       case 'skills': {
-        const skills = loadSkillsIndex(paths)
+        const skills = loadSkillsIndexWithPlugins(paths)
         info(
           skills.length > 0
             ? skills.map((s) => `${s.name} — ${s.description}`).join('\n')
@@ -312,7 +312,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         break
       }
       case 'agents': {
-        const agents = loadAgentsIndex(paths)
+        const agents = loadAgentsIndexWithPlugins(paths)
         info(
           agents.length > 0
             ? agents.map((a) => `${a.name} — ${a.description}`).join('\n')
@@ -444,7 +444,9 @@ async function main(): Promise<void> {
   const settings = loadSettings(paths, provider, (msg) => console.error(msg))
   // Directory-backed custom slash commands (.athena/commands, ~/.athena/commands). Name
   // collisions with a built-in command are skipped with a warning, never fatal.
-  const commands = new Map(loadCommandsIndex(paths, (msg) => console.error(msg)).map((c) => [c.name, c]))
+  const commands = new Map(
+    loadCommandsIndexWithPlugins(paths, (msg) => console.error(msg)).map((c) => [c.name, c]),
+  )
   const gate = new PermissionEngine({
     mode: settings.permissionMode,
     allow: settings.allow,
@@ -488,7 +490,7 @@ async function main(): Promise<void> {
     projectContext: findProjectContextFiles(cwd),
     toolGuidance:
       'Use Read before Write/Edit. Prefer Grep/Glob over shell find. Keep tool outputs focused.',
-    skills: loadSkillsIndex(paths),
+    skills: loadSkillsIndexWithPlugins(paths, (msg) => console.error(msg)),
     environment: {
       cwd,
       platform: process.platform,
@@ -498,7 +500,7 @@ async function main(): Promise<void> {
   })
   const client = new ClientHolder(makeClient(provider, resolved.key))
   const orchestrator = new AgentOrchestrator({
-    defs: loadAgentsIndex(paths),
+    defs: loadAgentsIndexWithPlugins(paths, (msg) => console.error(msg)),
     clientFactory: () => client,
     baseRegistry: registry,
     gate,

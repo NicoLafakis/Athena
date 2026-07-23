@@ -27,6 +27,8 @@ describe('ensureBrainScaffold', () => {
       paths.memoryDir,
       paths.skillsDir,
       paths.agentsDir,
+      paths.commandsDir,
+      paths.pluginsDir,
       paths.hooksDir,
       paths.sessionsDir,
       paths.journalDir,

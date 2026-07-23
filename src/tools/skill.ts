@@ -2,14 +2,15 @@ import { readFileSync } from 'node:fs'
 import { z } from 'zod'
 import type { ToolDefinition } from '../engine/types.js'
 import type { BrainPaths } from '../brain/paths.js'
-import { loadSkillsIndex, parseFrontmatter } from '../brain/loader.js'
+import { parseFrontmatter } from '../brain/loader.js'
+import { loadSkillsIndexWithPlugins } from '../brain/plugins.js'
 
 const SkillInput = z.object({
   name: z.string().min(1),
 })
 
 export function makeSkillTool(paths: BrainPaths): ToolDefinition<z.infer<typeof SkillInput>> {
-  const skills = loadSkillsIndex(paths)
+  const skills = loadSkillsIndexWithPlugins(paths)
   return {
     name: 'Skill',
     description:
@@ -20,7 +21,7 @@ export function makeSkillTool(paths: BrainPaths): ToolDefinition<z.infer<typeof 
     schema: SkillInput,
     readOnly: true,
     async execute(input) {
-      const index = loadSkillsIndex(paths)
+      const index = loadSkillsIndexWithPlugins(paths)
       const entry = index.find((s) => s.name === input.name)
       if (!entry) {
         return {

@@ -90,6 +90,7 @@ export function ensureBrainScaffold(paths: BrainPaths): void {
     paths.skillsDir,
     paths.agentsDir,
     paths.commandsDir,
+    paths.pluginsDir,
     paths.hooksDir,
     paths.sessionsDir,
     paths.journalDir,

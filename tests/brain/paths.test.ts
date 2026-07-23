@@ -26,6 +26,8 @@ describe('resolveBrainPaths', () => {
     expect(paths.memoryIndexFile).toBe(join(brain, 'memory', 'MEMORY.md'))
     expect(paths.skillsDir).toBe(join(brain, 'skills'))
     expect(paths.agentsDir).toBe(join(brain, 'agents'))
+    expect(paths.commandsDir).toBe(join(brain, 'commands'))
+    expect(paths.pluginsDir).toBe(join(brain, 'plugins'))
     expect(paths.hooksDir).toBe(join(brain, 'hooks'))
     expect(paths.sessionsDir).toBe(join(brain, 'sessions'))
     expect(paths.journalDir).toBe(join(brain, 'journal'))

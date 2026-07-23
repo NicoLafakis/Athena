@@ -60,7 +60,9 @@ export function loadMemoryIndex(paths: BrainPaths): string | null {
   return existsSync(paths.memoryIndexFile) ? readFileSync(paths.memoryIndexFile, 'utf8') : null
 }
 
-function skillFilesIn(dir: string): string[] {
+/** Skill files under a directory: a bare `<name>.md`, or a subdir holding `SKILL.md`.
+ *  Exported so plugins.ts can scan a plugin's `skills/` dir with the exact same rule. */
+export function skillFilesIn(dir: string): string[] {
   if (!existsSync(dir)) return []
   const out: string[] = []
   for (const entry of readdirSync(dir)) {
@@ -75,19 +77,49 @@ function skillFilesIn(dir: string): string[] {
   return out
 }
 
+/** Parses a single skill file into an index entry. Returns null (skip) when the
+ *  frontmatter has no `name`. Exported so plugins.ts reuses the exact same parsing
+ *  rather than re-implementing it for plugin-sourced skills. */
+export function parseSkillFile(file: string): SkillIndexEntry | null {
+  const { attrs } = parseFrontmatter(readFileSync(file, 'utf8'))
+  const name = attrs['name']
+  if (!name) return null
+  return { name, description: attrs['description'] ?? '', file }
+}
+
 export function loadSkillsIndex(paths: BrainPaths): SkillIndexEntry[] {
   const byName = new Map<string, SkillIndexEntry>()
   const dirs = [paths.skillsDir]
   if (paths.projectBrainDir) dirs.push(join(paths.projectBrainDir, 'skills'))
   for (const dir of dirs) {
     for (const file of skillFilesIn(dir)) {
-      const { attrs } = parseFrontmatter(readFileSync(file, 'utf8'))
-      const name = attrs['name']
-      if (!name) continue
-      byName.set(name, { name, description: attrs['description'] ?? '', file })
+      const entry = parseSkillFile(file)
+      if (entry) byName.set(entry.name, entry)
     }
   }
   return [...byName.values()]
+}
+
+/** Parses a single agent file into an AgentDef. Returns null (skip) when the
+ *  frontmatter has no `name`. Exported so plugins.ts reuses the exact same parsing
+ *  rather than re-implementing it for plugin-sourced agents. */
+export function parseAgentFile(file: string): AgentDef | null {
+  const { attrs, body } = parseFrontmatter(readFileSync(file, 'utf8'))
+  const name = attrs['name']
+  if (!name) return null
+  return {
+    name,
+    description: attrs['description'] ?? '',
+    tools: attrs['tools']
+      ? attrs['tools']
+          .split(',')
+          .map((t) => t.trim())
+          .filter(Boolean)
+      : null,
+    model: attrs['model'] ?? null,
+    systemPrompt: body.trim(),
+    file,
+  }
 }
 
 export function loadAgentsIndex(paths: BrainPaths): AgentDef[] {
@@ -97,26 +129,25 @@ export function loadAgentsIndex(paths: BrainPaths): AgentDef[] {
   for (const dir of dirs) {
     if (!existsSync(dir)) continue
     for (const entry of readdirSync(dir).filter((f) => f.endsWith('.md'))) {
-      const file = join(dir, entry)
-      const { attrs, body } = parseFrontmatter(readFileSync(file, 'utf8'))
-      const name = attrs['name']
-      if (!name) continue
-      byName.set(name, {
-        name,
-        description: attrs['description'] ?? '',
-        tools: attrs['tools']
-          ? attrs['tools']
-              .split(',')
-              .map((t) => t.trim())
-              .filter(Boolean)
-          : null,
-        model: attrs['model'] ?? null,
-        systemPrompt: body.trim(),
-        file,
-      })
+      const def = parseAgentFile(join(dir, entry))
+      if (def) byName.set(def.name, def)
     }
   }
   return [...byName.values()]
+}
+
+/** Parses a single command file into a CommandDef. `defaultName` is used when the
+ *  frontmatter omits `name` (the filename, sans `.md`). Exported so plugins.ts reuses
+ *  the exact same parsing rather than re-implementing it for plugin-sourced commands. */
+export function parseCommandFile(file: string, defaultName: string): CommandDef {
+  const { attrs, body } = parseFrontmatter(readFileSync(file, 'utf8'))
+  return {
+    name: attrs['name'] ?? defaultName,
+    description: attrs['description'] ?? '',
+    argumentHint: attrs['argument-hint'] ?? null,
+    template: body.trim(),
+    file,
+  }
 }
 
 /** Directory-backed custom slash commands: `<brainDir>/commands/<name>.md` (global) and
@@ -134,19 +165,12 @@ export function loadCommandsIndex(paths: BrainPaths, warn?: (message: string) =>
     if (!existsSync(dir)) continue
     for (const entry of readdirSync(dir).filter((f) => f.endsWith('.md'))) {
       const file = join(dir, entry)
-      const { attrs, body } = parseFrontmatter(readFileSync(file, 'utf8'))
-      const name = attrs['name'] ?? entry.slice(0, -3)
-      if (RESERVED_COMMAND_NAMES.has(name)) {
-        warn?.(`Skipping custom command '/${name}' (${file}): that name is a built-in command.`)
+      const def = parseCommandFile(file, entry.slice(0, -3))
+      if (RESERVED_COMMAND_NAMES.has(def.name)) {
+        warn?.(`Skipping custom command '/${def.name}' (${file}): that name is a built-in command.`)
         continue
       }
-      byName.set(name, {
-        name,
-        description: attrs['description'] ?? '',
-        argumentHint: attrs['argument-hint'] ?? null,
-        template: body.trim(),
-        file,
-      })
+      byName.set(def.name, def)
     }
   }
   return [...byName.values()]
