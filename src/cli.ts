@@ -95,16 +95,18 @@ export function parseArgs(argv: string[]): CliCommand {
 
     // Check for --provider flag
     if (rest.length > 0 && rest[0] === '--provider') {
+      // --provider is not allowed on status; only on wizard
+      if (sub === 'status') return { command: 'error', message: AUTH_USAGE }
       const value = rest[1]
-      if (!value) return { command: 'error', message: 'Usage: athena auth [status] [--provider <anthropic|kimi>]' }
+      if (!value) return { command: 'error', message: AUTH_USAGE }
       const p = normalizeProvider(value)
-      if (!p) return { command: 'error', message: 'Usage: athena auth [status] [--provider <anthropic|kimi>]' }
+      if (!p) return { command: 'error', message: `--provider needs one of: ${PROVIDER_IDS.join(', ')}` }
       provider = p
       rest.splice(0, 2)
     }
 
     // Check for unexpected remaining args
-    if (rest.length > 0) return { command: 'error', message: 'Usage: athena auth [status] [--provider <anthropic|kimi>]' }
+    if (rest.length > 0) return { command: 'error', message: AUTH_USAGE }
 
     return { command: 'auth', sub, provider }
   }
@@ -126,6 +128,8 @@ export function parseArgs(argv: string[]): CliCommand {
   if (rest.includes('--continue')) return { command: 'continue', provider }
   return { command: 'run', provider }
 }
+
+const AUTH_USAGE = 'Usage: athena auth [status] [--provider <anthropic|kimi>]'
 
 const HELP_TEXT = `athena — standalone terminal coding agent
 
@@ -366,7 +370,7 @@ async function main(): Promise<void> {
     // First run (or a provider selected via --provider that has no key yet): drop into
     // the wizard scoped to that provider, then continue straight into the session.
     console.log(
-      `No API key found for ${PROVIDERS[provider].label} — let's set one up. (This provider becomes your default; athena auth switches it.)`,
+      `No API key found for ${PROVIDERS[provider].label} - let's set one up. (This provider becomes your default; athena auth switches it.)`,
     )
     const done = await runAuthWizard({ paths, provider })
     resolved = { key: done.key, source: 'file' }

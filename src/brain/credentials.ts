@@ -119,16 +119,17 @@ export function formatAuthStatus(
   activeProvider: ProviderId,
   env: NodeJS.ProcessEnv = process.env,
 ): string {
+  const pad = Math.max(...PROVIDER_IDS.map((p) => PROVIDERS[p].label.length)) + 1
   return PROVIDER_IDS.map((p) => {
     const info = PROVIDERS[p]
     const envKey = env[info.envVar]
     const fileKey = creds.providers[p]?.apiKey
     let detail: string
-    if (envKey && fileKey) detail = `${redactKey(envKey)} (env ${info.envVar} — overrides file)`
+    if (envKey && fileKey) detail = `${redactKey(envKey)} (env ${info.envVar}, overrides file)`
     else if (envKey) detail = `${redactKey(envKey)} (env ${info.envVar})`
     else if (fileKey) detail = `${redactKey(fileKey)} (file)`
     else detail = 'not configured'
     const active = p === activeProvider ? ' [active]' : ''
-    return `${info.label.padEnd(16)} ${detail}${active}`
+    return `${info.label.padEnd(pad)} ${detail}${active}`
   }).join('\n')
 }

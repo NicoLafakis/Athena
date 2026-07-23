@@ -7,23 +7,32 @@ describe('parseArgs — auth and --provider', () => {
     expect(parseArgs(['auth', 'status'])).toEqual({ command: 'auth', sub: 'status' })
   })
 
-  it('parses auth with --provider flag', () => {
+  it('rejects stray positional args after auth', () => {
+    expect(parseArgs(['auth', 'bogus'])).toEqual({
+      command: 'error',
+      message: 'Usage: athena auth [status] [--provider <anthropic|kimi>]',
+    })
+  })
+
+  it('parses auth with --provider flag (wizard only, not status)', () => {
     expect(parseArgs(['auth', '--provider', 'kimi'])).toEqual({
       command: 'auth',
       sub: 'wizard',
       provider: 'kimi',
     })
+  })
+
+  it('rejects --provider on auth status', () => {
     expect(parseArgs(['auth', 'status', '--provider', 'anthropic'])).toEqual({
-      command: 'auth',
-      sub: 'status',
-      provider: 'anthropic',
+      command: 'error',
+      message: 'Usage: athena auth [status] [--provider <anthropic|kimi>]',
     })
   })
 
   it('rejects auth with unknown --provider value', () => {
     expect(parseArgs(['auth', '--provider', 'openai'])).toEqual({
       command: 'error',
-      message: 'Usage: athena auth [status] [--provider <anthropic|kimi>]',
+      message: '--provider needs one of: anthropic, kimi',
     })
   })
 

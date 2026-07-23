@@ -178,7 +178,7 @@ describe('formatAuthStatus', () => {
 
   it('shows when an env var overrides the file, still redacted', () => {
     const out = formatAuthStatus(creds, 'anthropic', { ANTHROPIC_API_KEY: 'sk-ant-envkey-wxyz' })
-    expect(out).toContain('(env ANTHROPIC_API_KEY — overrides file)')
+    expect(out).toContain('(env ANTHROPIC_API_KEY, overrides file)')
     expect(out).toContain('sk-ant...wxyz')
     expect(out).not.toContain('sk-ant-envkey-wxyz')
   })
