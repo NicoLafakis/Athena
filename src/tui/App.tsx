@@ -8,7 +8,7 @@ import { PermissionDialog } from './components/PermissionDialog.js'
 import { StatusLine } from './components/StatusLine.js'
 import { TodoPanel } from './components/TodoPanel.js'
 import { InputBox } from './components/InputBox.js'
-import { parseSlash, type SlashCommand } from './slash.js'
+import { parseSlash, type SlashCommand, type CustomCommandDef } from './slash.js'
 
 export type PermissionAnswer = 'allow-once' | 'allow-always' | 'deny'
 
@@ -84,9 +84,20 @@ export interface AppProps {
   onSlash: (cmd: SlashCommand) => void
   onAbort: () => void
   permissionBridge: PermissionBridge
+  /** Directory-backed custom commands (see brain/loader.js loadCommandsIndex), keyed by name.
+   *  Optional so existing callers/tests that don't wire any stay unaffected. */
+  commands?: ReadonlyMap<string, CustomCommandDef>
 }
 
-export function App({ bus, status: statusProp, onSubmit, onSlash, onAbort, permissionBridge }: AppProps) {
+export function App({
+  bus,
+  status: statusProp,
+  onSubmit,
+  onSlash,
+  onAbort,
+  permissionBridge,
+  commands,
+}: AppProps) {
   const [entries, setEntries] = useState<TranscriptEntry[]>([])
   const [todos, setTodos] = useState<TodoItem[]>([])
   const [pending, setPending] = useState<PendingPermission | null>(null)
@@ -118,28 +129,10 @@ export function App({ bus, status: statusProp, onSubmit, onSlash, onAbort, permi
     }
   })
 
-  const handleSubmit = useCallback(
+  // Shared by a plain user message and an expanded custom-command prompt: both must
+  // enter the engine the exact same way (transcript entry, busy flag, crash handling).
+  const submitTurn = useCallback(
     async (text: string) => {
-      const slash = parseSlash(text)
-      if (slash) {
-        if (slash.kind === 'quit') exit()
-        else if (slash.kind === 'clear') {
-          // Display-only: the engine's message history (and the session file) keep
-          // the full conversation — /compact is the tool that shrinks context.
-          setEntries([])
-          bus.emit({
-            type: 'info',
-            message: 'Screen cleared (transcript display only) — conversation context is unchanged.',
-          })
-        } else if (busy && (slash.kind === 'compact' || slash.kind === 'model' || slash.kind === 'provider')) {
-          // Mutating engine state mid-turn corrupts the in-flight transcript.
-          bus.emit({
-            type: 'info',
-            message: `/${slash.kind} is unavailable while a turn is running — finish or Esc the current turn first.`,
-          })
-        } else onSlash(slash)
-        return
-      }
       setEntries((prev) => [...prev, { kind: 'user', text }])
       setBusy(true)
       try {
@@ -150,7 +143,38 @@ export function App({ bus, status: statusProp, onSubmit, onSlash, onAbort, permi
         bus.emit({ type: 'error', message: `Turn crashed: ${(err as Error).message}`, fatal: true })
       }
     },
-    [onSubmit, onSlash, exit, busy, bus],
+    [onSubmit, bus],
+  )
+
+  const handleSubmit = useCallback(
+    async (text: string) => {
+      const slash = parseSlash(text, commands)
+      if (slash) {
+        if (slash.kind === 'quit') exit()
+        else if (slash.kind === 'clear') {
+          // Display-only: the engine's message history (and the session file) keep
+          // the full conversation — /compact is the tool that shrinks context.
+          setEntries([])
+          bus.emit({
+            type: 'info',
+            message: 'Screen cleared (transcript display only) — conversation context is unchanged.',
+          })
+        } else if (slash.kind === 'custom') {
+          // Custom commands are just a prompt-template expansion in front of an
+          // ordinary turn — reuse the exact same engine path as free-typed text.
+          await submitTurn(slash.expandedPrompt)
+        } else if (busy && (slash.kind === 'compact' || slash.kind === 'model' || slash.kind === 'provider')) {
+          // Mutating engine state mid-turn corrupts the in-flight transcript.
+          bus.emit({
+            type: 'info',
+            message: `/${slash.kind} is unavailable while a turn is running — finish or Esc the current turn first.`,
+          })
+        } else onSlash(slash)
+        return
+      }
+      await submitTurn(text)
+    },
+    [onSlash, exit, busy, bus, commands, submitTurn],
   )
 
   return (

@@ -9,6 +9,7 @@ import {
   loadMemoryIndex,
   loadSkillsIndex,
   loadAgentsIndex,
+  loadCommandsIndex,
 } from '../../src/brain/loader.js'
 
 let home: string
@@ -128,5 +129,59 @@ describe('loadAgentsIndex', () => {
     expect(idx).toHaveLength(1)
     expect(idx[0]!.description).toBe('project agent')
     expect(idx[0]!.systemPrompt).toBe('Project prompt.')
+  })
+})
+
+describe('loadCommandsIndex', () => {
+  it('loads a command using the filename as the default name when frontmatter omits name', () => {
+    const commands = join(home, '.athena', 'commands')
+    mkdirSync(commands, { recursive: true })
+    writeFileSync(
+      join(commands, 'standup.md'),
+      '---\ndescription: Write a standup update\nargument-hint: [team]\n---\nWrite a standup for $ARGUMENTS.\n',
+    )
+    const idx = loadCommandsIndex(resolveBrainPaths({ cwd: project, homeOverride: home }))
+    expect(idx).toHaveLength(1)
+    expect(idx[0]).toMatchObject({
+      name: 'standup',
+      description: 'Write a standup update',
+      argumentHint: '[team]',
+    })
+    expect(idx[0]!.template).toBe('Write a standup for $ARGUMENTS.')
+  })
+
+  it('an explicit frontmatter name overrides the filename', () => {
+    const commands = join(home, '.athena', 'commands')
+    mkdirSync(commands, { recursive: true })
+    writeFileSync(join(commands, 'file-name.md'), '---\nname: real-name\ndescription: d\n---\nbody')
+    const idx = loadCommandsIndex(resolveBrainPaths({ cwd: project, homeOverride: home }))
+    expect(idx[0]!.name).toBe('real-name')
+  })
+
+  it('project .athena/commands overrides a global command of the same name', () => {
+    const globalCommands = join(home, '.athena', 'commands')
+    mkdirSync(globalCommands, { recursive: true })
+    writeFileSync(join(globalCommands, 'dup.md'), '---\ndescription: global\n---\nGlobal body.')
+    const projectCommands = join(project, '.athena', 'commands')
+    mkdirSync(projectCommands, { recursive: true })
+    writeFileSync(join(projectCommands, 'dup.md'), '---\ndescription: project\n---\nProject body.')
+    const idx = loadCommandsIndex(resolveBrainPaths({ cwd: project, homeOverride: home }))
+    expect(idx).toHaveLength(1)
+    expect(idx[0]!.description).toBe('project')
+    expect(idx[0]!.template).toBe('Project body.')
+  })
+
+  it('skips a file whose name collides with a built-in command, and warns non-fatally', () => {
+    const commands = join(home, '.athena', 'commands')
+    mkdirSync(commands, { recursive: true })
+    writeFileSync(join(commands, 'help.md'), '---\ndescription: shadow attempt\n---\nbody')
+    writeFileSync(join(commands, 'ok.md'), '---\ndescription: fine\n---\nbody')
+    const warnings: string[] = []
+    const idx = loadCommandsIndex(resolveBrainPaths({ cwd: project, homeOverride: home }), (m) =>
+      warnings.push(m),
+    )
+    expect(idx.map((c) => c.name)).toEqual(['ok'])
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('help')
   })
 })

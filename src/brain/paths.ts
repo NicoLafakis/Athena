@@ -11,6 +11,7 @@ export interface BrainPaths {
   memoryIndexFile: string
   skillsDir: string
   agentsDir: string
+  commandsDir: string
   hooksDir: string
   sessionsDir: string
   journalDir: string
@@ -29,6 +30,7 @@ export function resolveBrainPaths(opts: { cwd: string; homeOverride?: string }):
     memoryIndexFile: join(brainDir, 'memory', 'MEMORY.md'),
     skillsDir: join(brainDir, 'skills'),
     agentsDir: join(brainDir, 'agents'),
+    commandsDir: join(brainDir, 'commands'),
     hooksDir: join(brainDir, 'hooks'),
     sessionsDir: join(brainDir, 'sessions'),
     journalDir: join(brainDir, 'journal'),

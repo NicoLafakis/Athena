@@ -30,6 +30,7 @@ import {
   loadMemoryIndex,
   loadSkillsIndex,
   loadAgentsIndex,
+  loadCommandsIndex,
 } from './brain/loader.js'
 import { importBrain } from './brain/import.js'
 import { ensureBrainScaffold } from './harness/bootstrap.js'
@@ -143,7 +144,8 @@ Usage:
   athena import <path>   one-time import of an ares-style brain (--force to merge)
   athena --help          this help
 
-In-session: /help /clear /resume /compact /model /effort /provider /mode /memory /skills /agents /quit. Esc interrupts a turn.`
+In-session: /help /clear /resume /compact /model /effort /provider /mode /memory /skills /agents /quit. Esc interrupts a turn.
+Custom commands: drop a .md file (with description/argument-hint frontmatter) into .athena/commands/ or ~/.athena/commands/ to add /<name>.`
 
 function gitBranch(cwd: string): string | null {
   try {
@@ -187,19 +189,29 @@ interface SlashDeps {
   store: SessionStore
   session: Session | null
   paths: BrainPaths
+  commands?: ReadonlyMap<string, { description: string; argumentHint: string | null }>
 }
 
 export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
-  const { bus, engine, gate, contextManager, client, store, session, paths } = deps
+  const { bus, engine, gate, contextManager, client, store, session, paths, commands } = deps
   const info = (message: string) => bus.emit({ type: 'info', message })
   return (cmd) => {
     switch (cmd.kind) {
-      case 'help':
+      case 'help': {
+        const customList =
+          commands && commands.size > 0
+            ? '\nCustom: ' +
+              [...commands.entries()]
+                .map(([name, c]) => `/${name}${c.argumentHint ? ` ${c.argumentHint}` : ''} - ${c.description}`)
+                .join(', ')
+            : ''
         info(
           `Commands: /help /clear /resume /compact /model <${modelKeys(engine.getProvider()).join('|')}> /effort <low|medium|high|xhigh|max> /provider <${PROVIDER_IDS.join('|')}> /mode <normal|acceptEdits|plan|trusted> /memory /skills /agents /quit\n` +
-            '/clear clears the screen (transcript display only) — conversation context is unchanged; use /compact to shrink it.',
+            '/clear clears the screen (transcript display only) — conversation context is unchanged; use /compact to shrink it.' +
+            customList,
         )
         break
+      }
       case 'mode':
         gate.setMode(cmd.value)
         bus.emit({ type: 'status', patch: { mode: cmd.value } })
@@ -430,6 +442,9 @@ async function main(): Promise<void> {
   // Settings warnings (e.g. a model that is invalid for the active provider falling
   // back to the provider default) surface on stderr before the TUI mounts.
   const settings = loadSettings(paths, provider, (msg) => console.error(msg))
+  // Directory-backed custom slash commands (.athena/commands, ~/.athena/commands). Name
+  // collisions with a built-in command are skipped with a warning, never fatal.
+  const commands = new Map(loadCommandsIndex(paths, (msg) => console.error(msg)).map((c) => [c.name, c]))
   const gate = new PermissionEngine({
     mode: settings.permissionMode,
     allow: settings.allow,
@@ -602,6 +617,7 @@ async function main(): Promise<void> {
       onSubmit: (text: string) => engine.runTurn(text),
       onAbort: () => engine.abort(),
       permissionBridge: bridge,
+      commands,
       onSlash: makeSlashHandler({
         bus,
         engine,
@@ -611,6 +627,7 @@ async function main(): Promise<void> {
         store,
         session,
         paths,
+        commands,
       }),
     }),
   )

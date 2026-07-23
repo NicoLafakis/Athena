@@ -7,6 +7,31 @@ export interface SkillIndexEntry {
   description: string
   file: string
 }
+export interface CommandDef {
+  name: string
+  description: string
+  argumentHint: string | null
+  template: string
+  file: string
+}
+
+/** Built-in slash command names — a directory-defined command sharing one of these
+ *  names is skipped (never shadows a built-in). Kept in sync with tui/slash.ts. */
+export const RESERVED_COMMAND_NAMES = new Set([
+  'help',
+  'clear',
+  'resume',
+  'compact',
+  'memory',
+  'skills',
+  'agents',
+  'quit',
+  'model',
+  'provider',
+  'effort',
+  'mode',
+])
+
 export interface AgentDef {
   name: string
   description: string
@@ -87,6 +112,39 @@ export function loadAgentsIndex(paths: BrainPaths): AgentDef[] {
           : null,
         model: attrs['model'] ?? null,
         systemPrompt: body.trim(),
+        file,
+      })
+    }
+  }
+  return [...byName.values()]
+}
+
+/** Directory-backed custom slash commands: `<brainDir>/commands/<name>.md` (global) and
+ *  `<projectBrainDir>/commands/<name>.md` (project, overrides global on name collision) —
+ *  same precedence convention as loadSkillsIndex/loadAgentsIndex. Frontmatter: `name`
+ *  (optional, defaults to the filename), `description`, `argument-hint` (optional). The
+ *  markdown body is the prompt template, expanded against parsed arguments at parse time.
+ *  A file whose (explicit or derived) name collides with a built-in command is skipped
+ *  with a warning — built-ins can never be shadowed. */
+export function loadCommandsIndex(paths: BrainPaths, warn?: (message: string) => void): CommandDef[] {
+  const byName = new Map<string, CommandDef>()
+  const dirs = [paths.commandsDir]
+  if (paths.projectBrainDir) dirs.push(join(paths.projectBrainDir, 'commands'))
+  for (const dir of dirs) {
+    if (!existsSync(dir)) continue
+    for (const entry of readdirSync(dir).filter((f) => f.endsWith('.md'))) {
+      const file = join(dir, entry)
+      const { attrs, body } = parseFrontmatter(readFileSync(file, 'utf8'))
+      const name = attrs['name'] ?? entry.slice(0, -3)
+      if (RESERVED_COMMAND_NAMES.has(name)) {
+        warn?.(`Skipping custom command '/${name}' (${file}): that name is a built-in command.`)
+        continue
+      }
+      byName.set(name, {
+        name,
+        description: attrs['description'] ?? '',
+        argumentHint: attrs['argument-hint'] ?? null,
+        template: body.trim(),
         file,
       })
     }

@@ -89,6 +89,7 @@ export function ensureBrainScaffold(paths: BrainPaths): void {
     paths.memoryDir,
     paths.skillsDir,
     paths.agentsDir,
+    paths.commandsDir,
     paths.hooksDir,
     paths.sessionsDir,
     paths.journalDir,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseSlash } from '../../src/tui/slash.js'
+import { parseSlash, type CustomCommandDef } from '../../src/tui/slash.js'
 
 describe('parseSlash', () => {
   it.each([
@@ -52,6 +52,61 @@ describe('/provider', () => {
     expect(parseSlash('/provider')).toEqual({
       kind: 'error',
       value: 'Usage: /provider <name>',
+    })
+  })
+})
+
+describe('custom commands (directory-backed registry)', () => {
+  function registry(entries: Record<string, string>): Map<string, CustomCommandDef> {
+    return new Map(Object.entries(entries).map(([name, template]) => [name, { template }]))
+  }
+
+  it('matches a registered custom command not in the built-in set', () => {
+    const commands = registry({ standup: 'Write a standup update.' })
+    expect(parseSlash('/standup', commands)).toEqual({
+      kind: 'custom',
+      name: 'standup',
+      expandedPrompt: 'Write a standup update.',
+    })
+  })
+
+  it('substitutes $0/$1 positional args and $ARGUMENTS', () => {
+    const commands = registry({
+      review: 'Review PR #$0 for $ARGUMENTS. Second word: $1.',
+    })
+    expect(parseSlash('/review 42 alice bob', commands)).toEqual({
+      kind: 'custom',
+      name: 'review',
+      expandedPrompt: 'Review PR #42 for 42 alice bob. Second word: alice.',
+    })
+  })
+
+  it('leaves unmatched positional placeholders blank', () => {
+    const commands = registry({ greet: 'Hello $0, $1!' })
+    expect(parseSlash('/greet world', commands)).toEqual({
+      kind: 'custom',
+      name: 'greet',
+      expandedPrompt: 'Hello world, !',
+    })
+  })
+
+  it('a built-in name always wins over a same-named registry entry (reserved-name collision)', () => {
+    const commands = registry({ help: 'this must never be reached' })
+    expect(parseSlash('/help', commands)).toEqual({ kind: 'help' })
+  })
+
+  it('falls back to the unknown-command error when the registry has no match', () => {
+    const commands = registry({ standup: 'x' })
+    expect(parseSlash('/nope', commands)).toEqual({
+      kind: 'error',
+      value: 'Unknown command: /nope',
+    })
+  })
+
+  it('with no registry passed at all, behaves exactly as before', () => {
+    expect(parseSlash('/standup')).toEqual({
+      kind: 'error',
+      value: 'Unknown command: /standup',
     })
   })
 })
