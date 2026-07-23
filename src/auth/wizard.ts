@@ -93,12 +93,12 @@ export function promptMasked(question: string): Promise<string> {
           resolve(value)
           return
         }
-        if (ch === '') {
+        if (ch === '\u0003') {
           // Ctrl-C: restore the terminal before dying, standard 130 exit code.
           finish()
           process.exit(130)
         }
-        if (ch === '' || ch === '\b') {
+        if (ch === '\u007f' || ch === '\b') {
           if (value.length > 0) {
             value = value.slice(0, -1)
             process.stdout.write('\b \b')
