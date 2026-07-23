@@ -143,7 +143,7 @@ Usage:
   athena import <path>   one-time import of an ares-style brain (--force to merge)
   athena --help          this help
 
-In-session: /help /clear /resume /compact /model /effort /provider /mode /memory /skills /agents /quit. Esc interrupts a turn.
+In-session: /help /clear /resume /compact /model /effort /provider /mode /tui /memory /skills /agents /quit. Esc interrupts a turn.
 Custom commands: drop a .md file (with description/argument-hint frontmatter) into .athena/commands/ or ~/.athena/commands/ to add /<name>.
 Plugins: drop a bundle into ~/.athena/plugins/<plugin-id>/{skills,agents,commands}/ (optional plugin.json for metadata) to add namespaced <plugin-id>:<name> skills/agents/commands, without overriding anything you already have.`
 
@@ -206,8 +206,9 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
                 .join(', ')
             : ''
         info(
-          `Commands: /help /clear /resume /compact /model <${modelKeys(engine.getProvider()).join('|')}> /effort <low|medium|high|xhigh|max> /provider <${PROVIDER_IDS.join('|')}> /mode <normal|acceptEdits|plan|trusted> /memory /skills /agents /quit\n` +
-            '/clear clears the screen (transcript display only) — conversation context is unchanged; use /compact to shrink it.' +
+          `Commands: /help /clear /resume /compact /model <${modelKeys(engine.getProvider()).join('|')}> /effort <low|medium|high|xhigh|max> /provider <${PROVIDER_IDS.join('|')}> /mode <normal|acceptEdits|plan|trusted> /tui <fullscreen|classic> /memory /skills /agents /quit\n` +
+            '/clear clears the screen (transcript display only) — conversation context is unchanged; use /compact to shrink it.\n' +
+            '/tui fullscreen switches to an alternate-screen buffer with a pinned input (like vim/htop); /tui classic returns to normal scrollback.' +
             customList,
         )
         break
@@ -336,7 +337,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         info(cmd.value)
         break
       default:
-        // 'clear' and 'quit' are handled inside the App component.
+        // 'clear', 'quit', and 'tui' are handled inside the App component.
         break
     }
   }

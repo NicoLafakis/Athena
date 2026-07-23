@@ -1,6 +1,6 @@
 // src/tui/App.tsx
-import { useEffect, useState, useCallback } from 'react'
-import { Box, useApp, useInput } from 'ink'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { Box, useApp, useInput, useStdout } from 'ink'
 import type { EngineEventBus } from '../engine/events.js'
 import type { EngineEvent, TodoItem, PermissionMode } from '../engine/types.js'
 import { Transcript, type TranscriptEntry } from './components/Transcript.js'
@@ -9,6 +9,15 @@ import { StatusLine } from './components/StatusLine.js'
 import { TodoPanel } from './components/TodoPanel.js'
 import { InputBox } from './components/InputBox.js'
 import { parseSlash, type SlashCommand, type CustomCommandDef } from './slash.js'
+import { createFullscreenController } from './fullscreen.js'
+
+// Rows reserved below the transcript's flexible area in fullscreen mode: status line (1)
+// plus headroom for the input box growing to a couple of wrapped lines and an occasional
+// todo panel/permission dialog. Approximate on purpose — Transcript's own virtualization
+// is a heuristic too (see viewport.ts), and the overflow:hidden wrapper below clips
+// anything the estimate undershoots rather than letting it push the input off-screen.
+const FULLSCREEN_RESERVED_ROWS = 6
+const FALLBACK_ROWS = 24
 
 export type PermissionAnswer = 'allow-once' | 'allow-always' | 'deny'
 
@@ -89,6 +98,23 @@ export interface AppProps {
   commands?: ReadonlyMap<string, CustomCommandDef>
 }
 
+/** Live terminal row count, kept in sync with resize events. Ink's `useStdout` exposes
+ *  the actual stream it's rendering to (`process.stdout`, or a test double under
+ *  ink-testing-library — where `.rows` is undefined, hence the fallback). */
+function useTerminalRows(): number {
+  const { stdout } = useStdout()
+  const [rows, setRows] = useState(() => stdout?.rows ?? FALLBACK_ROWS)
+  useEffect(() => {
+    if (!stdout) return
+    const onResize = () => setRows(stdout.rows ?? FALLBACK_ROWS)
+    stdout.on('resize', onResize)
+    return () => {
+      stdout.off('resize', onResize)
+    }
+  }, [stdout])
+  return rows
+}
+
 export function App({
   bus,
   status: statusProp,
@@ -105,6 +131,26 @@ export function App({
   // Seeded from the prop, then kept live by 'status' events (/mode, /model, per-turn ctx%).
   const [status, setStatus] = useState<AppStatus>(statusProp)
   const { exit } = useApp()
+
+  // Fullscreen (alternate-screen) TUI mode: an additive, opt-in toggle via /tui
+  // fullscreen | classic. Classic (false) is the default and the existing rendering
+  // path — nothing below this block runs any differently when it stays false.
+  const [fullscreen, setFullscreen] = useState(false)
+  const { stdout } = useStdout()
+  const fullscreenController = useMemo(() => createFullscreenController(stdout), [stdout])
+  const rows = useTerminalRows()
+
+  useEffect(() => {
+    if (!fullscreen) return
+    fullscreenController.enter()
+    // Runs on toggling back to classic AND on unmount (e.g. /quit, Ctrl+C) — either way
+    // the alternate screen must never be left active once this effect stops owning it.
+    return () => fullscreenController.exit()
+  }, [fullscreen, fullscreenController])
+
+  // Belt-and-suspenders: dispose this controller's process-exit/signal restore hook when
+  // the component itself goes away, independent of the fullscreen toggle above.
+  useEffect(() => () => fullscreenController.dispose(), [fullscreenController])
 
   useEffect(() => {
     permissionBridge.bind(setPending)
@@ -163,6 +209,25 @@ export function App({
           // Custom commands are just a prompt-template expansion in front of an
           // ordinary turn — reuse the exact same engine path as free-typed text.
           await submitTurn(slash.expandedPrompt)
+        } else if (slash.kind === 'tui') {
+          // Purely a TUI presentation concern (like /clear): no engine involvement.
+          if (slash.value === 'fullscreen') {
+            if (!fullscreenController.supported) {
+              bus.emit({
+                type: 'info',
+                message: 'Fullscreen mode needs an interactive terminal; staying in classic mode.',
+              })
+            } else {
+              setFullscreen(true)
+              bus.emit({
+                type: 'info',
+                message: 'Fullscreen mode enabled (alternate screen buffer). /tui classic to return.',
+              })
+            }
+          } else {
+            setFullscreen(false)
+            bus.emit({ type: 'info', message: 'Classic mode restored (native scrollback).' })
+          }
         } else if (busy && (slash.kind === 'compact' || slash.kind === 'model' || slash.kind === 'provider')) {
           // Mutating engine state mid-turn corrupts the in-flight transcript.
           bus.emit({
@@ -174,12 +239,30 @@ export function App({
       }
       await submitTurn(text)
     },
-    [onSlash, exit, busy, bus, commands, submitTurn],
+    [onSlash, exit, busy, bus, commands, submitTurn, fullscreenController],
   )
 
+  // Fullscreen-only: bound the Transcript's render window to what actually fits above the
+  // input/status row(s), so render/memory cost stays flat no matter how long the session
+  // gets. Classic mode passes maxRows=undefined and Transcript renders everything, exactly
+  // as before — native scrollback still does the heavy lifting there.
+  const availableRows = fullscreen ? Math.max(rows - FULLSCREEN_RESERVED_ROWS, 3) : undefined
+
   return (
-    <Box flexDirection="column">
-      <Transcript entries={entries} />
+    <Box flexDirection="column" height={fullscreen ? rows : undefined}>
+      {/* flexGrow + justifyContent="flex-end" pins whatever fits at the bottom of the
+          flexible area (just above the input), and overflow="hidden" clips anything the
+          virtualization estimate undershoots instead of pushing the input off-screen.
+          Classic mode gets none of this — flexGrow/height stay undefined, matching the
+          previous unconstrained top-down layout exactly. */}
+      <Box
+        flexDirection="column"
+        flexGrow={fullscreen ? 1 : undefined}
+        justifyContent={fullscreen ? 'flex-end' : 'flex-start'}
+        overflow={fullscreen ? 'hidden' : 'visible'}
+      >
+        <Transcript entries={entries} maxRows={availableRows} />
+      </Box>
       {todos.length > 0 && <TodoPanel todos={todos} />}
       {pending && <PermissionDialog pending={pending} cwd={status.cwd} />}
       {/* busy included: a prompt submitted mid-turn would start a second runTurn

@@ -30,6 +30,7 @@ export const RESERVED_COMMAND_NAMES = new Set([
   'provider',
   'effort',
   'mode',
+  'tui',
 ])
 
 export interface AgentDef {

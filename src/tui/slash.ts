@@ -21,11 +21,17 @@ export type SlashCommand =
   | { kind: 'provider'; value: string }
   | { kind: 'effort'; value: Effort }
   | { kind: 'mode'; value: PermissionMode }
+  | { kind: 'tui'; value: TuiMode }
   | { kind: 'custom'; name: string; expandedPrompt: string }
   | { kind: 'error'; value: string }
 
+/** 'classic' = current default (content appended to native scrollback). 'fullscreen' =
+ *  opt-in alternate-screen buffer with a pinned input and a virtualized transcript. */
+export type TuiMode = 'classic' | 'fullscreen'
+
 const MODES = new Set(['normal', 'acceptEdits', 'plan', 'trusted'])
 const EFFORT_SET = new Set<string>(EFFORTS)
+const TUI_MODES = new Set(['classic', 'fullscreen'])
 const BARE = new Set(['help', 'clear', 'resume', 'compact', 'memory', 'skills', 'agents', 'quit'])
 
 /** Substitutes $0, $1, ... (positional args) and $ARGUMENTS (the full argument string,
@@ -60,6 +66,10 @@ export function parseSlash(
   if (cmd === 'mode') {
     if (!MODES.has(arg)) return { kind: 'error', value: `Unknown mode: ${arg || '(none)'}` }
     return { kind: 'mode', value: arg as PermissionMode }
+  }
+  if (cmd === 'tui') {
+    if (!TUI_MODES.has(arg)) return { kind: 'error', value: `Usage: /tui <fullscreen|classic>` }
+    return { kind: 'tui', value: arg as TuiMode }
   }
   const custom = commands?.get(cmd)
   if (custom) {
