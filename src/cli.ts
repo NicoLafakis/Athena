@@ -137,7 +137,7 @@ Usage:
   athena                 new session in the current project
   athena --continue      resume the most recent session here
   athena --resume        pick a past session
-  athena --provider <anthropic|kimi>  session-only provider override (combines with the above)
+  athena --provider <anthropic|kimi>  session-only provider override (first-time key setup adopts it as your default)
   athena auth            add/replace API keys, switch the default provider
   athena auth status     show configured providers and redacted keys
   athena import <path>   one-time import of an ares-style brain (--force to merge)
@@ -396,16 +396,25 @@ async function main(): Promise<void> {
     process.exitCode = 1
     return
   }
-  const provider: ProviderId = cmd.provider ?? credentials.activeProvider
+  let provider: ProviderId = cmd.provider ?? credentials.activeProvider
   let resolved = resolveApiKey(provider, credentials)
   if (!resolved) {
-    // First run (or a provider selected via --provider that has no key yet): drop into
-    // the wizard scoped to that provider, then continue straight into the session.
-    console.log(
-      `No API key found for ${PROVIDERS[provider].label} - let's set one up. (This provider becomes your default; athena auth switches it.)`,
-    )
-    const done = await runAuthWizard({ paths, provider })
-    resolved = { key: done.key, source: 'file' }
+    if (cmd.provider === undefined && PROVIDER_IDS.every((p) => !resolveApiKey(p, credentials))) {
+      // True cold start: no --provider flag and no key anywhere. Run the FULL wizard
+      // (provider pick included) and adopt whatever the user chose.
+      console.log(`No API key configured yet. Let's set one up.`)
+      const done = await runAuthWizard({ paths })
+      provider = done.provider
+      resolved = { key: done.key, source: 'file' }
+    } else {
+      // A specific provider is implied (--provider flag, or another provider already
+      // has a key): drop into the wizard scoped to it, then continue into the session.
+      console.log(
+        `No API key found for ${PROVIDERS[provider].label} - let's set one up. (This provider becomes your default; athena auth switches it.)`,
+      )
+      const done = await runAuthWizard({ paths, provider })
+      resolved = { key: done.key, source: 'file' }
+    }
   }
   // Settings warnings (e.g. a model that is invalid for the active provider falling
   // back to the provider default) surface on stderr before the TUI mounts.

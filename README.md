@@ -25,7 +25,7 @@ First run also scaffolds `~/.athena` (constitution, settings, memory, skills, ag
     athena                 # new session in the current project
     athena --continue      # resume the most recent session here
     athena --resume        # pick a past session
-    athena --provider kimi # session-only provider override
+    athena --provider kimi # session-only override (first-time setup adopts it as default)
     athena auth            # setup wizard: keys + default provider
     athena auth status     # redacted key/provider overview
     athena import <path>   # one-time import of an ares-style brain (--force to merge)

@@ -18,11 +18,19 @@ afterEach(() => {
   rmSync(project, { recursive: true, force: true })
 })
 
-function fakeIO(provider: ProviderId, keys: string[], said: string[]): WizardIO {
+function fakeIO(
+  provider: ProviderId,
+  keys: string[],
+  said: string[],
+  picks?: ProviderId[],
+): WizardIO {
   let i = 0
   return {
     say: (m) => said.push(m),
-    pickProvider: async () => provider,
+    pickProvider: async () => {
+      picks?.push(provider)
+      return provider
+    },
     readKey: async () => keys[i++] ?? '',
   }
 }
@@ -31,11 +39,14 @@ describe('runAuthWizard', () => {
   it('saves the key, sets activeProvider, and returns provider+key on first valid entry', async () => {
     const paths = resolveBrainPaths({ cwd: project, homeOverride: home })
     const said: string[] = []
+    const picks: ProviderId[] = []
     const result = await runAuthWizard({
       paths,
-      io: fakeIO('kimi', ['sk-kimi-valid'], said),
+      io: fakeIO('kimi', ['sk-kimi-valid'], said, picks),
       validate: async () => null,
     })
+    // Unscoped call (no `provider`): the wizard MUST run the provider pick.
+    expect(picks).toEqual(['kimi'])
     expect(result).toEqual({ provider: 'kimi', key: 'sk-kimi-valid' })
     const creds = loadCredentials(paths)
     expect(creds.activeProvider).toBe('kimi')
