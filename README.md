@@ -11,37 +11,54 @@ permission engine, scriptable hooks, sub-agents, and a file-based brain in `~/.a
     cd path/to/your/project
     athena
 
-Set your API key first:
+On first run Athena asks you to pick a provider (Anthropic or Kimi/Moonshot) and paste
+an API key — input is hidden, the key is validated live, then saved to
+`~/.athena/credentials.json` and the session starts. No shell environment setup needed.
 
-    # PowerShell (current session)
-    $env:ANTHROPIC_API_KEY = "sk-ant-..."
+    athena auth            # add/replace keys or switch the default provider any time
+    athena auth status     # configured providers, active provider, redacted keys
 
-    # PowerShell (persist for future sessions, then reopen the shell)
-    [Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY","sk-ant-...","User")
-
-    # bash/zsh
-    export ANTHROPIC_API_KEY=sk-ant-...
-
-First run scaffolds `~/.athena` (constitution, settings, memory, skills, agents, hooks, sessions).
+First run also scaffolds `~/.athena` (constitution, settings, memory, skills, agents, hooks, sessions).
 
 ## Commands
 
     athena                 # new session in the current project
     athena --continue      # resume the most recent session here
     athena --resume        # pick a past session
+    athena --provider kimi # session-only provider override
+    athena auth            # setup wizard: keys + default provider
+    athena auth status     # redacted key/provider overview
     athena import <path>   # one-time import of an ares-style brain (--force to merge)
 
-In-session: `/help /clear /resume /compact /model /effort /mode /memory /skills /agents /quit`. Esc interrupts a turn.
+In-session: `/help /clear /resume /compact /model /effort /provider /mode /memory /skills /agents /quit`. Esc interrupts a turn.
 
 ## Configuration
 
 `~/.athena/settings.json` (global) overlaid by `.athena/settings.json` (per project):
-model (`haiku | sonnet | opus | fable` — a legacy/full id like `claude-opus-4-8` is also
+model is a key of the ACTIVE provider (`haiku | sonnet | opus | fable` for Anthropic,
+`kimi-k3 | kimi-k2.7-code | kimi-k2.6` for Kimi — a legacy/full id like `claude-opus-4-8` is also
 accepted and normalized), effort (`low | medium | high | xhigh | max`; applies to
-Sonnet/Opus/Fable, which also run adaptive thinking — Haiku ignores it), permissionMode
-(`normal | acceptEdits | plan | trusted`), allow/deny rules like `"Bash(git:*)"` or
-`"Edit(src/**)"`, and hooks (`SessionStart | UserPromptSubmit | PreToolUse | PostToolUse | Stop`).
-Switch either live with `/model <family>` and `/effort <level>`.
+Sonnet/Opus/Fable, which also run adaptive thinking — Haiku and all Kimi models ignore
+it), permissionMode (`normal | acceptEdits | plan | trusted`), allow/deny rules like
+`"Bash(git:*)"` or `"Edit(src/**)"`, and hooks (`SessionStart | UserPromptSubmit |
+PreToolUse | PostToolUse | Stop`).
+Switch live with `/model <key>`, `/effort <level>`, and `/provider <anthropic|kimi>`
+(`/provider` is session-only; `athena auth` changes the persisted default).
+
+### Providers
+
+- **Anthropic** — default SDK endpoint; console API key from console.anthropic.com.
+- **Kimi (Moonshot)** — Anthropic-compatible endpoint `https://api.moonshot.ai/anthropic`;
+  key from platform.moonshot.ai. Kimi models do not support the effort dial or extended
+  thinking; Athena omits those request fields automatically.
+
+### Advanced: env-var override
+
+Keys normally live in `~/.athena/credentials.json` (written by the wizard with
+owner-only permissions where the OS supports it). If `ANTHROPIC_API_KEY` or
+`MOONSHOT_API_KEY` is set in the environment, it overrides the file for that provider —
+useful for CI or ephemeral machines. `athena auth status` shows when an override is
+active.
 
 ## Security model
 
