@@ -14,7 +14,7 @@ Claude Code's browser login is Anthropic's private OAuth client. Third-party har
 
 ## 1. Credential store
 
-New file `~/.athena/credentials.json`, written with owner-only permissions:
+New file `~/.athena/credentials.json`, written with best-effort owner-only permissions (`0o600` on POSIX; a no-op on Windows/NTFS, where the file relies on the user-profile directory ACL):
 
 ```json
 {
@@ -39,6 +39,8 @@ When `athena` starts and no key resolves for the active provider, it enters setu
 3. Live validation call (cheap: minimal message to the provider's smallest model). Reject with the provider's error message on failure; loop back to re-entry.
 4. Save to `credentials.json`, set `activeProvider`, continue directly into the session.
 
+Placement: the wizard runs pre-TUI, replacing the current hard exit at the missing-key check in `src/cli.ts` (the check currently errors and exits before the TUI starts). Masked input is a small manual raw-mode echo handler — Node's readline does not mask input natively.
+
 Commands:
 - `athena auth` — re-run the wizard any time (add/replace keys, switch active provider).
 - `athena auth status` — list configured providers, active provider, and redacted keys (`sk-ant-...abc4`), plus whether an env var is overriding the file.
@@ -53,6 +55,10 @@ Moonshot exposes an Anthropic-compatible API endpoint, so no second client imple
   - `kimi` → `https://api.moonshot.ai/anthropic`; Kimi model list (kimi-k2 lineage; exact ids resolved at implementation time against Moonshot docs).
 - **Capability gating:** Anthropic-only request fields — adaptive `thinking` and `output_config.effort` — are attached only when the active provider supports them, so Kimi requests never send fields that would 400. Gating lives at the request-build seam (`resolveModelRequest` / client body construction), not scattered call sites.
 
+**Model registry generalization (required):**
+
+Today `ModelFamily` is a hard-coded four-Anthropic-family union (`src/brain/models.ts`) woven through the settings zod enum, `resolveModelRequest`, `engine.getModel()`, the orchestrator's model thunks, and `/model` normalization. Kimi models cannot exist in that type system. This design generalizes it: `MODELS` becomes a provider-scoped registry (`provider -> { modelKey -> { id, label, supportsEffort, supportsThinking } }`); `resolveModelRequest(provider, modelKey, effort)` becomes provider-aware and remains the single place request fields are assembled; `settings.model` validates against the active provider's model keys instead of a fixed enum (the four Anthropic family names keep working unchanged as Anthropic model keys); `/model` normalization matches within the active provider only.
+
 ## 4. Provider switching
 
 One active provider per session:
@@ -60,8 +66,11 @@ One active provider per session:
 - `/provider` command in the TUI to switch mid-run (starts the next request on the new provider).
 - Persisted `activeProvider` in `credentials.json` as the default.
 - The model picker shows only the active provider's models.
+- Persistence: `--provider` and `/provider` are session-only overrides. Only the wizard / `athena auth` writes `activeProvider` to `credentials.json`.
 
 Rejected alternatives: fallback chain (silently changes model quality mid-session) and mixed-model routing (muddies the model picker and capability story).
+
+Mid-session switching must swap the client everywhere it is captured: the single `AnthropicClient` instance is closed over by the orchestrator's `clientFactory` and used by the compactor at startup (`src/cli.ts`). The implementation introduces a mutable client holder (a thunk or small wrapper) that the engine, orchestrator, and compactor all read through, so `/provider` cannot leave sub-agents or compaction on the old provider.
 
 ## 5. Error handling
 
@@ -76,6 +85,8 @@ Unit tests cover:
 - Provider gating: thinking/effort fields present for Anthropic, absent for Kimi.
 - Redaction in `athena auth status` (no full key ever printed).
 - Malformed credentials.json error path.
+- Model registry: settings validation accepts Anthropic family names for anthropic and Kimi model keys for kimi; rejects cross-provider keys with a clear error.
+- Client holder: after a provider switch, orchestrator sub-agent calls and compactor calls go through the new provider's client.
 
 Engine tests keep using the scripted `ModelClient` test double — no live-provider tests.
 
