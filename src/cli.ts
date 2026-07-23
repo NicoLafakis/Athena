@@ -7,7 +7,7 @@ import { render } from 'ink'
 import React from 'react'
 import { resolveBrainPaths } from './brain/paths.js'
 import { loadSettings } from './brain/settings.js'
-import { normalizeModel, modelLabel, supportsEffort } from './brain/models.js'
+import { normalizeModel, modelLabel, supportsEffort, type ProviderId } from './brain/models.js'
 import {
   loadConstitution,
   loadMemoryIndex,
@@ -145,28 +145,30 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         info(`Permission mode: ${cmd.value}`)
         break
       case 'model': {
-        const fam = normalizeModel(cmd.value)
-        if (!fam) {
-          info(`Unknown model: ${cmd.value} — choose haiku, sonnet, opus, or fable.`)
+        const provider = engine.getProvider()
+        const key = normalizeModel(provider, cmd.value)
+        if (!key) {
+          info(`Unknown model: ${cmd.value} — choose one of the ${provider} models (see /help).`)
           break
         }
-        engine.setModel(fam)
-        bus.emit({ type: 'status', patch: { model: modelLabel(fam) } })
+        engine.setModel(key)
+        bus.emit({ type: 'status', patch: { model: modelLabel(provider, key) } })
         info(
-          supportsEffort(fam)
-            ? `Model: ${modelLabel(fam)} (effort ${engine.getEffort()})`
-            : `Model: ${modelLabel(fam)} — effort/extended thinking not applicable on this model.`,
+          supportsEffort(provider, key)
+            ? `Model: ${modelLabel(provider, key)} (effort ${engine.getEffort()})`
+            : `Model: ${modelLabel(provider, key)} — effort/extended thinking not applicable on this model.`,
         )
         break
       }
       case 'effort': {
         engine.setEffort(cmd.value)
         bus.emit({ type: 'status', patch: { effort: cmd.value } })
-        const fam = engine.getModel()
+        const provider = engine.getProvider()
+        const key = engine.getModel()
         info(
-          supportsEffort(fam)
+          supportsEffort(provider, key)
             ? `Effort: ${cmd.value}`
-            : `Effort set to ${cmd.value} — applies to Sonnet/Opus/Fable; ${modelLabel(fam)} ignores it.`,
+            : `Effort set to ${cmd.value} — ${modelLabel(provider, key)} ignores it.`,
         )
         break
       }
@@ -276,7 +278,8 @@ async function main(): Promise<void> {
     return
   }
 
-  const settings = loadSettings(paths)
+  const provider: ProviderId = 'anthropic'
+  const settings = loadSettings(paths, provider)
   const gate = new PermissionEngine({
     mode: settings.permissionMode,
     allow: settings.allow,
@@ -336,6 +339,7 @@ async function main(): Promise<void> {
     gate,
     hooks,
     defaultModel: () => engine.getModel(), // thunk: /model mid-session reaches sub-agents
+    defaultProvider: () => engine.getProvider(), // thunk: /provider mid-session reaches sub-agents
     defaultEffort: () => engine.getEffort(), // thunk: /effort mid-session reaches sub-agents
     systemPromptBase: systemPrompt,
   })
@@ -396,6 +400,7 @@ async function main(): Promise<void> {
       emit: (e) => bus.emit(e),
       abortSignal: new AbortController().signal, // replaced per-turn by the engine's own signal
     },
+    provider,
     model: settings.model,
     effort: settings.effort,
     systemPrompt,
@@ -439,7 +444,7 @@ async function main(): Promise<void> {
       status: {
         cwd,
         gitBranch: gitBranch(cwd),
-        model: modelLabel(settings.model),
+        model: modelLabel(provider, settings.model),
         effort: settings.effort,
         mode: gate.getMode(),
         contextPct: Math.round(contextManager.usedFraction() * 100),

@@ -11,7 +11,7 @@ import type { EngineEventBus } from './events.js'
 import type { ContextManager } from './context.js'
 import type { ToolRegistry } from '../tools/registry.js'
 import type { HookRunner } from '../harness/hooks.js'
-import { modelId, resolveModelRequest, type ModelFamily, type Effort } from '../brain/models.js'
+import { modelId, resolveModelRequest, type ProviderId, type ModelKey, type Effort } from '../brain/models.js'
 import type { PermissionGate, ToolContext, ToolDefinition, ToolOutput, TokenUsage } from './types.js'
 
 export type AskUserFn = (req: {
@@ -29,7 +29,9 @@ export interface EngineOptions {
   hooks: HookRunner
   contextManager: ContextManager
   toolContext: ToolContext
-  model: ModelFamily
+  /** Active provider; defaults to 'anthropic' so pre-provider constructions keep working. */
+  provider?: ProviderId
+  model: ModelKey
   effort: Effort
   systemPrompt: string
   maxTokens: number
@@ -63,12 +65,20 @@ export class Engine {
     this.abortController.abort()
   }
 
-  setModel(family: ModelFamily): void {
-    this.opts.model = family
+  setModel(key: ModelKey): void {
+    this.opts.model = key
   }
 
-  getModel(): ModelFamily {
+  getModel(): ModelKey {
     return this.opts.model
+  }
+
+  setProvider(p: ProviderId): void {
+    this.opts.provider = p
+  }
+
+  getProvider(): ProviderId {
+    return this.opts.provider ?? 'anthropic'
   }
 
   setEffort(e: Effort): void {
@@ -79,9 +89,9 @@ export class Engine {
     return this.opts.effort
   }
 
-  /** Resolved wire id for the current family — what the API and the compactor need. */
+  /** Resolved wire id for the current provider+key — what the API and the compactor need. */
   getModelId(): string {
-    return modelId(this.opts.model)
+    return modelId(this.getProvider(), this.opts.model)
   }
 
   private toApiTools(): Tool[] {
@@ -143,9 +153,9 @@ export class Engine {
         bus.emit({ type: 'error', message: 'Turn aborted', fatal: false })
         break
       }
-      // Resolve family -> wire id + per-family effort/thinking. Haiku returns neither
-      // (both 400 on it); the other three carry effort + adaptive thinking.
-      const req = resolveModelRequest(this.opts.model, this.opts.effort)
+      // Resolve provider+key -> wire id + per-model effort/thinking. Anthropic Haiku and
+      // all Kimi models return neither (both 400 there); gating lives in resolveModelRequest.
+      const req = resolveModelRequest(this.getProvider(), this.opts.model, this.opts.effort)
       let result
       try {
         result = await client.stream(

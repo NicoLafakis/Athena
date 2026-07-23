@@ -6,7 +6,7 @@ import type { ToolRegistry } from '../tools/registry.js'
 import type { HookRunner } from './hooks.js'
 import type { ModelClient } from '../engine/client.js'
 import type { AgentDef } from '../brain/loader.js'
-import { normalizeModel, type ModelFamily, type Effort } from '../brain/models.js'
+import { normalizeModel, type ProviderId, type ModelKey, type Effort } from '../brain/models.js'
 import type { PermissionGate, ToolContext, ToolOutput } from '../engine/types.js'
 
 export interface AgentOrchestratorOptions {
@@ -16,7 +16,9 @@ export interface AgentOrchestratorOptions {
   gate: PermissionGate // SAME instance as the parent — spec section 7
   hooks: HookRunner // SAME instance as the parent
   /** Thunk, not a snapshot: read at spawn time so /model mid-session reaches sub-agents. */
-  defaultModel: () => ModelFamily
+  defaultModel: () => ModelKey
+  /** Thunk, same reason: /provider mid-session reaches later sub-agents. Defaults to anthropic. */
+  defaultProvider?: () => ProviderId
   /** Thunk, same reason as defaultModel: /effort mid-session reaches later sub-agents. */
   defaultEffort: () => Effort
   systemPromptBase: string // constitution + environment; agent systemPrompt is appended
@@ -65,6 +67,7 @@ export class AgentOrchestrator {
       if (e.type === 'error' && e.fatal) fatalError = e.message
       if (e.type === 'error' && !e.fatal && e.message === 'Turn aborted') aborted = true
     })
+    const provider = this.opts.defaultProvider?.() ?? 'anthropic'
     const engine = new Engine({
       client: this.opts.clientFactory(),
       bus,
@@ -78,9 +81,10 @@ export class AgentOrchestrator {
       // registry by reference would let a child's Read unlock the parent's
       // read-before-write gate (and vice versa).
       toolContext: { ...parentCtx, todos: [], fileReadRegistry: new Set(), emit: (e) => bus.emit(e) },
-      // Frontmatter `model` is a raw string (family name or legacy id); normalize it,
-      // falling back to the session default when absent or unrecognized.
-      model: normalizeModel(def.model ?? '') ?? this.opts.defaultModel(),
+      provider,
+      // Frontmatter `model` is a raw string (key or legacy id); normalize it within the
+      // active provider, falling back to the session default when absent or unrecognized.
+      model: normalizeModel(provider, def.model ?? '') ?? this.opts.defaultModel(),
       effort: this.opts.defaultEffort(),
       systemPrompt: `${this.opts.systemPromptBase}\n\n---\n\n# Agent: ${def.name}\n\n${def.systemPrompt}`,
       maxTokens: 8192,

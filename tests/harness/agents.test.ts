@@ -8,7 +8,7 @@ import { grepTool } from '../../src/tools/grep.js'
 import { bashTool, taskOutputTool } from '../../src/tools/shell.js'
 import { HookRunner } from '../../src/harness/hooks.js'
 import type { AgentDef } from '../../src/brain/loader.js'
-import type { ModelFamily } from '../../src/brain/models.js'
+import type { ModelKey } from '../../src/brain/models.js'
 import type { ModelClient, StreamCallbacks, StreamResult } from '../../src/engine/client.js'
 import type { PermissionGate, ToolContext, ToolDefinition } from '../../src/engine/types.js'
 import { makeCtx } from '../helpers/tool-ctx.js'
@@ -207,7 +207,7 @@ describe('AgentOrchestrator + Agent tool', () => {
   })
 
   it('defaultModel is a thunk read at spawn time, so /model reaches later sub-agents', async () => {
-    let model: ModelFamily = 'haiku'
+    let model: ModelKey = 'haiku'
     const seen: string[] = []
     const orchestrator = makeOrchestrator(
       () =>

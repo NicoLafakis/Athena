@@ -2,7 +2,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import type { HookEventName, PermissionMode } from '../engine/types.js'
-import type { Effort, ModelKey, ProviderId } from './models.js'
+import type { Effort, ProviderId } from './models.js'
 import { normalizeModel, modelKeys, PROVIDERS } from './models.js'
 import type { BrainPaths } from './paths.js'
 
@@ -35,7 +35,7 @@ function modelSchema(provider: ProviderId) {
       z.string().refine(
         (v) => modelKeys(provider).includes(v),
         (v) => ({
-          message: `unknown model '${String(v)}' for provider '${provider}' — valid: ${modelKeys(provider).join(', ')}`,
+          message: `unknown model '${String(v)}' for provider '${provider}' (valid: ${modelKeys(provider).join(', ')})`,
         }),
       ),
     )
@@ -61,17 +61,15 @@ export type Settings = z.infer<typeof SettingsSchema>
 
 // Compile-time guards: settings enums must stay in lockstep with the canonical
 // contracts in src/engine/types.ts (import from there, never redefine).
+// model sync is enforced at runtime by modelSchema (ModelKey is an open string type).
 type _AssertPermissionMode = Settings['permissionMode'] extends PermissionMode ? true : never
 type _AssertHookEvent = HookDef['event'] extends HookEventName ? true : never
-type _AssertModel = Settings['model'] extends ModelKey ? true : never
 type _AssertEffort = Settings['effort'] extends Effort ? true : never
 const _permissionModeInSync: _AssertPermissionMode = true
 const _hookEventInSync: _AssertHookEvent = true
-const _modelInSync: _AssertModel = true
 const _effortInSync: _AssertEffort = true
 void _permissionModeInSync
 void _hookEventInSync
-void _modelInSync
 void _effortInSync
 
 function readJsonIfExists(file: string): Record<string, unknown> {
