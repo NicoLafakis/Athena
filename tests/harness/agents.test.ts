@@ -221,6 +221,19 @@ describe('AgentOrchestrator + Agent tool', () => {
     expect(seen).toEqual(['claude-haiku-4-5', 'claude-sonnet-5'])
   })
 
+  it('defaultProvider is a thunk: sub-agents spawn under the active provider, and anthropic-only frontmatter models fall back to defaultModel()', async () => {
+    const seen: string[] = []
+    const orchestrator = makeOrchestrator(
+      () =>
+        modelCapturingClient([{ blocks: [textBlock('ok')], stopReason: 'end_turn' }], seen),
+      { defaultProvider: () => 'kimi', defaultModel: () => 'kimi-k3' },
+    )
+    await orchestrator.runAgent(researcherDef(), 'go', makeCtx(process.cwd()))
+    // Frontmatter model 'opus' does not exist under kimi -> falls back to defaultModel().
+    await orchestrator.runAgent({ ...researcherDef(), model: 'opus' }, 'go', makeCtx(process.cwd()))
+    expect(seen).toEqual(['kimi-k3', 'kimi-k3'])
+  })
+
   it('fatal child error surfaces as an error tool result', async () => {
     const failingClient: ModelClient = {
       stream: async () => {

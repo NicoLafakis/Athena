@@ -11,7 +11,7 @@ import type { EngineEventBus } from './events.js'
 import type { ContextManager } from './context.js'
 import type { ToolRegistry } from '../tools/registry.js'
 import type { HookRunner } from '../harness/hooks.js'
-import { modelId, resolveModelRequest, type ProviderId, type ModelKey, type Effort } from '../brain/models.js'
+import { modelId, normalizeModel, resolveModelRequest, PROVIDERS, type ProviderId, type ModelKey, type Effort } from '../brain/models.js'
 import type { PermissionGate, ToolContext, ToolDefinition, ToolOutput, TokenUsage } from './types.js'
 
 export type AskUserFn = (req: {
@@ -75,6 +75,10 @@ export class Engine {
 
   setProvider(p: ProviderId): void {
     this.opts.provider = p
+    // Self-heal: a model key from another provider would make resolveModelRequest throw
+    // outside the stream try/catch (process-killing unhandled rejection). Reset to the
+    // new provider's default; callers that want a specific model call setModel after.
+    if (!normalizeModel(p, this.opts.model)) this.opts.model = PROVIDERS[p].defaultModel
   }
 
   getProvider(): ProviderId {

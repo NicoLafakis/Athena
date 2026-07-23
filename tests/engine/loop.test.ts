@@ -629,3 +629,21 @@ describe('toolInputSchema', () => {
     expect(result).toMatchObject({ type: 'object', properties: { file_path: { type: 'string' } }, required: ['file_path'] })
   })
 })
+
+describe('Engine provider window', () => {
+  it('provider omitted defaults to anthropic', () => {
+    const { engine } = makeEngine([])
+    expect(engine.getProvider()).toBe('anthropic')
+  })
+
+  it('setProvider self-heals a cross-provider model key to the new provider default', () => {
+    const { engine } = makeEngine([], { provider: 'anthropic', model: 'sonnet' })
+    engine.setProvider('kimi')
+    // 'sonnet' is not a kimi key: reset to kimi's default, and the wire id resolves cleanly.
+    expect(engine.getModel()).toBe('kimi-k3')
+    expect(engine.getModelId()).toBe('kimi-k3')
+    engine.setProvider('anthropic')
+    // 'kimi-k3' is not an anthropic key: reset to anthropic's default.
+    expect(engine.getModel()).toBe('sonnet')
+  })
+})

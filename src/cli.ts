@@ -7,7 +7,7 @@ import { render } from 'ink'
 import React from 'react'
 import { resolveBrainPaths } from './brain/paths.js'
 import { loadSettings } from './brain/settings.js'
-import { normalizeModel, modelLabel, supportsEffort, type ProviderId } from './brain/models.js'
+import { normalizeModel, modelLabel, modelKeys, supportsEffort, type ProviderId } from './brain/models.js'
 import {
   loadConstitution,
   loadMemoryIndex,
@@ -148,7 +148,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         const provider = engine.getProvider()
         const key = normalizeModel(provider, cmd.value)
         if (!key) {
-          info(`Unknown model: ${cmd.value} — choose one of the ${provider} models (see /help).`)
+          info(`Unknown model: ${cmd.value} (valid for ${provider}: ${modelKeys(provider).join(', ')})`)
           break
         }
         engine.setModel(key)
