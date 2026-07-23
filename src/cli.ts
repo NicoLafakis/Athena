@@ -7,7 +7,24 @@ import { render } from 'ink'
 import React from 'react'
 import { resolveBrainPaths } from './brain/paths.js'
 import { loadSettings } from './brain/settings.js'
-import { normalizeModel, modelLabel, modelKeys, supportsEffort, type ProviderId } from './brain/models.js'
+import {
+  normalizeModel,
+  modelLabel,
+  modelKeys,
+  supportsEffort,
+  PROVIDERS,
+  PROVIDER_IDS,
+  normalizeProvider,
+  type ProviderId,
+} from './brain/models.js'
+import {
+  loadCredentials,
+  resolveApiKey,
+  redactKey,
+  type Credentials,
+} from './brain/credentials.js'
+import { runAuthWizard } from './auth/wizard.js'
+import { ClientHolder } from './engine/client-holder.js'
 import {
   loadConstitution,
   loadMemoryIndex,
@@ -50,10 +67,11 @@ import { SessionPicker } from './tui/components/SessionPicker.js'
 import type { SlashCommand } from './tui/slash.js'
 
 export type CliCommand =
-  | { command: 'run' }
-  | { command: 'resume' }
-  | { command: 'continue' }
+  | { command: 'run'; provider?: ProviderId }
+  | { command: 'resume'; provider?: ProviderId }
+  | { command: 'continue'; provider?: ProviderId }
   | { command: 'help' }
+  | { command: 'auth'; sub: 'wizard' | 'status' }
   | { command: 'import'; sourceDir: string; force: boolean }
   | { command: 'error'; message: string }
 
@@ -64,13 +82,28 @@ export function parseArgs(argv: string[]): CliCommand {
       return { command: 'error', message: 'Usage: athena import <path> [--force]' }
     return { command: 'import', sourceDir, force: argv.includes('--force') }
   }
+  if (argv[0] === 'auth') {
+    if (argv.length === 1) return { command: 'auth', sub: 'wizard' }
+    if (argv[1] === 'status' && argv.length === 2) return { command: 'auth', sub: 'status' }
+    return { command: 'error', message: 'Usage: athena auth [status]' }
+  }
+  const rest = [...argv]
+  let provider: ProviderId | undefined
+  const pi = rest.indexOf('--provider')
+  if (pi !== -1) {
+    const value = rest[pi + 1]
+    const p = value ? normalizeProvider(value) : null
+    if (!p) return { command: 'error', message: `--provider needs one of: ${PROVIDER_IDS.join(', ')}` }
+    provider = p
+    rest.splice(pi, 2)
+  }
   const known = new Set(['--help', '-h', '--resume', '--continue'])
-  const unknown = argv.find((a) => !known.has(a))
+  const unknown = rest.find((a) => !known.has(a))
   if (unknown) return { command: 'error', message: `Unknown argument: ${unknown} (try --help)` }
-  if (argv.includes('--help') || argv.includes('-h')) return { command: 'help' }
-  if (argv.includes('--resume')) return { command: 'resume' }
-  if (argv.includes('--continue')) return { command: 'continue' }
-  return { command: 'run' }
+  if (rest.includes('--help') || rest.includes('-h')) return { command: 'help' }
+  if (rest.includes('--resume')) return { command: 'resume', provider }
+  if (rest.includes('--continue')) return { command: 'continue', provider }
+  return { command: 'run', provider }
 }
 
 const HELP_TEXT = `athena — standalone terminal coding agent
@@ -79,10 +112,13 @@ Usage:
   athena                 new session in the current project
   athena --continue      resume the most recent session here
   athena --resume        pick a past session
+  athena --provider <anthropic|kimi>  session-only provider override (combines with the above)
+  athena auth            add/replace API keys, switch the default provider
+  athena auth status     show configured providers and redacted keys
   athena import <path>   one-time import of an ares-style brain (--force to merge)
   athena --help          this help
 
-In-session: /help /clear /resume /compact /model /effort /mode /memory /skills /agents /quit. Esc interrupts a turn.`
+In-session: /help /clear /resume /compact /model /effort /provider /mode /memory /skills /agents /quit. Esc interrupts a turn.`
 
 function gitBranch(cwd: string): string | null {
   try {
@@ -122,7 +158,7 @@ interface SlashDeps {
   engine: Engine
   gate: PermissionEngine
   contextManager: ContextManager
-  client: AnthropicClient
+  client: ClientHolder
   store: SessionStore
   session: Session | null
   paths: BrainPaths
@@ -237,6 +273,10 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
   }
 }
 
+function makeClient(provider: ProviderId, key: string): AnthropicClient {
+  return new AnthropicClient(key, PROVIDERS[provider].baseURL ?? undefined)
+}
+
 async function main(): Promise<void> {
   const cwd = process.cwd()
   const paths = resolveBrainPaths({ cwd })
@@ -265,6 +305,31 @@ async function main(): Promise<void> {
     }
     return
   }
+  if (cmd.command === 'auth') {
+    if (cmd.sub === 'status') {
+      // Minimal but complete rendering; Task 8 upgrades it to formatAuthStatus with
+      // env-override indication.
+      try {
+        const creds = loadCredentials(paths)
+        for (const p of PROVIDER_IDS) {
+          const r = resolveApiKey(p, creds)
+          const detail = r ? `${redactKey(r.key)} (${r.source})` : 'not configured'
+          console.log(`${p}: ${detail}${p === creds.activeProvider ? ' [active]' : ''}`)
+        }
+      } catch (err) {
+        console.error((err as Error).message)
+        process.exitCode = 1
+      }
+      return
+    }
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      console.error('athena auth needs an interactive terminal.')
+      process.exitCode = 1
+      return
+    }
+    await runAuthWizard({ paths })
+    return
+  }
 
   // Interactive commands need a real terminal; headless invocations get help instead of a hung TUI.
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
@@ -272,13 +337,23 @@ async function main(): Promise<void> {
     console.log('\n(interactive session skipped: not a TTY)')
     return
   }
-  if (!process.env['ANTHROPIC_API_KEY']) {
-    console.error('ANTHROPIC_API_KEY is not set. Export it and re-run.')
+  let credentials: Credentials
+  try {
+    credentials = loadCredentials(paths)
+  } catch (err) {
+    console.error((err as Error).message)
     process.exitCode = 1
     return
   }
-
-  const provider: ProviderId = 'anthropic'
+  const provider: ProviderId = cmd.provider ?? credentials.activeProvider
+  let resolved = resolveApiKey(provider, credentials)
+  if (!resolved) {
+    // First run (or a provider selected via --provider that has no key yet): drop into
+    // the wizard scoped to that provider, then continue straight into the session.
+    console.log(`No API key found for ${PROVIDERS[provider].label} — let's set one up.`)
+    const done = await runAuthWizard({ paths, provider })
+    resolved = { key: done.key, source: 'file' }
+  }
   const settings = loadSettings(paths, provider)
   const gate = new PermissionEngine({
     mode: settings.permissionMode,
@@ -331,7 +406,7 @@ async function main(): Promise<void> {
       date: new Date().toISOString().slice(0, 10),
     },
   })
-  const client = new AnthropicClient(process.env['ANTHROPIC_API_KEY'])
+  const client = new ClientHolder(makeClient(provider, resolved.key))
   const orchestrator = new AgentOrchestrator({
     defs: loadAgentsIndex(paths),
     clientFactory: () => client,
