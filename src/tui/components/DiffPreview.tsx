@@ -1,5 +1,6 @@
 // src/tui/components/DiffPreview.tsx
 import { Box, Text } from 'ink'
+import { truncateWithNotice, wrappedRowCount } from '../viewport.js'
 
 export interface DiffLine {
   tag: '+' | '-' | ' '
@@ -51,12 +52,50 @@ export function diffLines(oldText: string, newText: string): DiffLine[] {
   return out
 }
 
-const MAX_LINES = 40
+/** Historical safety cap used when no caller-supplied budget applies (classic mode,
+ *  or any other caller that hasn't been sized to an actual layout). Fullscreen mode
+ *  passes an explicit `maxLines` computed from the real remaining terminal rows instead
+ *  (see App.tsx) — the point of that budget is to never silently drop/interleave diff
+ *  lines the way an unbounded render into a fixed-height layout can (see the
+ *  Yoga/Ink layout-corruption fix this constant is part of). */
+const DEFAULT_MAX_LINES = 40
 
-export function DiffPreview({ oldText, newText }: { oldText: string; newText: string }) {
+/** The "+N more..." truncation notice — in a full, helpful form (with the "widen
+ *  terminal..." hint) when that comfortably fits the available width, falling back to a
+ *  short form when it wouldn't. A narrow terminal + an unconditionally-verbose notice was
+ *  itself a second, independently-found instance of the fullscreen layout-corruption bug:
+ *  reserving room for the ~85-character full notice made even a zero-diff-content dialog
+ *  too tall to fit a 40-column terminal. Exported so App.tsx's row budgeting can reserve
+ *  the SAME (worst-case) row count this component will actually render, using a
+ *  pessimistic placeholder hidden-count — see DiffPreview's caller in App.tsx. */
+export function diffNoticeText(hiddenCount: number, columns: number): string {
+  const full = `+${hiddenCount} more lines truncated (widen terminal or /tui classic to review the full diff)`
+  if (wrappedRowCount(full, columns) <= 2) return full
+  return `+${hiddenCount} more lines truncated`
+}
+
+export function DiffPreview({
+  oldText,
+  newText,
+  maxLines = DEFAULT_MAX_LINES,
+  columns = 76,
+}: {
+  oldText: string
+  newText: string
+  /** Max diff CONTENT lines to render before truncating — a content-only budget; it does
+   *  NOT need to leave room for the "+N more" notice itself (the caller already reserved
+   *  that separately — see App.tsx). Defaults to DEFAULT_MAX_LINES when the caller hasn't
+   *  computed a real layout budget. */
+  maxLines?: number
+  /** Terminal columns actually available to this component's own text (i.e. AFTER the
+   *  parent PermissionDialog's border/padding has already been subtracted) — used only to
+   *  pick the notice's full-vs-short form above. Defaults to 76 (an 80-column terminal
+   *  minus PermissionDialog's border+padding), matching the assumption DEFAULT_MAX_LINES
+   *  itself is sized against. */
+  columns?: number
+}) {
   const lines = diffLines(oldText, newText)
-  const shown = lines.slice(0, MAX_LINES)
-  const truncated = lines.length > MAX_LINES
+  const { shown, hiddenCount } = truncateWithNotice(lines, maxLines)
   return (
     <Box flexDirection="column">
       {shown.map((l, idx) => (
@@ -68,7 +107,7 @@ export function DiffPreview({ oldText, newText }: { oldText: string; newText: st
           {l.tag} {l.line}
         </Text>
       ))}
-      {truncated && <Text dimColor>(diff truncated)</Text>}
+      {hiddenCount > 0 && <Text dimColor>{diffNoticeText(hiddenCount, columns)}</Text>}
     </Box>
   )
 }

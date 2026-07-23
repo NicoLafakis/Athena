@@ -11,20 +11,62 @@ import { TodoPanel } from './components/TodoPanel.js'
 import { InputBox } from './components/InputBox.js'
 import { parseSlash, type SlashCommand, type CustomCommandDef } from './slash.js'
 import { createFullscreenController } from './fullscreen.js'
+import { truncateRowsWithNotice, wrappedRowCount } from './viewport.js'
+import {
+  PERMISSION_HEADER_TEXT,
+  PERMISSION_FOOTER_TEXT,
+  DIALOG_HORIZONTAL_CHROME_COLS,
+  DIALOG_SUMMARY_MAX_ROWS,
+  DIALOG_REASON_MAX_ROWS,
+} from './components/PermissionDialog.js'
+import { diffNoticeText } from './components/DiffPreview.js'
+import { todoLineText, todoNoticeText, TODO_HORIZONTAL_CHROME_COLS } from './components/TodoPanel.js'
+import { statusLineText } from './components/StatusLine.js'
 import type { AgentMentionSource } from './agentMention.js'
 import { getVersion } from '../version.js'
 
-// Rows reserved below the transcript's flexible area in fullscreen mode: status line (1)
-// plus headroom for the input box growing to a couple of wrapped lines and an occasional
-// todo panel/permission dialog. Approximate on purpose — Transcript's own virtualization
-// is a heuristic too (see viewport.ts), and the overflow:hidden wrapper below clips
-// anything the estimate undershoots rather than letting it push the input off-screen.
-const FULLSCREEN_RESERVED_ROWS = 6
-// Banner.tsx always renders exactly 4 rows (border, wordmark, border, info line) — fixed,
-// not a heuristic, so this is an exact add to the reserved-rows budget above rather than
-// another estimate. Only charged against the budget while fullscreen (and thus the
-// banner) is actually showing; see `fullscreen ? ... : undefined` below.
-const BANNER_ROWS = 4
+// Fixed per-sibling row budgets used below to size Banner/TodoPanel/PermissionDialog
+// against the ACTUAL terminal size in fullscreen mode. This matters because only the
+// Transcript-wrapping Box has overflow="hidden" (see the render tree below) — Banner,
+// TodoPanel, PermissionDialog, InputBox, and StatusLine are all siblings of a fixed
+// height={rows} column Box with no overflow protection of their own. If their combined
+// natural content size ever exceeds `rows`, Ink/Yoga doesn't clip or reflow gracefully —
+// it corrupts the frame (dropped/interleaved lines, headers pushed off, etc.), which is
+// exactly what this whole block exists to make structurally impossible: every dynamic
+// (variable-content) sibling below is bounded to a computed budget with an explicit "+N
+// more" notice rather than left to render however much content it naturally wants.
+//
+// Text-bearing chrome (StatusLine's segments, PermissionDialog's header/summary/
+// reason/footer, each todo's line) is measured with wrappedRowCount against the ACTUAL
+// current terminal width rather than assumed to always be exactly one row — a long cwd,
+// a long tool-input summary (the engine truncates it to ~120 chars, which alone exceeds
+// most terminal widths), or a long todo can all wrap to 2+ rows, and a narrower terminal
+// (a common 40-80 column split pane) makes this the norm rather than the exception.
+// Getting this wrong is exactly how the original corruption bug happened, just for
+// content Ink/Yoga wraps instead of content that overflows a line count — see
+// wrappedRowCount in viewport.ts, which estimateEntryRows (Transcript) already used this
+// exact approach for.
+//
+// Border/padding rows and columns below (BANNER_ROWS, *_BORDER_ROWS, *_HORIZONTAL_CHROME)
+// are the one part that's genuinely fixed regardless of content or terminal width — a
+// borderStyle="round" edge is always exactly 1 row/column, never wraps.
+const BANNER_ROWS = 4 // Banner.tsx always renders exactly 4 rows (border, wordmark, border, info line).
+const TODO_BORDER_ROWS = 2 // TodoPanel's border top+bottom (borderStyle="round").
+const DIALOG_BORDER_ROWS = 2 // PermissionDialog's border top+bottom (borderStyle="round").
+// Transcript never drops below this many rows even when TodoPanel/PermissionDialog are
+// competing for space. Safe to shrink this far (and no further matters) because
+// Transcript's own wrapping Box is the one sibling with overflow="hidden" — this floor
+// is purely about leaving a shred of visible context, not about avoiding corruption.
+const MIN_TRANSCRIPT_ROWS = 3
+// Pessimistic placeholder hidden-counts used ONLY to size the "+N more" notice
+// reservation below (see dialogChromeRows/todoChromeRows) — NOT real data. Using a
+// placeholder rather than the real (usually much smaller) hidden count means the
+// reservation covers the worst realistic case regardless of how many diff lines/todos
+// actually end up hidden: diffNoticeText/todoNoticeText are otherwise monotonic in the
+// hidden count's digit length, so reserving for a generously large placeholder is always
+// >= whatever the real notice will actually need.
+const DIFF_NOTICE_PLACEHOLDER_HIDDEN = 999_999
+const TODO_NOTICE_PLACEHOLDER_HIDDEN = 999
 const FALLBACK_ROWS = 24
 const FALLBACK_COLUMNS = 80
 
@@ -146,6 +188,10 @@ export function App({
   const [todos, setTodos] = useState<TodoItem[]>([])
   const [pending, setPending] = useState<PendingPermission | null>(null)
   const [busy, setBusy] = useState(false)
+  // InputBox's actual current row count (it can grow past 1 via backslash-continuation —
+  // see InputBox's onHeightChange). Used to size the fullscreen PermissionDialog/TodoPanel
+  // budgets below against reality instead of a static guess.
+  const [inputRows, setInputRows] = useState(1)
   // Seeded from the prop, then kept live by 'status' events (/mode, /model, per-turn ctx%).
   const [status, setStatus] = useState<AppStatus>(statusProp)
   const { exit } = useApp()
@@ -269,15 +315,106 @@ export function App({
     [onSlash, exit, busy, bus, commands, submitTurn, fullscreenController],
   )
 
+  // Permission review takes visual priority over ambient decoration/status: a pending
+  // dialog gets the space Banner/TodoPanel would otherwise occupy instead of competing
+  // with them for it. Classic mode is untouched — native scrollback already handles
+  // overflow fine there, so nothing here is gated on `fullscreen` alone without also
+  // checking `pending`.
+  const dialogPendingFullscreen = fullscreen && pending !== null
+  const showBanner = fullscreen && !dialogPendingFullscreen
+  const showTodoPanel = todos.length > 0 && !dialogPendingFullscreen
+  const bannerRows = showBanner ? BANNER_ROWS : 0
+
+  // StatusLine is a fixed footer, but its content (cwd/branch/model/mode/ctx%) is
+  // arbitrary-length text with NO border/padding stealing width, so it's measured against
+  // the full terminal width — see the file-header comment on why this can't just be "1".
+  const statusLineRows = wrappedRowCount(statusLineText({ ...status, busy }), columns)
+
+  // Real remaining-rows budget for PermissionDialog's diff view: terminal rows minus
+  // StatusLine's ACTUAL wrapped height minus InputBox's ACTUAL current height minus a
+  // floor reserved for Transcript minus the dialog's own chrome. dialogChromeRows is the
+  // ACTUAL wrapped row count of the header/summary/reason/footer text (see
+  // dialogTextColumns below) PLUS a reservation for the "+N more" notice, computed via
+  // diffNoticeText with a pessimistic placeholder hidden-count — so `maxDiffLines` below
+  // is a pure CONTENT-only budget (DiffPreview doesn't need to steal a row from it for
+  // its own notice; the room is already set aside here). Whatever's left is exactly how
+  // many diff lines DiffPreview may render before it must show that notice instead of
+  // trusting Yoga/Ink to clip (or corrupt) whatever doesn't fit. undefined in classic mode
+  // (or when nothing's pending) — DiffPreview falls back to its own static cap.
+  //
+  // Critically, the header/footer text is NEVER truncated, and summary/reason are only
+  // ever truncated to a small, bounded number of rows (DIALOG_SUMMARY_MAX_ROWS/
+  // DIALOG_REASON_MAX_ROWS — see PermissionDialog.tsx), never hidden outright — so
+  // however tight the budget gets, "Permission required" always renders in full and the
+  // diff view (or, in the most extreme case, a shred of Transcript) is what shrinks.
+  //
+  // Both the summary/reason cap AND the notice-reservation matter here: an independent
+  // re-verification found that reserving a flat "1 row" for an UNCONDITIONALLY-verbose
+  // notice message (and leaving summary/reason uncapped) could make the dialog's chrome
+  // ALONE too tall for a real 40-column terminal, corrupting the frame even with zero
+  // diff content shown.
+  const dialogTextColumns = Math.max(columns - DIALOG_HORIZONTAL_CHROME_COLS, 1)
+  const dialogChromeRows = pending
+    ? DIALOG_BORDER_ROWS +
+      wrappedRowCount(PERMISSION_HEADER_TEXT, dialogTextColumns) +
+      Math.min(wrappedRowCount(pending.summary, dialogTextColumns), DIALOG_SUMMARY_MAX_ROWS) +
+      Math.min(wrappedRowCount(pending.reason, dialogTextColumns), DIALOG_REASON_MAX_ROWS) +
+      wrappedRowCount(PERMISSION_FOOTER_TEXT, dialogTextColumns) +
+      wrappedRowCount(diffNoticeText(DIFF_NOTICE_PLACEHOLDER_HIDDEN, dialogTextColumns), dialogTextColumns)
+    : 0
+  const maxDiffLines = dialogPendingFullscreen
+    ? Math.max(rows - statusLineRows - inputRows - MIN_TRANSCRIPT_ROWS - dialogChromeRows, 0)
+    : undefined
+
+  // Same idea for TodoPanel's row budget, when it's the one actually showing. Mutually
+  // exclusive with the dialog budget above in fullscreen mode (TodoPanel is hidden
+  // whenever a dialog is pending), so the two never compete for the same rows. A todo
+  // item's own text can also wrap (see todoRowsOf/todoLineText), so this is a ROW budget
+  // handed to TodoPanel, not an item-count budget — TodoPanel does its own per-item
+  // wrapped-row accounting against the same effective width. Like the dialog above, the
+  // budget already reserves room for TodoPanel's own "+N more" notice (see
+  // todoNoticeText), so TodoPanel doesn't need to steal a row from it either.
+  const todoTextColumns = Math.max(columns - TODO_HORIZONTAL_CHROME_COLS, 1)
+  const todoRowsOf = (todo: TodoItem): number => wrappedRowCount(todoLineText(todo), todoTextColumns)
+  const todoNoticeReserveRows = wrappedRowCount(
+    todoNoticeText(TODO_NOTICE_PLACEHOLDER_HIDDEN, todoTextColumns),
+    todoTextColumns,
+  )
+  const maxTodoRows =
+    fullscreen && showTodoPanel
+      ? Math.max(
+          rows - statusLineRows - inputRows - bannerRows - MIN_TRANSCRIPT_ROWS - TODO_BORDER_ROWS - todoNoticeReserveRows,
+          0,
+        )
+      : undefined
+
   // Fullscreen-only: bound the Transcript's render window to what actually fits above the
   // input/status row(s), so render/memory cost stays flat no matter how long the session
   // gets. Classic mode passes maxRows=undefined and Transcript renders everything, exactly
-  // as before — native scrollback still does the heavy lifting there. The banner's own
-  // (fixed) row count is charged against the same budget so it can't silently push the
-  // input off-screen or desync this estimate.
-  const availableRows = fullscreen
-    ? Math.max(rows - FULLSCREEN_RESERVED_ROWS - BANNER_ROWS, 3)
-    : undefined
+  // as before — native scrollback still does the heavy lifting there.
+  //
+  // A pending dialog claims all remaining space by design (see dialogPendingFullscreen
+  // above), so Transcript drops straight to its floor rather than being estimated.
+  // Otherwise, TodoPanel's actual (possibly wrapped, possibly truncated) row count is
+  // subtracted, so a short todo list still leaves Transcript the generous majority of the
+  // screen exactly as before this fix — only a todo list too big to fit forces Transcript
+  // to the floor.
+  const todoRowsUsed = showTodoPanel
+    ? (() => {
+        if (maxTodoRows === undefined) {
+          return TODO_BORDER_ROWS + todos.reduce((sum, t) => sum + todoRowsOf(t), 0)
+        }
+        const { shown, hiddenCount } = truncateRowsWithNotice(todos, todoRowsOf, maxTodoRows)
+        const noticeRows =
+          hiddenCount > 0 ? wrappedRowCount(todoNoticeText(hiddenCount, todoTextColumns), todoTextColumns) : 0
+        return TODO_BORDER_ROWS + shown.reduce((sum, t) => sum + todoRowsOf(t), 0) + noticeRows
+      })()
+    : 0
+  const availableRows = !fullscreen
+    ? undefined
+    : dialogPendingFullscreen
+      ? MIN_TRANSCRIPT_ROWS
+      : Math.max(rows - statusLineRows - inputRows - bannerRows - todoRowsUsed, MIN_TRANSCRIPT_ROWS)
 
   return (
     <Box flexDirection="column" height={fullscreen ? rows : undefined}>
@@ -285,8 +422,9 @@ export function App({
           than a one-shot splash (mirrors StatusLine's fixed footer below). Classic mode
           skips it entirely: it's native scrollback that a repainting banner would only
           clutter on every turn, and classic already has the compact status line for
-          at-a-glance model/cwd. */}
-      {fullscreen && <Banner version={getVersion()} model={status.model} cwd={status.cwd} columns={columns} />}
+          at-a-glance model/cwd. Also hidden whenever a permission dialog is pending (see
+          showBanner above) — the dialog gets visual priority, not ambient branding. */}
+      {showBanner && <Banner version={getVersion()} model={status.model} cwd={status.cwd} columns={columns} />}
       {/* flexGrow + justifyContent="flex-end" pins whatever fits at the bottom of the
           flexible area (just above the input), and overflow="hidden" clips anything the
           virtualization estimate undershoots instead of pushing the input off-screen.
@@ -300,8 +438,16 @@ export function App({
       >
         <Transcript entries={entries} maxRows={availableRows} />
       </Box>
-      {todos.length > 0 && <TodoPanel todos={todos} />}
-      {pending && <PermissionDialog pending={pending} cwd={status.cwd} />}
+      {/* Hidden whenever a permission dialog is pending in fullscreen (see showTodoPanel
+          above) — same visual-priority reasoning as the banner. Classic mode is
+          unaffected: showTodoPanel only ever differs from `todos.length > 0` when
+          `fullscreen` is true. maxRows is undefined in classic mode (unbounded, as
+          before); in fullscreen it bounds the panel to what's actually left, wrapping
+          included. */}
+      {showTodoPanel && <TodoPanel todos={todos} maxRows={maxTodoRows} columns={columns} />}
+      {pending && (
+        <PermissionDialog pending={pending} cwd={status.cwd} maxDiffLines={maxDiffLines} columns={columns} />
+      )}
       {/* busy included: a prompt submitted mid-turn would start a second runTurn
           and interleave a user message between a tool_use and its tool_result. */}
       <InputBox
@@ -310,6 +456,7 @@ export function App({
         cwd={status.cwd}
         commands={commands}
         agents={agents}
+        onHeightChange={setInputRows}
       />
       <StatusLine {...status} busy={busy} />
     </Box>

@@ -92,6 +92,7 @@ export function InputBox({
   cwd,
   commands,
   agents,
+  onHeightChange,
 }: {
   onSubmit: (text: string) => void
   disabled: boolean
@@ -107,6 +108,12 @@ export function InputBox({
    *  the combined '@' picker. Optional so existing callers/tests that don't wire any
    *  stay unaffected. */
   agents?: readonly AgentMentionSource[]
+  /** Reports the box's actual current row count (`value.split('\n').length`, so it grows
+   *  with backslash-continuation) on every change, so callers that budget remaining
+   *  terminal rows around this component (fullscreen App's PermissionDialog/TodoPanel
+   *  sizing) react to it instead of assuming a fixed 1-row height. Optional so existing
+   *  callers/tests that don't wire any stay unaffected. */
+  onHeightChange?: (rows: number) => void
 }) {
   const [value, setValue] = useState('')
   const [history, setHistory] = useState<string[]>([])
@@ -189,7 +196,14 @@ export function InputBox({
         if (key.backspace || key.delete) {
           const next = value.slice(0, -1)
           setValue(next)
-          if (next.length <= mention.start) setMention(null) // deleted the '@' itself
+          if (next.length <= mention.start) {
+            setMention(null) // deleted the '@' itself
+          } else {
+            // Filter widened: re-anchor highlight to top, symmetric with the narrowing
+            // case in applyTypedChars — otherwise `index` can keep pointing past the end
+            // of a `matches` array that just grew back.
+            setMention({ ...mention, index: 0 })
+          }
           return
         }
         if (key.ctrl || key.meta) return
@@ -336,6 +350,9 @@ export function InputBox({
   )
 
   const lines = value.split('\n')
+  useEffect(() => {
+    onHeightChange?.(lines.length)
+  }, [lines.length, onHeightChange])
   return (
     <Box flexDirection="column">
       {mention && <MentionPopup query={query} matches={matches} index={mention.index} loading={!allFiles} />}
