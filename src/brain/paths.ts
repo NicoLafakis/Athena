@@ -6,6 +6,7 @@ export interface BrainPaths {
   brainDir: string
   constitutionFile: string
   settingsFile: string
+  credentialsFile: string
   memoryDir: string
   memoryIndexFile: string
   skillsDir: string
@@ -23,6 +24,7 @@ export function resolveBrainPaths(opts: { cwd: string; homeOverride?: string }):
     brainDir,
     constitutionFile: join(brainDir, 'ATHENA.md'),
     settingsFile: join(brainDir, 'settings.json'),
+    credentialsFile: join(brainDir, 'credentials.json'),
     memoryDir: join(brainDir, 'memory'),
     memoryIndexFile: join(brainDir, 'memory', 'MEMORY.md'),
     skillsDir: join(brainDir, 'skills'),
