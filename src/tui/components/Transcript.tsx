@@ -47,10 +47,10 @@ export function Transcript({
   maxRows,
 }: {
   entries: TranscriptEntry[]
-  /** Fullscreen-mode viewport bound, in terminal rows. Classic mode (the default) omits
-   *  this and renders the full history unchanged — native scrollback handles it. When
-   *  set, only the most recent entries that fit are rendered, keeping render/memory cost
-   *  flat regardless of session length (see ../viewport.ts). */
+  /** Fullscreen-mode viewport bound, in terminal rows. Classic mode omits this and
+   *  renders the full history unchanged — native scrollback handles it. When set, only
+   *  the most recent entries that fit are rendered, keeping render/memory cost flat
+   *  regardless of session length (see ../viewport.ts). */
   maxRows?: number
 }) {
   const visible = maxRows === undefined ? entries : sliceToRows(entries, estimateEntryRows, maxRows)

@@ -1,7 +1,8 @@
-// src/tui/fullscreen.ts — alternate-screen buffer control for the opt-in fullscreen TUI
-// mode (`/tui fullscreen` / `/tui classic`, see slash.ts). Same escape sequences vim/htop
-// use to swap to a private buffer instead of the terminal's native scrollback. Classic
-// mode (the default) never touches this file.
+// src/tui/fullscreen.ts — alternate-screen buffer control for the fullscreen TUI mode
+// (`/tui fullscreen` / `/tui classic`, see slash.ts; fullscreen is the default on a real
+// TTY, classic the fallback elsewhere and the opt-out — see App.tsx). Same escape
+// sequences vim/htop use to swap to a private buffer instead of the terminal's native
+// scrollback. Classic mode never touches this file.
 
 /** DECSET/DECRST 1049: swap to/from the terminal's alternate screen buffer. */
 export const ALT_SCREEN_ENTER = '\x1b[?1049h'

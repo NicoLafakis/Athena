@@ -6,11 +6,13 @@ import type { EngineEvent, TodoItem, PermissionMode } from '../engine/types.js'
 import { Transcript, type TranscriptEntry } from './components/Transcript.js'
 import { PermissionDialog } from './components/PermissionDialog.js'
 import { StatusLine } from './components/StatusLine.js'
+import { Banner } from './components/Banner.js'
 import { TodoPanel } from './components/TodoPanel.js'
 import { InputBox } from './components/InputBox.js'
 import { parseSlash, type SlashCommand, type CustomCommandDef } from './slash.js'
 import { createFullscreenController } from './fullscreen.js'
 import type { AgentMentionSource } from './agentMention.js'
+import { getVersion } from '../version.js'
 
 // Rows reserved below the transcript's flexible area in fullscreen mode: status line (1)
 // plus headroom for the input box growing to a couple of wrapped lines and an occasional
@@ -18,7 +20,13 @@ import type { AgentMentionSource } from './agentMention.js'
 // is a heuristic too (see viewport.ts), and the overflow:hidden wrapper below clips
 // anything the estimate undershoots rather than letting it push the input off-screen.
 const FULLSCREEN_RESERVED_ROWS = 6
+// Banner.tsx always renders exactly 4 rows (border, wordmark, border, info line) — fixed,
+// not a heuristic, so this is an exact add to the reserved-rows budget above rather than
+// another estimate. Only charged against the budget while fullscreen (and thus the
+// banner) is actually showing; see `fullscreen ? ... : undefined` below.
+const BANNER_ROWS = 4
 const FALLBACK_ROWS = 24
+const FALLBACK_COLUMNS = 80
 
 export type PermissionAnswer = 'allow-once' | 'allow-always' | 'deny'
 
@@ -103,21 +111,25 @@ export interface AppProps {
   agents?: readonly AgentMentionSource[]
 }
 
-/** Live terminal row count, kept in sync with resize events. Ink's `useStdout` exposes
- *  the actual stream it's rendering to (`process.stdout`, or a test double under
- *  ink-testing-library — where `.rows` is undefined, hence the fallback). */
-function useTerminalRows(): number {
+/** Live terminal row/column count, kept in sync with resize events. Ink's `useStdout`
+ *  exposes the actual stream it's rendering to (`process.stdout`, or a test double under
+ *  ink-testing-library — where `.rows`/`.columns` are undefined, hence the fallbacks). */
+function useTerminalSize(): { rows: number; columns: number } {
   const { stdout } = useStdout()
-  const [rows, setRows] = useState(() => stdout?.rows ?? FALLBACK_ROWS)
+  const [size, setSize] = useState(() => ({
+    rows: stdout?.rows ?? FALLBACK_ROWS,
+    columns: stdout?.columns ?? FALLBACK_COLUMNS,
+  }))
   useEffect(() => {
     if (!stdout) return
-    const onResize = () => setRows(stdout.rows ?? FALLBACK_ROWS)
+    const onResize = () =>
+      setSize({ rows: stdout.rows ?? FALLBACK_ROWS, columns: stdout.columns ?? FALLBACK_COLUMNS })
     stdout.on('resize', onResize)
     return () => {
       stdout.off('resize', onResize)
     }
   }, [stdout])
-  return rows
+  return size
 }
 
 export function App({
@@ -138,13 +150,22 @@ export function App({
   const [status, setStatus] = useState<AppStatus>(statusProp)
   const { exit } = useApp()
 
-  // Fullscreen (alternate-screen) TUI mode: an additive, opt-in toggle via /tui
-  // fullscreen | classic. Classic (false) is the default and the existing rendering
-  // path — nothing below this block runs any differently when it stays false.
-  const [fullscreen, setFullscreen] = useState(false)
+  // Fullscreen (alternate-screen) TUI mode: /tui fullscreen | classic still toggles it
+  // either way mid-session, but the DEFAULT is now TTY-gated rather than hard-coded to
+  // classic. `useStdout()` reads Ink's StdoutContext, which is a plain React context value
+  // (not something populated later by an effect), so it — and therefore
+  // `fullscreenController.supported` derived from it — is already correct on the very
+  // first render, before the `fullscreen` useState initializer below runs. Ordering
+  // matters here: the controller must be constructed first so its `.supported` value
+  // exists in time to seed the state's lazy initializer on the same render.
   const { stdout } = useStdout()
   const fullscreenController = useMemo(() => createFullscreenController(stdout), [stdout])
-  const rows = useTerminalRows()
+  // Real interactive TTY -> default fullscreen. Anything else (piped output, CI, and
+  // ink-testing-library's stdout test double, which never sets `.isTTY`) -> default
+  // classic, exactly as before — this is why the change doesn't require touching most
+  // existing tests.
+  const [fullscreen, setFullscreen] = useState(() => fullscreenController.supported)
+  const { rows, columns } = useTerminalSize()
 
   useEffect(() => {
     if (!fullscreen) return
@@ -251,11 +272,21 @@ export function App({
   // Fullscreen-only: bound the Transcript's render window to what actually fits above the
   // input/status row(s), so render/memory cost stays flat no matter how long the session
   // gets. Classic mode passes maxRows=undefined and Transcript renders everything, exactly
-  // as before — native scrollback still does the heavy lifting there.
-  const availableRows = fullscreen ? Math.max(rows - FULLSCREEN_RESERVED_ROWS, 3) : undefined
+  // as before — native scrollback still does the heavy lifting there. The banner's own
+  // (fixed) row count is charged against the same budget so it can't silently push the
+  // input off-screen or desync this estimate.
+  const availableRows = fullscreen
+    ? Math.max(rows - FULLSCREEN_RESERVED_ROWS - BANNER_ROWS, 3)
+    : undefined
 
   return (
     <Box flexDirection="column" height={fullscreen ? rows : undefined}>
+      {/* Fixed header row, fullscreen-only — reserved for full-session branding rather
+          than a one-shot splash (mirrors StatusLine's fixed footer below). Classic mode
+          skips it entirely: it's native scrollback that a repainting banner would only
+          clutter on every turn, and classic already has the compact status line for
+          at-a-glance model/cwd. */}
+      {fullscreen && <Banner version={getVersion()} model={status.model} cwd={status.cwd} columns={columns} />}
       {/* flexGrow + justifyContent="flex-end" pins whatever fits at the bottom of the
           flexible area (just above the input), and overflow="hidden" clips anything the
           virtualization estimate undershoots instead of pushing the input off-screen.

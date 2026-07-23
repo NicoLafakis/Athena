@@ -30,8 +30,10 @@ export type SlashCommand =
   | { kind: 'custom'; name: string; expandedPrompt: string }
   | { kind: 'error'; value: string }
 
-/** 'classic' = current default (content appended to native scrollback). 'fullscreen' =
- *  opt-in alternate-screen buffer with a pinned input and a virtualized transcript. */
+/** 'classic' = content appended to native scrollback; the fallback on a non-TTY stream
+ *  and the explicit opt-out via /tui classic. 'fullscreen' = alternate-screen buffer with
+ *  a pinned input and a virtualized transcript; the default on a real interactive
+ *  terminal (see App.tsx). */
 export type TuiMode = 'classic' | 'fullscreen'
 
 const MODES = new Set(['normal', 'acceptEdits', 'plan', 'trusted'])

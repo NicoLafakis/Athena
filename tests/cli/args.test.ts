@@ -86,4 +86,9 @@ describe('parseArgs — auth and --provider', () => {
       message: 'Unknown argument: bogus (try --help)',
     })
   })
+
+  it('parses --version and its -v short flag', () => {
+    expect(parseArgs(['--version'])).toEqual({ command: 'version' })
+    expect(parseArgs(['-v'])).toEqual({ command: 'version' })
+  })
 })

@@ -65,12 +65,14 @@ import { makeAgentTool } from './tools/agent.js'
 import { App, PermissionBridge } from './tui/App.js'
 import { SessionPicker } from './tui/components/SessionPicker.js'
 import type { SlashCommand } from './tui/slash.js'
+import { getVersion } from './version.js'
 
 export type CliCommand =
   | { command: 'run'; provider?: ProviderId }
   | { command: 'resume'; provider?: ProviderId }
   | { command: 'continue'; provider?: ProviderId }
   | { command: 'help' }
+  | { command: 'version' }
   | { command: 'auth'; sub: 'wizard' | 'status'; provider?: ProviderId }
   | { command: 'import'; sourceDir: string; force: boolean }
   | { command: 'error'; message: string }
@@ -120,10 +122,11 @@ export function parseArgs(argv: string[]): CliCommand {
     provider = p
     rest.splice(pi, 2)
   }
-  const known = new Set(['--help', '-h', '--resume', '--continue'])
+  const known = new Set(['--help', '-h', '--version', '-v', '--resume', '--continue'])
   const unknown = rest.find((a) => !known.has(a))
   if (unknown) return { command: 'error', message: `Unknown argument: ${unknown} (try --help)` }
   if (rest.includes('--help') || rest.includes('-h')) return { command: 'help' }
+  if (rest.includes('--version') || rest.includes('-v')) return { command: 'version' }
   if (rest.includes('--resume')) return { command: 'resume', provider }
   if (rest.includes('--continue')) return { command: 'continue', provider }
   return { command: 'run', provider }
@@ -142,6 +145,7 @@ Usage:
   athena auth status     show configured providers and redacted keys
   athena import <path>   one-time import of an ares-style brain (--force to merge)
   athena --help          this help
+  athena --version       print the installed version
 
 In-session: /help /clear /resume /compact /model /effort /provider /mode /tui /memory /skills /agents /quit. Esc interrupts a turn.
 Custom commands: drop a .md file (with description/argument-hint frontmatter) into .athena/commands/ or ~/.athena/commands/ to add /<name>.
@@ -360,6 +364,10 @@ async function main(): Promise<void> {
   }
   if (cmd.command === 'help') {
     console.log(HELP_TEXT)
+    return
+  }
+  if (cmd.command === 'version') {
+    console.log(getVersion())
     return
   }
   if (cmd.command === 'import') {
