@@ -180,11 +180,14 @@ export class Engine {
         )
       } catch (err) {
         const aborted = signal.aborted
-        bus.emit({
-          type: 'error',
-          message: aborted ? 'Turn aborted' : `API error: ${(err as Error).message}`,
-          fatal: !aborted,
-        })
+        const status = (err as { status?: number }).status
+        // 401/403 = the key itself was rejected: point at `athena auth`, never a raw SDK stack.
+        const message = aborted
+          ? 'Turn aborted'
+          : status === 401 || status === 403
+            ? `API key rejected for ${this.getProvider()} - run \`athena auth\``
+            : `API error: ${(err as Error).message}`
+        bus.emit({ type: 'error', message, fatal: !aborted })
         break
       }
       const msg = result.message

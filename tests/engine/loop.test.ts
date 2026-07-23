@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { EngineEventBus } from '../../src/engine/events.js'
 import { ContextManager } from '../../src/engine/context.js'
 import { Engine, repairDanglingToolUses, zodToJsonSchema, toolInputSchema, type EngineOptions } from '../../src/engine/loop.js'
+import type { ModelClient } from '../../src/engine/client.js'
 import { ToolRegistry } from '../../src/tools/registry.js'
 import { readTool } from '../../src/tools/read.js'
 import { HookRunner } from '../../src/harness/hooks.js'
@@ -645,5 +646,51 @@ describe('Engine provider window', () => {
     engine.setProvider('anthropic')
     // 'kimi-k3' is not an anthropic key: reset to anthropic's default.
     expect(engine.getModel()).toBe('sonnet')
+  })
+})
+
+describe('auth failure mapping', () => {
+  function authFailingEngine(status: number, bus: EngineEventBus): Engine {
+    const failingClient: ModelClient = {
+      stream: async () => {
+        throw Object.assign(new Error('invalid x-api-key'), { status })
+      },
+      complete: async () => '',
+    }
+    return new Engine({
+      client: failingClient,
+      bus,
+      registry: new ToolRegistry(),
+      gate: { check: () => ({ decision: 'allow', reason: 'test' }), grantSession: () => {} },
+      hooks: new HookRunner([]),
+      contextManager: new ContextManager({ modelWindowTokens: 200_000 }),
+      toolContext: makeCtx(process.cwd()),
+      provider: 'kimi',
+      model: 'kimi-k3',
+      effort: 'high',
+      systemPrompt: 'sys',
+      maxTokens: 100,
+    })
+  }
+
+  it.each([401, 403])('maps %i to "API key rejected for <provider> - run athena auth"', async (status) => {
+    const bus = new EngineEventBus()
+    const errors: string[] = []
+    bus.on((e) => {
+      if (e.type === 'error') errors.push(e.message)
+    })
+    await authFailingEngine(status, bus).runTurn('hi')
+    expect(errors.some((m) => m === 'API key rejected for kimi - run `athena auth`')).toBe(true)
+    expect(errors.join('\n')).not.toContain('invalid x-api-key')
+  })
+
+  it('leaves non-auth API errors on the raw-message path', async () => {
+    const bus = new EngineEventBus()
+    const errors: string[] = []
+    bus.on((e) => {
+      if (e.type === 'error') errors.push(e.message)
+    })
+    await authFailingEngine(500, bus).runTurn('hi')
+    expect(errors.some((m) => m.startsWith('API error: invalid x-api-key'))).toBe(true)
   })
 })
