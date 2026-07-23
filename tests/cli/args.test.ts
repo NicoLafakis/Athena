@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { parseArgs } from '../../src/cli.js'
+import { PROVIDER_IDS } from '../../src/brain/models.js'
+
+// Derived exactly the way cli.ts derives it, so a new provider updates both in lockstep.
+const AUTH_USAGE = `Usage: athena auth [status] [--provider <${PROVIDER_IDS.join('|')}>]`
+const PROVIDER_NEEDS = `--provider needs one of: ${PROVIDER_IDS.join(', ')}`
 
 describe('parseArgs — auth and --provider', () => {
   it('parses athena auth and athena auth status', () => {
@@ -10,8 +15,12 @@ describe('parseArgs — auth and --provider', () => {
   it('rejects stray positional args after auth', () => {
     expect(parseArgs(['auth', 'bogus'])).toEqual({
       command: 'error',
-      message: 'Usage: athena auth [status] [--provider <anthropic|kimi>]',
+      message: AUTH_USAGE,
     })
+  })
+
+  it('auth usage names all three providers', () => {
+    expect(AUTH_USAGE).toBe('Usage: athena auth [status] [--provider <anthropic|kimi|kimi-code>]')
   })
 
   it('parses auth with --provider flag (wizard only, not status)', () => {
@@ -25,26 +34,27 @@ describe('parseArgs — auth and --provider', () => {
   it('rejects --provider on auth status', () => {
     expect(parseArgs(['auth', 'status', '--provider', 'anthropic'])).toEqual({
       command: 'error',
-      message: 'Usage: athena auth [status] [--provider <anthropic|kimi>]',
+      message: AUTH_USAGE,
     })
   })
 
   it('rejects auth with unknown --provider value', () => {
     expect(parseArgs(['auth', '--provider', 'openai'])).toEqual({
       command: 'error',
-      message: '--provider needs one of: anthropic, kimi',
+      message: PROVIDER_NEEDS,
     })
   })
 
   it('rejects auth --provider without a value', () => {
     expect(parseArgs(['auth', '--provider'])).toEqual({
       command: 'error',
-      message: 'Usage: athena auth [status] [--provider <anthropic|kimi>]',
+      message: AUTH_USAGE,
     })
   })
 
   it('parses --provider on run/continue/resume (moonshot aliases to kimi)', () => {
     expect(parseArgs(['--provider', 'kimi'])).toEqual({ command: 'run', provider: 'kimi' })
+    expect(parseArgs(['--provider', 'kimi-code'])).toEqual({ command: 'run', provider: 'kimi-code' })
     expect(parseArgs(['--provider', 'moonshot'])).toEqual({ command: 'run', provider: 'kimi' })
     expect(parseArgs(['--continue', '--provider', 'anthropic'])).toEqual({
       command: 'continue',
@@ -59,11 +69,11 @@ describe('parseArgs — auth and --provider', () => {
   it('rejects a missing or unknown --provider value', () => {
     expect(parseArgs(['--provider'])).toEqual({
       command: 'error',
-      message: '--provider needs one of: anthropic, kimi',
+      message: PROVIDER_NEEDS,
     })
     expect(parseArgs(['--provider', 'openai'])).toEqual({
       command: 'error',
-      message: '--provider needs one of: anthropic, kimi',
+      message: PROVIDER_NEEDS,
     })
   })
 

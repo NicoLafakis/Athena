@@ -5,7 +5,7 @@
 // resolveModelRequest is the ONLY place allowed to assemble effort/thinking, so those
 // landmines live in one spot.
 
-export type ProviderId = 'anthropic' | 'kimi'
+export type ProviderId = 'anthropic' | 'kimi' | 'kimi-code'
 export type ModelKey = string
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
@@ -17,7 +17,7 @@ export type ThinkingParam =
   | { type: 'enabled'; budget_tokens: number }
   | { type: 'disabled' }
 
-export const PROVIDER_IDS: readonly ProviderId[] = ['anthropic', 'kimi']
+export const PROVIDER_IDS: readonly ProviderId[] = ['anthropic', 'kimi', 'kimi-code']
 export const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
 export interface ProviderEntry {
@@ -52,7 +52,17 @@ export const PROVIDERS: Record<ProviderId, ProviderEntry> = {
     validationModel: 'kimi-k2.6',
     authMode: 'bearer',
     keyHint:
-      'Create keys at platform.kimi.ai (global). Keys from platform.moonshot.cn do not work on api.moonshot.ai.',
+      'Pay-per-token keys come from platform.kimi.ai (global; platform.moonshot.cn keys do not work here). Subscription keys from kimi.com/code/console belong to the kimi-code provider instead.',
+  },
+  'kimi-code': {
+    label: 'Kimi Code (subscription)',
+    baseURL: 'https://api.kimi.com/coding/',
+    envVar: 'KIMI_CODE_API_KEY',
+    defaultModel: 'kimi-for-coding',
+    validationModel: 'kimi-for-coding',
+    authMode: 'x-api-key',
+    keyHint:
+      'Kimi Code subscription keys come from kimi.com/code/console and work ONLY here. Pay-per-token keys belong to the kimi provider instead.',
   },
 }
 
@@ -77,6 +87,15 @@ export const MODELS: Record<ProviderId, Record<ModelKey, ModelEntry>> = {
     'kimi-k3': { id: 'kimi-k3', label: 'Kimi K3', supportsEffort: false, supportsThinking: false },
     'kimi-k2.7-code': { id: 'kimi-k2.7-code', label: 'Kimi K2.7 Code', supportsEffort: false, supportsThinking: false },
     'kimi-k2.6': { id: 'kimi-k2.6', label: 'Kimi K2.6', supportsEffort: false, supportsThinking: false },
+  },
+  // NOTE: kimi-code ids verified against
+  // https://www.kimi.com/code/docs/en/third-party-tools/claude-code.html on 2026-07-23.
+  // k3 (256K) and k3[1m] (1M context) require the Moderato tier or above — below that the
+  // API returns a 404/permission error; kimi-for-coding works on every tier.
+  'kimi-code': {
+    'kimi-for-coding': { id: 'kimi-for-coding', label: 'Kimi for Coding', supportsEffort: false, supportsThinking: false },
+    k3: { id: 'k3', label: 'Kimi K3 (256K)', supportsEffort: false, supportsThinking: false },
+    'k3[1m]': { id: 'k3[1m]', label: 'Kimi K3 (1M)', supportsEffort: false, supportsThinking: false },
   },
 }
 

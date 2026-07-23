@@ -15,10 +15,11 @@ export const CredentialsSchema = z
       .object({
         anthropic: ProviderCredSchema.optional(),
         kimi: ProviderCredSchema.optional(),
+        'kimi-code': ProviderCredSchema.optional(),
       })
       .strict() // unknown providers are rejected, not silently kept
       .default({}),
-    activeProvider: z.enum(['anthropic', 'kimi']).default('anthropic'),
+    activeProvider: z.enum(['anthropic', 'kimi', 'kimi-code']).default('anthropic'),
   })
   .strict() // unknown top-level keys are rejected, not silently kept
 export type Credentials = z.infer<typeof CredentialsSchema>

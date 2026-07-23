@@ -52,6 +52,15 @@ describe('credentials load/save', () => {
     expect(existsSync(p.credentialsFile)).toBe(true)
   })
 
+  it('kimi-code keys round-trip and set kimi-code active', () => {
+    const p = paths()
+    const next = setProviderKey(p, 'kimi-code', 'sk-kimi-code-key')
+    expect(next.activeProvider).toBe('kimi-code')
+    const loaded = loadCredentials(p)
+    expect(loaded.activeProvider).toBe('kimi-code')
+    expect(loaded.providers['kimi-code']?.apiKey).toBe('sk-kimi-code-key')
+  })
+
   it('applies 0o600 on POSIX (best-effort no-op on Windows)', () => {
     const p = paths()
     setProviderKey(p, 'anthropic', 'sk-ant-x')
@@ -142,6 +151,21 @@ describe('resolveApiKey (env over file, per provider)', () => {
     expect(resolveApiKey('kimi', creds, { MOONSHOT_API_KEY: 'sk-kimi-env' })).toEqual({
       key: 'sk-kimi-env',
       source: 'env',
+    })
+  })
+
+  it('KIMI_CODE_API_KEY is the kimi-code env var and wins over the file', () => {
+    const withCode = CredentialsSchema.parse({
+      providers: { 'kimi-code': { apiKey: 'sk-kimi-code-from-file' } },
+      activeProvider: 'kimi-code',
+    })
+    expect(resolveApiKey('kimi-code', withCode, { KIMI_CODE_API_KEY: 'x' })).toEqual({
+      key: 'x',
+      source: 'env',
+    })
+    expect(resolveApiKey('kimi-code', withCode, {})).toEqual({
+      key: 'sk-kimi-code-from-file',
+      source: 'file',
     })
   })
 })

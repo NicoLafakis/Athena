@@ -129,7 +129,7 @@ export function parseArgs(argv: string[]): CliCommand {
   return { command: 'run', provider }
 }
 
-const AUTH_USAGE = 'Usage: athena auth [status] [--provider <anthropic|kimi>]'
+const AUTH_USAGE = `Usage: athena auth [status] [--provider <${PROVIDER_IDS.join('|')}>]`
 
 const HELP_TEXT = `athena — standalone terminal coding agent
 
@@ -137,7 +137,7 @@ Usage:
   athena                 new session in the current project
   athena --continue      resume the most recent session here
   athena --resume        pick a past session
-  athena --provider <anthropic|kimi>  session-only provider override (first-time key setup adopts it as your default)
+  athena --provider <${PROVIDER_IDS.join('|')}>  session-only provider override (first-time key setup adopts it as your default)
   athena auth            add/replace API keys, switch the default provider
   athena auth status     show configured providers and redacted keys
   athena import <path>   one-time import of an ares-style brain (--force to merge)
@@ -196,7 +196,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
     switch (cmd.kind) {
       case 'help':
         info(
-          `Commands: /help /clear /resume /compact /model <${modelKeys(engine.getProvider()).join('|')}> /effort <low|medium|high|xhigh|max> /provider <anthropic|kimi> /mode <normal|acceptEdits|plan|trusted> /memory /skills /agents /quit\n` +
+          `Commands: /help /clear /resume /compact /model <${modelKeys(engine.getProvider()).join('|')}> /effort <low|medium|high|xhigh|max> /provider <${PROVIDER_IDS.join('|')}> /mode <normal|acceptEdits|plan|trusted> /memory /skills /agents /quit\n` +
             '/clear clears the screen (transcript display only) — conversation context is unchanged; use /compact to shrink it.',
         )
         break

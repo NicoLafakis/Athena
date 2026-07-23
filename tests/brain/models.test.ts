@@ -14,8 +14,8 @@ import {
 } from '../../src/brain/models.js'
 
 describe('provider registry', () => {
-  it('exposes exactly two providers and five efforts', () => {
-    expect([...PROVIDER_IDS]).toEqual(['anthropic', 'kimi'])
+  it('exposes exactly three providers and five efforts', () => {
+    expect([...PROVIDER_IDS]).toEqual(['anthropic', 'kimi', 'kimi-code'])
     expect([...EFFORTS]).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
   })
 
@@ -31,8 +31,21 @@ describe('provider registry', () => {
     expect(PROVIDERS.kimi.authMode).toBe('bearer')
   })
 
-  it('kimi carries the .ai/.cn platform-split key hint', () => {
+  it('kimi carries the .ai/.cn platform-split key hint and points subscription keys at kimi-code', () => {
     expect(PROVIDERS.kimi.keyHint).toContain('platform.kimi.ai')
+    expect(PROVIDERS.kimi.keyHint).toContain('kimi-code')
+  })
+
+  it('kimi-code uses the subscription endpoint with x-api-key auth', () => {
+    expect(PROVIDERS['kimi-code'].baseURL).toBe('https://api.kimi.com/coding/')
+    expect(PROVIDERS['kimi-code'].envVar).toBe('KIMI_CODE_API_KEY')
+    expect(PROVIDERS['kimi-code'].authMode).toBe('x-api-key')
+    expect(PROVIDERS['kimi-code'].defaultModel).toBe('kimi-for-coding')
+    expect(PROVIDERS['kimi-code'].validationModel).toBe('kimi-for-coding')
+  })
+
+  it('kimi-code keyHint disambiguates subscription vs pay-per-token keys', () => {
+    expect(PROVIDERS['kimi-code'].keyHint).toContain('kimi.com/code/console')
   })
 
   it('per-provider default and validation models exist in that provider registry', () => {
@@ -70,17 +83,26 @@ describe('provider-scoped model registry', () => {
     }
   })
 
-  it('kimi models never support effort or thinking', () => {
-    expect(modelKeys('kimi').length).toBeGreaterThan(0)
-    for (const k of modelKeys('kimi')) {
-      expect(MODELS.kimi[k]!.supportsEffort).toBe(false)
-      expect(MODELS.kimi[k]!.supportsThinking).toBe(false)
+  it.each(['kimi', 'kimi-code'] as const)('%s models never support effort or thinking', (p) => {
+    expect(modelKeys(p).length).toBeGreaterThan(0)
+    for (const k of modelKeys(p)) {
+      expect(MODELS[p][k]!.supportsEffort).toBe(false)
+      expect(MODELS[p][k]!.supportsThinking).toBe(false)
     }
+  })
+
+  it('kimi-code exposes the subscription model set', () => {
+    expect(modelKeys('kimi-code')).toEqual(['kimi-for-coding', 'k3', 'k3[1m]'])
+    expect(modelId('kimi-code', 'kimi-for-coding')).toBe('kimi-for-coding')
+    expect(modelId('kimi-code', 'k3')).toBe('k3')
+    expect(modelId('kimi-code', 'k3[1m]')).toBe('k3[1m]')
+    expect(modelLabel('kimi-code', 'k3')).toBe('Kimi K3 (256K)')
   })
 
   it('modelId throws a clear error for a cross-provider key', () => {
     expect(() => modelId('kimi', 'sonnet')).toThrow(/Unknown model 'sonnet' for provider 'kimi'/)
     expect(() => modelId('anthropic', 'kimi-k3')).toThrow(/Unknown model 'kimi-k3'/)
+    expect(() => modelId('kimi', 'k3')).toThrow(/Unknown model 'k3' for provider 'kimi'/)
   })
 })
 
@@ -113,15 +135,23 @@ describe('normalizeModel (scoped to the active provider)', () => {
     expect(normalizeModel('kimi', 'kimi-k3[1m]')).toBe('kimi-k3') // Moonshot's 1M-context suffix form still resolves
   })
 
+  it('kimi-code: exact `k3[1m]` key wins over the `k3` substring; case-insensitive keys resolve', () => {
+    expect(normalizeModel('kimi-code', 'k3[1m]')).toBe('k3[1m]')
+    expect(normalizeModel('kimi-code', 'K3')).toBe('k3')
+    expect(normalizeModel('kimi-code', 'kimi-for-coding')).toBe('kimi-for-coding')
+  })
+
   it('does NOT resolve cross-provider names', () => {
     expect(normalizeModel('kimi', 'sonnet')).toBeNull()
     expect(normalizeModel('kimi', 'claude-opus-4-8')).toBeNull()
     expect(normalizeModel('anthropic', 'kimi-k3')).toBeNull()
+    expect(normalizeModel('anthropic', 'k3')).toBeNull()
   })
 
   it.each(['', '   ', 'gpt-4', 'gemini', 'bogus'])('returns null for unrecognized %j', (input) => {
     expect(normalizeModel('anthropic', input)).toBeNull()
     expect(normalizeModel('kimi', input)).toBeNull()
+    expect(normalizeModel('kimi-code', input)).toBeNull()
   })
 })
 
@@ -143,10 +173,13 @@ describe('resolveModelRequest (capability gating lives HERE, nowhere else)', () 
     },
   )
 
-  it('every kimi model carries NEITHER effort nor thinking (would 400 on Moonshot)', () => {
-    for (const k of modelKeys('kimi')) {
-      const req = resolveModelRequest('kimi', k, 'high')
-      expect(req).toEqual({ model: MODELS.kimi[k]!.id })
-    }
-  })
+  it.each(['kimi', 'kimi-code'] as const)(
+    'every %s model carries NEITHER effort nor thinking (would 400 upstream)',
+    (p) => {
+      for (const k of modelKeys(p)) {
+        const req = resolveModelRequest(p, k, 'high')
+        expect(req).toEqual({ model: MODELS[p][k]!.id })
+      }
+    },
+  )
 })

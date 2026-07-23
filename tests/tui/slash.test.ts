@@ -45,12 +45,13 @@ describe('/provider', () => {
   it('parses /provider with a value', () => {
     expect(parseSlash('/provider kimi')).toEqual({ kind: 'provider', value: 'kimi' })
     expect(parseSlash('/provider anthropic')).toEqual({ kind: 'provider', value: 'anthropic' })
+    expect(parseSlash('/provider kimi-code')).toEqual({ kind: 'provider', value: 'kimi-code' })
   })
 
-  it('errors without a value', () => {
+  it('errors without a value (parse layer is provider-name generic, like /model)', () => {
     expect(parseSlash('/provider')).toEqual({
       kind: 'error',
-      value: 'Usage: /provider <anthropic|kimi>',
+      value: 'Usage: /provider <name>',
     })
   })
 })
