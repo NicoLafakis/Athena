@@ -64,16 +64,25 @@ export async function runAuthWizard(opts: {
 function ask(question: string): Promise<string> {
   return new Promise((resolve) => {
     const rl = createInterface({ input: process.stdin, output: process.stdout })
+    let answered = false
     rl.question(question, (answer) => {
+      answered = true
       rl.close()
       resolve(answer)
+    })
+    rl.on('close', () => {
+      if (!answered) resolve('')
     })
   })
 }
 
 /** Masked input: raw mode, echo '*' per char, handle backspace/Ctrl-C/Enter manually. */
 export function promptMasked(question: string): Promise<string> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    if (!process.stdin.isTTY) {
+      reject(new Error('Masked input requires an interactive terminal — run athena from a real console.'))
+      return
+    }
     process.stdout.write(question)
     const stdin = process.stdin
     const wasRaw = stdin.isRaw ?? false
@@ -98,6 +107,12 @@ export function promptMasked(question: string): Promise<string> {
           finish()
           process.exit(130)
         }
+        if (ch === '\u0004') {
+          // Ctrl-D / EOF: restore the terminal and fail loud instead of hanging.
+          finish()
+          reject(new Error('Input closed before a key was entered.'))
+          return
+        }
         if (ch === '\u007f' || ch === '\b') {
           if (value.length > 0) {
             value = value.slice(0, -1)
@@ -105,6 +120,7 @@ export function promptMasked(question: string): Promise<string> {
           }
           continue
         }
+        if (ch < ' ' || ch === '\u007f') continue // arrows/escape sequences: never into the key
         value += ch
         process.stdout.write('*')
       }
