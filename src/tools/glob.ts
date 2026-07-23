@@ -6,6 +6,10 @@ import type { ToolDefinition } from '../engine/types.js'
 
 const GlobInput = z.object({ pattern: z.string(), path: z.string().optional() })
 
+/** Shared ignore convention for project-wide file walks — reused by the @-mention
+ *  file walker (src/tui/fileMention.ts) so both tools agree on what "the project's files" means. */
+export const DEFAULT_IGNORE_GLOBS = ['**/node_modules/**', '**/.git/**']
+
 export const globTool: ToolDefinition<z.infer<typeof GlobInput>> = {
   name: 'Glob',
   description: 'Fast file pattern matching, e.g. "src/**/*.ts". Results sorted newest-modified first.',
@@ -17,7 +21,7 @@ export const globTool: ToolDefinition<z.infer<typeof GlobInput>> = {
       cwd: base,
       dot: true,
       absolute: true,
-      ignore: ['**/node_modules/**', '**/.git/**'],
+      ignore: DEFAULT_IGNORE_GLOBS,
     })
     if (matches.length === 0)
       return { output: `No files matched ${input.pattern} in ${base}`, isError: false }
