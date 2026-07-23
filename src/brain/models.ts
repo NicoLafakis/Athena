@@ -104,6 +104,10 @@ export function supportsEffort(provider: ProviderId, key: ModelKey): boolean {
   return entry(provider, key).supportsEffort
 }
 
+export function supportsThinking(provider: ProviderId, key: ModelKey): boolean {
+  return entry(provider, key).supportsThinking
+}
+
 /** Accepts a model key (case-insensitive, trimmed) OR a legacy/full model id and maps
  *  it to a key WITHIN the given provider only. Exact key/id match first, then a
  *  longest-key substring pass so `claude-sonnet-4-5` -> sonnet stays working and, when

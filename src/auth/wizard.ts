@@ -46,7 +46,7 @@ export async function runAuthWizard(opts: {
   for (;;) {
     const key = (await io.readKey(provider)).trim()
     if (key === '') {
-      io.say('Empty key — paste your API key (input is hidden).')
+      io.say('Empty key - paste your API key (input is hidden).')
       continue
     }
     io.say(`Validating against ${PROVIDERS[provider].label}…`)
@@ -80,7 +80,7 @@ function ask(question: string): Promise<string> {
 export function promptMasked(question: string): Promise<string> {
   return new Promise((resolve, reject) => {
     if (!process.stdin.isTTY) {
-      reject(new Error('Masked input requires an interactive terminal — run athena from a real console.'))
+      reject(new Error('Masked input requires an interactive terminal - run athena from a real console.'))
       return
     }
     process.stdout.write(question)
@@ -89,6 +89,7 @@ export function promptMasked(question: string): Promise<string> {
     stdin.setRawMode(true)
     stdin.resume()
     let value = ''
+    let inEscape = false // inside an ANSI escape (ESC ... terminator in @-~)
     const finish = (): void => {
       stdin.off('data', onData)
       stdin.setRawMode(wasRaw)
@@ -120,7 +121,18 @@ export function promptMasked(question: string): Promise<string> {
           }
           continue
         }
-        if (ch < ' ' || ch === '\u007f') continue // arrows/escape sequences: never into the key
+        // CSI/escape sequences (arrow keys, paste-bracketing, etc.): after ESC (0x1b),
+        // swallow every byte until the terminator in the @-~ range so 'ESC [ A' never
+        // leaks printable characters like '[' or 'A' into the key.
+        if (inEscape) {
+          if (ch >= '@' && ch <= '~') inEscape = false
+          continue
+        }
+        if (ch.charCodeAt(0) === 27) {
+          inEscape = true
+          continue
+        }
+        if (ch < ' ' || ch === '\u007f') continue // other control chars: never into the key
         value += ch
         process.stdout.write('*')
       }

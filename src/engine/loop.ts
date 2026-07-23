@@ -11,7 +11,7 @@ import type { EngineEventBus } from './events.js'
 import type { ContextManager } from './context.js'
 import type { ToolRegistry } from '../tools/registry.js'
 import type { HookRunner } from '../harness/hooks.js'
-import { modelId, normalizeModel, resolveModelRequest, PROVIDERS, type ProviderId, type ModelKey, type Effort } from '../brain/models.js'
+import { modelId, normalizeModel, resolveModelRequest, supportsThinking, PROVIDERS, type ProviderId, type ModelKey, type Effort } from '../brain/models.js'
 import type { PermissionGate, ToolContext, ToolDefinition, ToolOutput, TokenUsage } from './types.js'
 
 export type AskUserFn = (req: {
@@ -168,7 +168,25 @@ export class Engine {
             thinking: req.thinking,
             effort: req.effort,
             system: this.opts.systemPrompt,
-            messages: this.messages,
+            // Anthropic thinking blocks carry provider-signed signatures; replaying them to a
+            // model that does not speak thinking (any Kimi model) risks a 400 on the compat
+            // endpoint. Strip them from the outbound view only - history stays intact so a
+            // switch back to a thinking model keeps its blocks. A message whose content
+            // array is emptied by the filter is dropped entirely (an empty array 400s too).
+            messages: supportsThinking(this.getProvider(), this.opts.model)
+              ? this.messages
+              : this.messages
+                  .map((m) =>
+                    Array.isArray(m.content)
+                      ? {
+                          ...m,
+                          content: m.content.filter(
+                            (b) => b.type !== 'thinking' && b.type !== 'redacted_thinking',
+                          ),
+                        }
+                      : m,
+                  )
+                  .filter((m) => !Array.isArray(m.content) || m.content.length > 0),
             tools: this.toApiTools(),
             maxTokens: this.opts.maxTokens,
             signal,

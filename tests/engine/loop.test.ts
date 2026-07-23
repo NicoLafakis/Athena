@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
+import type { ContentBlock, MessageParam } from '@anthropic-ai/sdk/resources/messages'
 import { EngineEventBus } from '../../src/engine/events.js'
 import { ContextManager } from '../../src/engine/context.js'
 import { Engine, repairDanglingToolUses, zodToJsonSchema, toolInputSchema, type EngineOptions } from '../../src/engine/loop.js'
@@ -628,6 +629,64 @@ describe('toolInputSchema', () => {
   it('converts the zod schema when inputSchemaJson is absent', () => {
     const result = toolInputSchema({ schema: readTool.schema })
     expect(result).toMatchObject({ type: 'object', properties: { file_path: { type: 'string' } }, required: ['file_path'] })
+  })
+})
+
+describe('thinking-block sanitization for non-thinking targets', () => {
+  const thinking = {
+    type: 'thinking',
+    thinking: 'pondering...',
+    signature: 'sig',
+  } as unknown as ContentBlock
+
+  it('strips thinking blocks from the outbound view under kimi; history stays intact', async () => {
+    const { engine, client } = makeEngine(
+      [
+        {
+          blocks: [thinking, toolUseBlock('tu_1', 'Echo', { value: 'x' })],
+          stopReason: 'tool_use',
+        },
+        { blocks: [textBlock('done')], stopReason: 'end_turn' },
+      ],
+      { provider: 'kimi', model: 'kimi-k3' },
+    )
+    await engine.runTurn('go')
+    const second = client.calls[1]!
+    expect(JSON.stringify(second)).not.toContain('"thinking"')
+    // No message may be left with an empty content array (that 400s too).
+    for (const m of second) {
+      if (Array.isArray(m.content)) expect(m.content.length).toBeGreaterThan(0)
+    }
+    // The engine's own history keeps the block for a switch back to a thinking model.
+    expect(JSON.stringify(engine.getMessages())).toContain('"thinking"')
+  })
+
+  it('passes thinking blocks through unchanged for anthropic thinking models', async () => {
+    const { engine, client } = makeEngine([
+      {
+        blocks: [thinking, toolUseBlock('tu_1', 'Echo', { value: 'x' })],
+        stopReason: 'tool_use',
+      },
+      { blocks: [textBlock('done')], stopReason: 'end_turn' },
+    ])
+    await engine.runTurn('go')
+    expect(JSON.stringify(client.calls[1])).toContain('"thinking"')
+  })
+
+  it('drops a message emptied by the filter entirely', async () => {
+    const { engine, client } = makeEngine(
+      [{ blocks: [textBlock('ok')], stopReason: 'end_turn' }],
+      { provider: 'kimi', model: 'kimi-k3' },
+    )
+    engine.loadMessages([
+      { role: 'user', content: 'earlier' },
+      { role: 'assistant', content: [thinking] },
+    ] as MessageParam[])
+    await engine.runTurn('go')
+    const first = client.calls[0]!
+    expect(JSON.stringify(first)).not.toContain('"thinking"')
+    // The thinking-only assistant message is removed outright, not sent empty.
+    expect(first.map((m) => m.role)).toEqual(['user', 'user'])
   })
 })
 

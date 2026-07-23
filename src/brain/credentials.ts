@@ -1,7 +1,7 @@
 // src/brain/credentials.ts — ~/.athena/credentials.json: per-provider API keys plus the
 // persisted default provider. Resolution order per provider: explicit env var overrides
 // the file (existing env-var setups keep working); the file is the documented path.
-import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync, renameSync, unlinkSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { z } from 'zod'
 import { PROVIDERS, PROVIDER_IDS, type ProviderId } from './models.js'
@@ -36,7 +36,7 @@ export function loadCredentials(paths: BrainPaths): Credentials {
   } catch {
     throw Object.assign(
       new Error(
-        `Malformed credentials file ${paths.credentialsFile} — run \`athena auth\` to regenerate it.`,
+        `Malformed credentials file ${paths.credentialsFile} - run \`athena auth\` to regenerate it.`,
       ),
       { code: 'ATHENA_CREDENTIALS_INVALID' },
     )
@@ -46,7 +46,7 @@ export function loadCredentials(paths: BrainPaths): Credentials {
     const issues = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
     throw Object.assign(
       new Error(
-        `Invalid credentials file ${paths.credentialsFile} (${issues}) — run \`athena auth\` to regenerate it.`,
+        `Invalid credentials file ${paths.credentialsFile} (${issues}) - run \`athena auth\` to regenerate it.`,
       ),
       { code: 'ATHENA_CREDENTIALS_INVALID' },
     )
@@ -55,13 +55,28 @@ export function loadCredentials(paths: BrainPaths): Credentials {
 }
 
 /** Owner-only permissions are best-effort: 0o600 on POSIX; chmod is a no-op on
- *  Windows/NTFS, where the file relies on the user-profile directory ACL. */
+ *  Windows/NTFS, where the file relies on the user-profile directory ACL.
+ *  Atomic: write to a temp file then rename over the target (same pattern as
+ *  session rewrite) so a crash mid-write can never leave a truncated/corrupt
+ *  credentials file behind. */
 export function saveCredentials(paths: BrainPaths, creds: Credentials): void {
   mkdirSync(dirname(paths.credentialsFile), { recursive: true })
-  writeFileSync(paths.credentialsFile, JSON.stringify(creds, null, 2) + '\n', {
+  const tmp = `${paths.credentialsFile}.tmp`
+  writeFileSync(tmp, JSON.stringify(creds, null, 2) + '\n', {
     mode: 0o600,
     encoding: 'utf8',
   })
+  try {
+    renameSync(tmp, paths.credentialsFile)
+  } catch (err) {
+    // Never orphan the temp file; the original stays intact.
+    try {
+      unlinkSync(tmp)
+    } catch {
+      /* best effort */
+    }
+    throw err
+  }
   try {
     chmodSync(paths.credentialsFile, 0o600)
   } catch {
