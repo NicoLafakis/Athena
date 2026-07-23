@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { z } from 'zod'
-import { PROVIDERS, type ProviderId } from './models.js'
+import { PROVIDERS, PROVIDER_IDS, type ProviderId } from './models.js'
 import type { BrainPaths } from './paths.js'
 
 const ProviderCredSchema = z.object({ apiKey: z.string().min(1) })
@@ -110,4 +110,25 @@ export function resolveApiKey(
 export function redactKey(key: string): string {
   if (key.length < 18) return '***'
   return `${key.slice(0, 6)}...${key.slice(-4)}`
+}
+
+/** One line per known provider: label, redacted key + source, env-override flag,
+ *  [active] marker. Full keys never appear — everything goes through redactKey. */
+export function formatAuthStatus(
+  creds: Credentials,
+  activeProvider: ProviderId,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return PROVIDER_IDS.map((p) => {
+    const info = PROVIDERS[p]
+    const envKey = env[info.envVar]
+    const fileKey = creds.providers[p]?.apiKey
+    let detail: string
+    if (envKey && fileKey) detail = `${redactKey(envKey)} (env ${info.envVar} — overrides file)`
+    else if (envKey) detail = `${redactKey(envKey)} (env ${info.envVar})`
+    else if (fileKey) detail = `${redactKey(fileKey)} (file)`
+    else detail = 'not configured'
+    const active = p === activeProvider ? ' [active]' : ''
+    return `${info.label.padEnd(16)} ${detail}${active}`
+  }).join('\n')
 }

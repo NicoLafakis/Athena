@@ -20,7 +20,7 @@ import {
 import {
   loadCredentials,
   resolveApiKey,
-  redactKey,
+  formatAuthStatus,
   type Credentials,
 } from './brain/credentials.js'
 import { runAuthWizard } from './auth/wizard.js'
@@ -71,7 +71,7 @@ export type CliCommand =
   | { command: 'resume'; provider?: ProviderId }
   | { command: 'continue'; provider?: ProviderId }
   | { command: 'help' }
-  | { command: 'auth'; sub: 'wizard' | 'status' }
+  | { command: 'auth'; sub: 'wizard' | 'status'; provider?: ProviderId }
   | { command: 'import'; sourceDir: string; force: boolean }
   | { command: 'error'; message: string }
 
@@ -83,9 +83,30 @@ export function parseArgs(argv: string[]): CliCommand {
     return { command: 'import', sourceDir, force: argv.includes('--force') }
   }
   if (argv[0] === 'auth') {
-    if (argv.length === 1) return { command: 'auth', sub: 'wizard' }
-    if (argv[1] === 'status' && argv.length === 2) return { command: 'auth', sub: 'status' }
-    return { command: 'error', message: 'Usage: athena auth [status]' }
+    let sub: 'wizard' | 'status' = 'wizard'
+    let provider: ProviderId | undefined
+    const rest = argv.slice(1)
+
+    // Check for 'status' subcommand
+    if (rest[0] === 'status') {
+      sub = 'status'
+      rest.shift()
+    }
+
+    // Check for --provider flag
+    if (rest.length > 0 && rest[0] === '--provider') {
+      const value = rest[1]
+      if (!value) return { command: 'error', message: 'Usage: athena auth [status] [--provider <anthropic|kimi>]' }
+      const p = normalizeProvider(value)
+      if (!p) return { command: 'error', message: 'Usage: athena auth [status] [--provider <anthropic|kimi>]' }
+      provider = p
+      rest.splice(0, 2)
+    }
+
+    // Check for unexpected remaining args
+    if (rest.length > 0) return { command: 'error', message: 'Usage: athena auth [status] [--provider <anthropic|kimi>]' }
+
+    return { command: 'auth', sub, provider }
   }
   const rest = [...argv]
   let provider: ProviderId | undefined
@@ -307,15 +328,9 @@ async function main(): Promise<void> {
   }
   if (cmd.command === 'auth') {
     if (cmd.sub === 'status') {
-      // Minimal but complete rendering; Task 8 upgrades it to formatAuthStatus with
-      // env-override indication.
       try {
         const creds = loadCredentials(paths)
-        for (const p of PROVIDER_IDS) {
-          const r = resolveApiKey(p, creds)
-          const detail = r ? `${redactKey(r.key)} (${r.source})` : 'not configured'
-          console.log(`${p}: ${detail}${p === creds.activeProvider ? ' [active]' : ''}`)
-        }
+        console.log(formatAuthStatus(creds, creds.activeProvider))
       } catch (err) {
         console.error((err as Error).message)
         process.exitCode = 1
@@ -327,7 +342,7 @@ async function main(): Promise<void> {
       process.exitCode = 1
       return
     }
-    await runAuthWizard({ paths })
+    await runAuthWizard({ paths, provider: cmd.provider })
     return
   }
 
@@ -350,7 +365,9 @@ async function main(): Promise<void> {
   if (!resolved) {
     // First run (or a provider selected via --provider that has no key yet): drop into
     // the wizard scoped to that provider, then continue straight into the session.
-    console.log(`No API key found for ${PROVIDERS[provider].label} — let's set one up.`)
+    console.log(
+      `No API key found for ${PROVIDERS[provider].label} — let's set one up. (This provider becomes your default; athena auth switches it.)`,
+    )
     const done = await runAuthWizard({ paths, provider })
     resolved = { key: done.key, source: 'file' }
   }

@@ -9,6 +9,7 @@ import {
   setProviderKey,
   resolveApiKey,
   redactKey,
+  formatAuthStatus,
   CredentialsSchema,
 } from '../../src/brain/credentials.js'
 
@@ -158,5 +159,35 @@ describe('redactKey', () => {
   })
   it('boundary: length 18 shows redacted form', () => {
     expect(redactKey('123456789012345678')).toBe('123456...5678')
+  })
+})
+
+describe('formatAuthStatus', () => {
+  const creds = CredentialsSchema.parse({
+    providers: { anthropic: { apiKey: 'sk-ant-api03-abcdefabc4' } },
+    activeProvider: 'anthropic',
+  })
+
+  it('lists all providers, marks the active one, redacts keys, flags unconfigured', () => {
+    const out = formatAuthStatus(creds, 'anthropic', {})
+    expect(out).toContain('sk-ant...abc4 (file)')
+    expect(out).toContain('[active]')
+    expect(out).toContain('not configured')
+    expect(out).not.toContain('sk-ant-api03-abcdefabc4') // full key never printed
+  })
+
+  it('shows when an env var overrides the file, still redacted', () => {
+    const out = formatAuthStatus(creds, 'anthropic', { ANTHROPIC_API_KEY: 'sk-ant-envkey-wxyz' })
+    expect(out).toContain('(env ANTHROPIC_API_KEY — overrides file)')
+    expect(out).toContain('sk-ant...wxyz')
+    expect(out).not.toContain('sk-ant-envkey-wxyz')
+  })
+
+  it('shows an env-only key as env-sourced', () => {
+    const out = formatAuthStatus(CredentialsSchema.parse({}), 'kimi', {
+      MOONSHOT_API_KEY: 'sk-kimi-envonly-9876',
+    })
+    expect(out).toContain('(env MOONSHOT_API_KEY)')
+    expect(out).toContain('sk-kim...9876')
   })
 })
