@@ -24,6 +24,8 @@ function makeProps() {
       cwd: 'C:/proj',
       gitBranch: 'main',
       model: 'kimi-k2.7-code',
+      modelKey: 'kimi-k2.7-code',
+      provider: 'kimi' as const,
       effort: 'high',
       mode: 'normal' as const,
       contextPct: 0,

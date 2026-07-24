@@ -65,14 +65,16 @@ describe('InputBox live "/" command menu', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('arrow keys move the highlight, and Tab fills the input with a trailing space without submitting', async () => {
+  it('arrow keys move the highlight, and Tab fills the input with a trailing space without submitting (non-pickable command)', async () => {
     const onSubmit = vi.fn()
     const dir = makeCwd()
     const { stdin } = render(<InputBox onSubmit={onSubmit} disabled={false} cwd={dir} />)
     await delay(0)
-    stdin.write('/mo')
+    stdin.write('/c')
     await delay(10)
-    // Catalog order for prefix 'mo': model, mode. One Down moves the highlight onto 'mode'.
+    // Catalog order for prefix 'c': clear, compact — both non-pickable, so Tab still
+    // fills text and waits rather than auto-submitting (see the dedicated arg-picker
+    // test file for the pickable-command Tab behavior).
     stdin.write(DOWN)
     await delay(10)
     stdin.write('\t') // Tab confirms the highlighted entry
@@ -80,28 +82,30 @@ describe('InputBox live "/" command menu', () => {
     expect(onSubmit).not.toHaveBeenCalled()
     stdin.write('\r') // submit now, to inspect what Tab actually left in the box
     await delay(10)
-    expect(onSubmit).toHaveBeenCalledWith('/mode ')
+    expect(onSubmit).toHaveBeenCalledWith('/compact ')
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('Up then Down cancel out, leaving the top match selected', async () => {
+  it('Up then Down cancel out, leaving the top match selected (non-pickable command)', async () => {
     const onSubmit = vi.fn()
     const dir = makeCwd()
     const { stdin } = render(<InputBox onSubmit={onSubmit} disabled={false} cwd={dir} />)
     await delay(0)
-    stdin.write('/mo')
+    stdin.write('/m')
     await delay(10)
+    // Catalog order for prefix 'm': memory, model, mode. 'memory' (top match) is not
+    // pickable, so this still exercises the "Tab fills, doesn't submit" path.
     stdin.write(UP) // already at index 0, clamps
     await delay(5)
     stdin.write(DOWN)
     await delay(5)
-    stdin.write(UP) // back to index 0 ('model')
+    stdin.write(UP) // back to index 0 ('memory')
     await delay(5)
     stdin.write('\t')
     await delay(10)
     stdin.write('\r')
     await delay(10)
-    expect(onSubmit).toHaveBeenCalledWith('/model ')
+    expect(onSubmit).toHaveBeenCalledWith('/memory ')
     rmSync(dir, { recursive: true, force: true })
   })
 

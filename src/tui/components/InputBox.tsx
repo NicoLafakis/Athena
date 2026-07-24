@@ -16,6 +16,7 @@ import {
   type MentionCandidate,
 } from '../agentMention.js'
 import { buildSlashCatalog, filterSlashCommands } from '../slashMenu.js'
+import { PICKABLE_KINDS } from '../argPicker.js'
 import type { CustomCommandDef } from '../slash.js'
 
 /** Tracks an in-progress @-mention: `start` is the index of the triggering '@' inside
@@ -238,10 +239,31 @@ export function InputBox({
           return
         }
         if (key.tab || key.return) {
-          const picked = slashMatches[slashMenu.index]
           const typedName = value.slice(1)
-          const nothingLeftToComplete =
-            key.return && !!picked && slashMatches.length === 1 && picked.name === typedName
+          // A fully-typed, EXACT command name always wins over whatever the cursor
+          // happens to be sitting on. Without this, prefix collisions between two
+          // catalog entries (e.g. "mode" is a strict prefix of "model") would let the
+          // catalog's index-0 entry silently shadow the one the user actually typed,
+          // since slashMenu.index resets to 0 on every narrowing keystroke and is never
+          // touched unless the user explicitly presses an arrow key. Cursor-index
+          // selection should only govern genuinely ambiguous *partial* typing (e.g.
+          // "/mo"), where no entry is an exact match yet.
+          const exactMatch = slashMatches.find((m) => m.name === typedName)
+          const picked = exactMatch ?? slashMatches[slashMenu.index]
+          const nothingLeftToComplete = key.return && !!exactMatch
+          if (picked && PICKABLE_KINDS.has(picked.name) && (key.tab || nothingLeftToComplete)) {
+            // A pickable command (/model /provider /effort /mode /tui) with nothing left
+            // to type opens App's second-level value picker instead of waiting for an
+            // argument — hand off through the exact same onSubmit path a manually-typed
+            // "/model" + Enter takes, rather than duplicating picker-opening logic here
+            // (App.tsx owns detectBarePickableCommand and the picker itself).
+            setHistory((prev) => [...prev, `/${picked.name}`])
+            setHistoryIndex(history.length + 1)
+            setValue('')
+            setSlashMenu(null)
+            onSubmit(`/${picked.name}`)
+            return
+          }
           if (nothingLeftToComplete) {
             setSlashMenu(null) // fall through to the shared Enter-submit logic below
           } else if (picked) {

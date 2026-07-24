@@ -212,7 +212,8 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         info(
           `Commands: /help /clear /resume /compact /model <${modelKeys(engine.getProvider()).join('|')}> /effort <low|medium|high|xhigh|max> /provider <${PROVIDER_IDS.join('|')}> /mode <normal|acceptEdits|plan|trusted> /tui <fullscreen|classic> /memory /skills /agents /quit\n` +
             '/clear clears the screen (transcript display only) — conversation context is unchanged; use /compact to shrink it.\n' +
-            '/tui fullscreen switches to an alternate-screen buffer with a pinned input (like vim/htop); /tui classic returns to normal scrollback.' +
+            '/tui fullscreen switches to an alternate-screen buffer with a pinned input (like vim/htop); /tui classic returns to normal scrollback.\n' +
+            '/model /provider /effort /mode /tui run with no argument open a picker to choose a value instead of requiring you to type one.' +
             customList,
         )
         break
@@ -230,7 +231,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
           break
         }
         engine.setModel(key)
-        bus.emit({ type: 'status', patch: { model: modelLabel(provider, key) } })
+        bus.emit({ type: 'status', patch: { model: modelLabel(provider, key), modelKey: key } })
         info(
           supportsEffort(provider, key)
             ? `Model: ${modelLabel(provider, key)} (effort ${engine.getEffort()})`
@@ -264,7 +265,10 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         client.swap(makeClient(p, resolved.key))
         engine.setProvider(p)
         engine.setModel(PROVIDERS[p].defaultModel)
-        bus.emit({ type: 'status', patch: { model: modelLabel(p, PROVIDERS[p].defaultModel) } })
+        bus.emit({
+          type: 'status',
+          patch: { model: modelLabel(p, PROVIDERS[p].defaultModel), modelKey: PROVIDERS[p].defaultModel, provider: p },
+        })
         info(
           `Provider: ${PROVIDERS[p].label}, model ${modelLabel(p, PROVIDERS[p].defaultModel)} (session-only; \`athena auth\` changes the default).`,
         )
@@ -621,6 +625,8 @@ async function main(): Promise<void> {
         cwd,
         gitBranch: gitBranch(cwd),
         model: modelLabel(provider, settings.model),
+        modelKey: settings.model,
+        provider,
         effort: settings.effort,
         mode: gate.getMode(),
         contextPct: Math.round(contextManager.usedFraction() * 100),

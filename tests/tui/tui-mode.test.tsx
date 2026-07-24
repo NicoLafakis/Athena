@@ -17,6 +17,8 @@ function makeHarness() {
         cwd: 'C:/proj',
         gitBranch: 'main',
         model: 'mock',
+        modelKey: 'sonnet',
+        provider: 'anthropic' as const,
         effort: 'high',
         mode: 'normal' as const,
         contextPct: 0,

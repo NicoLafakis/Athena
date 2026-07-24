@@ -10,8 +10,18 @@ import { Banner } from './components/Banner.js'
 import { TodoPanel } from './components/TodoPanel.js'
 import { InputBox } from './components/InputBox.js'
 import { BusyIndicator, busyIndicatorText } from './components/BusyIndicator.js'
-import { parseSlash, type SlashCommand, type CustomCommandDef } from './slash.js'
+import { ArgPickerPopup } from './components/ArgPickerPopup.js'
+import { parseSlash, type SlashCommand, type CustomCommandDef, type TuiMode } from './slash.js'
+import {
+  PICKABLE_KINDS,
+  pickerOptions,
+  currentOptionIndex,
+  pickerTitle,
+  type PickableKind,
+  type ArgPickerState,
+} from './argPicker.js'
 import { createFullscreenController } from './fullscreen.js'
+import type { ProviderId, Effort } from '../brain/models.js'
 import { truncateRowsWithNotice, wrappedRowCount } from './viewport.js'
 import {
   PERMISSION_HEADER_TEXT,
@@ -140,10 +150,28 @@ export class PermissionBridge {
 export interface AppStatus {
   cwd: string
   gitBranch: string | null
+  /** Display label (e.g. "Sonnet 5") — used unchanged by StatusLine/Banner. */
   model: string
+  /** Raw model key (e.g. "sonnet") — needed to highlight the current row in the /model
+   *  picker without re-deriving it from `model` (labels aren't guaranteed reversible). */
+  modelKey: string
+  provider: ProviderId
   effort: string
   mode: PermissionMode
   contextPct: number
+}
+
+/** Bare (no trailing argument, per-command-name) match against the 5 slash commands
+ *  whose value is an enumerable/fixed set — see argPicker.ts's PICKABLE_KINDS, the
+ *  single source of truth this reuses rather than re-listing the names. Case-sensitive
+ *  and trims only surrounding whitespace, mirroring parseSlash's own case-sensitivity
+ *  (slash.ts) rather than inventing a looser match here. Exported for direct unit
+ *  testing without mounting the component. */
+export function detectBarePickableCommand(text: string): PickableKind | null {
+  const trimmed = text.trim()
+  if (!trimmed.startsWith('/')) return null
+  const name = trimmed.slice(1)
+  return PICKABLE_KINDS.has(name) ? (name as PickableKind) : null
 }
 
 export interface AppProps {
@@ -210,6 +238,9 @@ export function App({
   const [inputRows, setInputRows] = useState(1)
   // Seeded from the prop, then kept live by 'status' events (/mode, /model, per-turn ctx%).
   const [status, setStatus] = useState<AppStatus>(statusProp)
+  // Second-level value picker for a bare pickable command (/model /provider /effort
+  // /mode /tui) — see detectBarePickableCommand/handleSubmit below. null = not showing.
+  const [argPicker, setArgPicker] = useState<ArgPickerState | null>(null)
   const { exit } = useApp()
 
   // Fullscreen (alternate-screen) TUI mode: /tui fullscreen | classic still toggles it
@@ -264,6 +295,54 @@ export function App({
     }
   })
 
+  // Purely a TUI presentation concern (like /clear): no engine involvement. Factored out
+  // of handleSubmit's /tui branch so the picker's Enter-confirm path (see the argPicker
+  // useInput below) can apply the same toggle without duplicating it.
+  const applyTuiMode = useCallback(
+    (value: TuiMode) => {
+      if (value === 'fullscreen') {
+        if (!fullscreenController.supported) {
+          bus.emit({
+            type: 'info',
+            message: 'Fullscreen mode needs an interactive terminal; staying in classic mode.',
+          })
+        } else {
+          setFullscreen(true)
+          bus.emit({
+            type: 'info',
+            message: 'Fullscreen mode enabled (alternate screen buffer). /tui classic to return.',
+          })
+        }
+      } else {
+        setFullscreen(false)
+        bus.emit({ type: 'info', message: 'Classic mode restored (native scrollback).' })
+      }
+    },
+    [bus, fullscreenController],
+  )
+
+  // The value a picker of the given kind should open pre-selecting — read straight off
+  // live `status` (kept current by 'status' events, see the bus.on effect above) for
+  // everything except 'tui', which isn't part of AppStatus (it's purely local `fullscreen`
+  // state, same as applyTuiMode above).
+  const currentValueFor = useCallback(
+    (kind: PickableKind): string => {
+      switch (kind) {
+        case 'model':
+          return status.modelKey
+        case 'provider':
+          return status.provider
+        case 'effort':
+          return status.effort
+        case 'mode':
+          return status.mode
+        case 'tui':
+          return fullscreen ? 'fullscreen' : 'classic'
+      }
+    },
+    [status, fullscreen],
+  )
+
   // Shared by a plain user message and an expanded custom-command prompt: both must
   // enter the engine the exact same way (transcript entry, busy flag, crash handling).
   const submitTurn = useCallback(
@@ -284,6 +363,30 @@ export function App({
 
   const handleSubmit = useCallback(
     async (text: string) => {
+      // Bare pickable-command interception takes priority over parseSlash entirely — a
+      // history-recalled "/model" or a slash-menu Tab/Enter hand-off (InputBox) both
+      // arrive here as plain text, converging on this same check alongside a
+      // directly-typed-and-Entered "/model". An explicit argument (e.g. "/model opus")
+      // never matches (trailing text fails the exact-name check), so it falls straight
+      // through to parseSlash below exactly as before.
+      const barePickable = detectBarePickableCommand(text)
+      if (barePickable) {
+        if (busy && (barePickable === 'model' || barePickable === 'provider')) {
+          // Same busy-guard as compact/model/provider below — mutating engine state
+          // mid-turn corrupts the in-flight transcript. effort/mode/tui deliberately
+          // stay ungated here, matching that existing asymmetry.
+          bus.emit({
+            type: 'info',
+            message: `/${barePickable} is unavailable while a turn is running — finish or Esc the current turn first.`,
+          })
+          return
+        }
+        setArgPicker({
+          kind: barePickable,
+          index: currentOptionIndex(pickerOptions(barePickable, status.provider), currentValueFor(barePickable)),
+        })
+        return
+      }
       const slash = parseSlash(text, commands)
       if (slash) {
         if (slash.kind === 'quit') exit()
@@ -300,24 +403,7 @@ export function App({
           // ordinary turn — reuse the exact same engine path as free-typed text.
           await submitTurn(slash.expandedPrompt)
         } else if (slash.kind === 'tui') {
-          // Purely a TUI presentation concern (like /clear): no engine involvement.
-          if (slash.value === 'fullscreen') {
-            if (!fullscreenController.supported) {
-              bus.emit({
-                type: 'info',
-                message: 'Fullscreen mode needs an interactive terminal; staying in classic mode.',
-              })
-            } else {
-              setFullscreen(true)
-              bus.emit({
-                type: 'info',
-                message: 'Fullscreen mode enabled (alternate screen buffer). /tui classic to return.',
-              })
-            }
-          } else {
-            setFullscreen(false)
-            bus.emit({ type: 'info', message: 'Classic mode restored (native scrollback).' })
-          }
+          applyTuiMode(slash.value)
         } else if (busy && (slash.kind === 'compact' || slash.kind === 'model' || slash.kind === 'provider')) {
           // Mutating engine state mid-turn corrupts the in-flight transcript.
           bus.emit({
@@ -329,7 +415,55 @@ export function App({
       }
       await submitTurn(text)
     },
-    [onSlash, exit, busy, bus, commands, submitTurn, fullscreenController],
+    [onSlash, exit, busy, bus, commands, submitTurn, applyTuiMode, status, currentValueFor],
+  )
+
+  // Active only while the second-level value picker is open — Up/Down move the cursor
+  // (clamped to the current option list), Escape cancels with no dispatch, Enter
+  // confirms and dispatches through onSlash (or applyTuiMode for 'tui', which App
+  // already handles locally rather than forwarding to the engine — see handleSubmit's
+  // /tui branch above). Kept as its own useInput rather than folded into the
+  // Escape-to-abort one below so each stays readable on its own.
+  useInput(
+    (_ch, key) => {
+      if (!argPicker) return
+      const options = pickerOptions(argPicker.kind, status.provider)
+      if (key.escape) {
+        setArgPicker(null)
+        return
+      }
+      if (key.upArrow) {
+        setArgPicker({ ...argPicker, index: Math.max(0, argPicker.index - 1) })
+        return
+      }
+      if (key.downArrow) {
+        setArgPicker({ ...argPicker, index: Math.min(options.length - 1, argPicker.index + 1) })
+        return
+      }
+      if (key.return) {
+        const selected = options[argPicker.index]
+        setArgPicker(null)
+        if (!selected) return
+        switch (argPicker.kind) {
+          case 'model':
+            onSlash({ kind: 'model', value: selected.value })
+            break
+          case 'provider':
+            onSlash({ kind: 'provider', value: selected.value })
+            break
+          case 'effort':
+            onSlash({ kind: 'effort', value: selected.value as Effort })
+            break
+          case 'mode':
+            onSlash({ kind: 'mode', value: selected.value as PermissionMode })
+            break
+          case 'tui':
+            applyTuiMode(selected.value as TuiMode)
+            break
+        }
+      }
+    },
+    { isActive: argPicker !== null },
   )
 
   // Permission review takes visual priority over ambient decoration/status: a pending
@@ -498,11 +632,29 @@ export function App({
           turnStartRef timestamp below, not remount timing, so a dialog interruption
           mid-turn doesn't reset it back to 0. */}
       {showBusyIndicator && <BusyIndicator startedAt={turnStartRef.current} />}
+      {/* Second-level value picker for a bare pickable command — same region
+          SlashMenuPopup/MentionPopup already occupy inside InputBox, just one level up
+          since App doesn't reach InputBox's internal render. Row-budget note: this
+          popup, like those two, is deliberately NOT accounted for in the fullscreen
+          row-budget math above — safe only because it can never be open at the same
+          time as a pending PermissionDialog or a busy turn (see the disabled prop
+          below: InputBox itself goes inert the moment argPicker is non-null, and
+          argPicker can only ever be opened from handleSubmit, which is only reachable
+          while InputBox was NOT already disabled). */}
+      {argPicker && (
+        <ArgPickerPopup
+          title={pickerTitle(argPicker.kind)}
+          options={pickerOptions(argPicker.kind, status.provider)}
+          index={argPicker.index}
+          currentValue={currentValueFor(argPicker.kind)}
+        />
+      )}
       {/* busy included: a prompt submitted mid-turn would start a second runTurn
-          and interleave a user message between a tool_use and its tool_result. */}
+          and interleave a user message between a tool_use and its tool_result.
+          argPicker included: no new keystrokes while the picker owns Up/Down/Enter/Esc. */}
       <InputBox
         onSubmit={handleSubmit}
-        disabled={busy || pending !== null}
+        disabled={busy || pending !== null || argPicker !== null}
         cwd={status.cwd}
         commands={commands}
         agents={agents}

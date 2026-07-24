@@ -1,5 +1,6 @@
 // src/engine/types.ts
 import type { z } from 'zod'
+import type { ProviderId } from '../brain/models.js'
 
 export interface TokenUsage { inputTokens: number; outputTokens: number; cacheReadTokens: number }
 
@@ -13,7 +14,17 @@ export type EngineEvent =
   | { type: 'compaction'; summary: string }
   | { type: 'info'; message: string } // system transcript note (slash-command output etc.)
   | { type: 'error'; message: string; fatal: boolean }
-  | { type: 'status'; patch: { model?: string; effort?: string; mode?: PermissionMode; contextPct?: number } }
+  | {
+      type: 'status'
+      patch: {
+        model?: string
+        modelKey?: string
+        provider?: ProviderId
+        effort?: string
+        mode?: PermissionMode
+        contextPct?: number
+      }
+    }
 
 export interface TodoItem { text: string; status: 'pending' | 'in_progress' | 'done' }
 
