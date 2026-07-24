@@ -14,12 +14,18 @@ function modeColor(mode: AppStatus['mode']): string | undefined {
  *  estimate how many terminal rows this fixed footer actually wraps to at the current
  *  column width — cwd/branch/model can run long enough to wrap well before an 80-column
  *  terminal narrows much, so assuming it's always exactly one row is the same class of
- *  bug the PermissionDialog chrome fix addresses. */
+ *  bug the PermissionDialog chrome fix addresses.
+ *
+ *  `busy` is kept on the shared props type (rather than trimmed now that this line no
+ *  longer reacts to it) because callers already pass the full AppStatus & { busy }
+ *  shape — see BusyIndicator.tsx for the "(esc to interrupt)" hint and animated
+ *  working indicator this segment used to carry, moved out to avoid showing the same
+ *  text in two places on screen at once. */
 function statusLineParts(props: AppStatus & { busy: boolean }): { left: string; mode: string; right: string } {
   return {
     left: `${props.cwd}${props.gitBranch ? ` · ⎇ ${props.gitBranch}` : ''} · ${props.model} · ${props.effort} · `,
     mode: props.mode,
-    right: ` · ctx ${Math.round(props.contextPct)}%${props.busy ? ' · (esc to interrupt)' : ''}`,
+    right: ` · ctx ${Math.round(props.contextPct)}%`,
   }
 }
 

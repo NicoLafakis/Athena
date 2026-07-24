@@ -1,5 +1,5 @@
 // src/tui/App.tsx
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { Box, useApp, useInput, useStdout } from 'ink'
 import type { EngineEventBus } from '../engine/events.js'
 import type { EngineEvent, TodoItem, PermissionMode } from '../engine/types.js'
@@ -9,6 +9,7 @@ import { StatusLine } from './components/StatusLine.js'
 import { Banner } from './components/Banner.js'
 import { TodoPanel } from './components/TodoPanel.js'
 import { InputBox } from './components/InputBox.js'
+import { BusyIndicator, busyIndicatorText } from './components/BusyIndicator.js'
 import { parseSlash, type SlashCommand, type CustomCommandDef } from './slash.js'
 import { createFullscreenController } from './fullscreen.js'
 import { truncateRowsWithNotice, wrappedRowCount } from './viewport.js'
@@ -67,6 +68,14 @@ const MIN_TRANSCRIPT_ROWS = 3
 // >= whatever the real notice will actually need.
 const DIFF_NOTICE_PLACEHOLDER_HIDDEN = 999_999
 const TODO_NOTICE_PLACEHOLDER_HIDDEN = 999
+// Pessimistic placeholder elapsed time used ONLY to size BusyIndicator's row reservation
+// below — NOT the real elapsed time. App.tsx never sees BusyIndicator's actual (ticking)
+// elapsed-ms state, since that state lives inside the component and updates on its own
+// interval independent of App's render cycle — so, same idea as the two notice
+// placeholders above, the budget is computed against a generously large stand-in
+// (~999 minutes) that's always >= however long busyIndicatorText's "M:SS" text can
+// realistically grow for any turn a human would actually wait out.
+const BUSY_ELAPSED_PLACEHOLDER_MS = 999 * 60_000
 const FALLBACK_ROWS = 24
 const FALLBACK_COLUMNS = 80
 
@@ -188,6 +197,13 @@ export function App({
   const [todos, setTodos] = useState<TodoItem[]>([])
   const [pending, setPending] = useState<PendingPermission | null>(null)
   const [busy, setBusy] = useState(false)
+  // Turn-start reference for BusyIndicator's elapsed-time counter: a ref (not state)
+  // because it must be readable synchronously the moment `busy` flips true, and mutating
+  // it must never itself trigger a re-render. Set once per turn in submitTurn, right
+  // before setBusy(true) — NOT recomputed from BusyIndicator's own render/mount timing,
+  // which would drift if the component is briefly unmounted mid-turn (see the
+  // `busy && pending === null` visibility gate below) and would reset to 0 on remount.
+  const turnStartRef = useRef(0)
   // InputBox's actual current row count (it can grow past 1 via backslash-continuation —
   // see InputBox's onHeightChange). Used to size the fullscreen PermissionDialog/TodoPanel
   // budgets below against reality instead of a static guess.
@@ -253,6 +269,7 @@ export function App({
   const submitTurn = useCallback(
     async (text: string) => {
       setEntries((prev) => [...prev, { kind: 'user', text }])
+      turnStartRef.current = Date.now()
       setBusy(true)
       try {
         await onSubmit(text)
@@ -325,6 +342,21 @@ export function App({
   const showTodoPanel = todos.length > 0 && !dialogPendingFullscreen
   const bannerRows = showBanner ? BANNER_ROWS : 0
 
+  // The busy indicator shows only while a turn is actually running with nothing blocking
+  // it — mirrors InputBox's own `disabled={busy || pending !== null}` "is something
+  // blocking normal input" condition. A pending permission dialog means the model isn't
+  // "working", it's waiting on the user, so the indicator (and the row budget it'd
+  // otherwise reserve) steps aside for the dialog exactly like Banner/TodoPanel already
+  // do via dialogPendingFullscreen above.
+  const showBusyIndicator = busy && pending === null
+  // Like StatusLine below, this is a borderless plain-text line measured against the
+  // FULL terminal width (no HORIZONTAL_CHROME_COLS to subtract) — see busyIndicatorText's
+  // own doc comment for why BUSY_ELAPSED_PLACEHOLDER_MS (not the real, ticking elapsed
+  // value App.tsx never sees) is what gets measured here.
+  const busyIndicatorRows = showBusyIndicator
+    ? wrappedRowCount(busyIndicatorText(BUSY_ELAPSED_PLACEHOLDER_MS), columns)
+    : 0
+
   // StatusLine is a fixed footer, but its content (cwd/branch/model/mode/ctx%) is
   // arbitrary-length text with NO border/padding stealing width, so it's measured against
   // the full terminal width — see the file-header comment on why this can't just be "1".
@@ -383,7 +415,14 @@ export function App({
   const maxTodoRows =
     fullscreen && showTodoPanel
       ? Math.max(
-          rows - statusLineRows - inputRows - bannerRows - MIN_TRANSCRIPT_ROWS - TODO_BORDER_ROWS - todoNoticeReserveRows,
+          rows -
+            statusLineRows -
+            inputRows -
+            bannerRows -
+            busyIndicatorRows -
+            MIN_TRANSCRIPT_ROWS -
+            TODO_BORDER_ROWS -
+            todoNoticeReserveRows,
           0,
         )
       : undefined
@@ -414,7 +453,10 @@ export function App({
     ? undefined
     : dialogPendingFullscreen
       ? MIN_TRANSCRIPT_ROWS
-      : Math.max(rows - statusLineRows - inputRows - bannerRows - todoRowsUsed, MIN_TRANSCRIPT_ROWS)
+      : Math.max(
+          rows - statusLineRows - inputRows - bannerRows - busyIndicatorRows - todoRowsUsed,
+          MIN_TRANSCRIPT_ROWS,
+        )
 
   return (
     <Box flexDirection="column" height={fullscreen ? rows : undefined}>
@@ -448,6 +490,14 @@ export function App({
       {pending && (
         <PermissionDialog pending={pending} cwd={status.cwd} maxDiffLines={maxDiffLines} columns={columns} />
       )}
+      {/* Only while a turn is actually running and nothing's blocking it (see
+          showBusyIndicator above) — hidden the instant a permission dialog takes over,
+          since the model is waiting on the user then, not "working". Mounting IS "turn
+          started" from this component's own perspective (see BusyIndicator's spinner/
+          tick effect), but the elapsed counter itself is driven by the stable
+          turnStartRef timestamp below, not remount timing, so a dialog interruption
+          mid-turn doesn't reset it back to 0. */}
+      {showBusyIndicator && <BusyIndicator startedAt={turnStartRef.current} />}
       {/* busy included: a prompt submitted mid-turn would start a second runTurn
           and interleave a user message between a tool_use and its tool_result. */}
       <InputBox
