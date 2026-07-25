@@ -1,0 +1,60 @@
+name: live-provider-canary
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 10 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: athena-live-provider-canary
+  cancel-in-progress: false
+
+jobs:
+  anthropic-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ATHENA_CANARY_ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Explain a skipped canary
+        if: env.ANTHROPIC_API_KEY == ''
+        run: echo "ATHENA_CANARY_ANTHROPIC_API_KEY is not configured; no paid provider call was made."
+      - name: Run bounded live canary
+        if: env.ANTHROPIC_API_KEY != ''
+        run: >-
+          node bin/athena.js exec
+          "Return exactly this JSON object and do not call tools: {\"status\":\"ok\",\"capability\":\"athena-live-canary\"}"
+          --provider anthropic
+          --model haiku
+          --output json
+          --output-schema evals/live/smoke-output.schema.json
+          --permission-mode normal
+          --sandbox read-only
+          --max-turns 2
+          --max-tool-calls 0
+          --max-tokens 8000
+          --max-cost-usd 0.05
+          --timeout-ms 120000
+          > athena-live-canary.json
+      - name: Verify canary envelope and budget
+        if: env.ANTHROPIC_API_KEY != ''
+        run: >-
+          node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('athena-live-canary.json','utf8'));
+          if(x.status!=='completed'||x.exitCode!==0||x.usage.costUsd>0.05)process.exit(1)"
+      - uses: actions/upload-artifact@v4
+        if: env.ANTHROPIC_API_KEY != ''
+        with:
+          name: athena-live-canary
+          path: athena-live-canary.json
+          retention-days: 30

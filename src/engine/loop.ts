@@ -9,10 +9,31 @@ import type { z } from 'zod'
 import type { ModelClient } from './client.js'
 import type { EngineEventBus } from './events.js'
 import type { ContextManager } from './context.js'
+import { estimateRequestTokens } from './context.js'
+import { RunBudget } from './run.js'
 import type { ToolRegistry } from '../tools/registry.js'
 import type { HookRunner } from '../harness/hooks.js'
-import { modelId, normalizeModel, resolveModelRequest, supportsThinking, PROVIDERS, type ProviderId, type ModelKey, type Effort } from '../brain/models.js'
-import type { PermissionGate, ToolContext, ToolDefinition, ToolOutput, TokenUsage } from './types.js'
+import {
+  modelCapabilities,
+  modelId,
+  normalizeModel,
+  resolveModelRequest,
+  supportsThinking,
+  usageCostUsd,
+  PROVIDERS,
+  type ProviderId,
+  type ModelKey,
+  type Effort,
+} from '../brain/models.js'
+import type {
+  PermissionGate,
+  RunLimits,
+  RunResult,
+  ToolContext,
+  ToolDefinition,
+  ToolOutput,
+  TokenUsage,
+} from './types.js'
 
 export type AskUserFn = (req: {
   toolName: string
@@ -38,6 +59,8 @@ export interface EngineOptions {
   askUser?: AskUserFn // TUI wires this; headless default denies
   abortController?: AbortController
   onMessagesChanged?: (messages: MessageParam[]) => void // session persistence seam (Task 11)
+  limits?: RunLimits
+  preflightContext?: boolean
 }
 
 export class Engine {
@@ -45,14 +68,20 @@ export class Engine {
   private readonly opts: EngineOptions
   private abortController: AbortController
   private turnInFlight = false
+  private readonly budget: RunBudget
 
   constructor(opts: EngineOptions) {
     this.opts = opts
     this.abortController = opts.abortController ?? new AbortController()
+    this.budget = new RunBudget(opts.limits)
   }
 
   getMessages(): MessageParam[] {
     return this.messages
+  }
+
+  getRunResult(): RunResult {
+    return this.budget.getResult()
   }
 
   loadMessages(history: MessageParam[]): void {
@@ -107,7 +136,7 @@ export class Engine {
   }
 
   /** One turn: user text in -> model/tool cycles -> turn-done. Never throws for tool errors. */
-  async runTurn(userText: string): Promise<void> {
+  async runTurn(userText: string): Promise<RunResult> {
     // Reentrancy guard: a second prompt mid-turn would interleave a user message
     // between a tool_use and its tool_result — API 400 + corrupt persisted session.
     if (this.turnInFlight) {
@@ -117,17 +146,29 @@ export class Engine {
           'A turn is already in progress — wait for it to finish (or Esc to abort) before sending another prompt.',
         fatal: false,
       })
-      return
+      return this.budget.failed('turn already in progress')
     }
+    const turnLimit = this.budget.beginTurn()
+    if (turnLimit) return this.emitLimit(turnLimit)
+    this.opts.bus.emit({ type: 'turn-start', turn: this.budget.snapshot().turns })
     this.turnInFlight = true
+    const remaining = this.budget.remainingDurationMs()
+    let deadlineTimer: NodeJS.Timeout | null = null
+    if (Number.isFinite(remaining)) {
+      deadlineTimer = setTimeout(() => {
+        this.budget.limited('maxDurationMs')
+        this.abort()
+      }, remaining)
+    }
     try {
-      await this.runTurnInner(userText)
+      return await this.runTurnInner(userText)
     } finally {
+      if (deadlineTimer) clearTimeout(deadlineTimer)
       this.turnInFlight = false
     }
   }
 
-  private async runTurnInner(userText: string): Promise<void> {
+  private async runTurnInner(userText: string): Promise<RunResult> {
     const { bus, client, hooks, contextManager } = this.opts
     if (this.abortController.signal.aborted) this.abortController = new AbortController()
     const signal = this.abortController.signal
@@ -142,24 +183,123 @@ export class Engine {
       })
       bus.emit({
         type: 'turn-done',
-        usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 },
+        usage: this.budget.snapshot(),
       })
-      return
+      return this.budget.completed()
     }
     const text = promptHook.addedContext
       ? `${userText}\n\n<hook-context>\n${promptHook.addedContext}\n</hook-context>`
       : userText
     this.push({ role: 'user', content: text })
-    let usage: TokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 }
+    let terminal: RunResult | null = null
 
     for (;;) {
       if (signal.aborted) {
-        bus.emit({ type: 'error', message: 'Turn aborted', fatal: false })
+        const current = this.budget.getResult()
+        terminal =
+          current.status === 'limit'
+            ? current
+            : this.budget.aborted('aborted')
+        bus.emit({
+          type: 'error',
+          message: terminal.status === 'limit' ? `Run limit reached: ${terminal.reason}` : 'Turn aborted',
+          fatal: false,
+        })
         break
       }
       // Resolve provider+key -> wire id + per-model effort/thinking. Anthropic Haiku and
       // all Kimi models return neither (both 400 there); gating lives in resolveModelRequest.
       const req = resolveModelRequest(this.getProvider(), this.opts.model, this.opts.effort)
+      const capabilities = modelCapabilities(this.getProvider(), this.opts.model)
+      const tools = this.toApiTools()
+      const requestMaxTokens = Math.min(this.opts.maxTokens, capabilities.maxOutputTokens)
+      let outboundMessages = this.outboundMessages()
+      let estimatedInputTokens = 0
+      if (this.opts.preflightContext) {
+        contextManager.setModelWindowTokens(capabilities.contextWindowTokens)
+        estimatedInputTokens = estimateRequestTokens({
+          system: this.opts.systemPrompt,
+          messages: outboundMessages,
+          tools,
+        })
+      }
+      if (
+        this.opts.preflightContext &&
+        !contextManager.fitsEstimated(estimatedInputTokens, requestMaxTokens)
+      ) {
+        let preflightCompactionLimit: string | null = null
+        try {
+          const { messages: compacted, summary } = await contextManager.compact(
+            this.messages,
+            async (prompt) => {
+              const before = this.budget.beforeModelCall(estimateRequestTokens(prompt))
+              if (before) {
+                preflightCompactionLimit = before
+                throw new Error(`preflight compaction blocked by ${before}`)
+              }
+              if (client.completeDetailed) {
+                const completion = await client.completeDetailed({
+                  model: this.getModelId(),
+                  prompt,
+                  maxTokens: 2048,
+                  signal,
+                })
+                if (completion.usage) {
+                  preflightCompactionLimit =
+                    this.budget.addUsage(
+                      completion.usage,
+                      usageCostUsd(this.getProvider(), this.opts.model, completion.usage),
+                    ) ?? preflightCompactionLimit
+                }
+                return completion.text
+              }
+              return client.complete({
+                model: this.getModelId(),
+                prompt,
+                maxTokens: 2048,
+                signal,
+              })
+            },
+          )
+          if (summary !== '') {
+            this.messages = compacted
+            this.opts.onMessagesChanged?.(this.messages)
+            bus.emit({ type: 'compaction', summary })
+            outboundMessages = this.outboundMessages()
+            estimatedInputTokens = estimateRequestTokens({
+              system: this.opts.systemPrompt,
+              messages: outboundMessages,
+              tools,
+            })
+          }
+          if (preflightCompactionLimit) {
+            terminal = this.recordLimit(preflightCompactionLimit)
+            break
+          }
+        } catch (err) {
+          if (preflightCompactionLimit) {
+            terminal = this.recordLimit(preflightCompactionLimit)
+            break
+          }
+          bus.emit({
+            type: 'error',
+            message: `Preflight compaction failed: ${(err as Error).message}`,
+            fatal: false,
+          })
+        }
+      }
+      if (
+        this.opts.preflightContext &&
+        !contextManager.fitsEstimated(estimatedInputTokens, requestMaxTokens)
+      ) {
+        terminal = this.recordLimit('contextWindow')
+        break
+      }
+      const modelLimit = this.budget.beforeModelCall(estimatedInputTokens)
+      if (modelLimit) {
+        terminal = this.recordLimit(modelLimit)
+        break
+      }
       let result
       try {
         result = await client.stream(
@@ -173,22 +313,9 @@ export class Engine {
             // endpoint. Strip them from the outbound view only - history stays intact so a
             // switch back to a thinking model keeps its blocks. A message whose content
             // array is emptied by the filter is dropped entirely (an empty array 400s too).
-            messages: supportsThinking(this.getProvider(), this.opts.model)
-              ? this.messages
-              : this.messages
-                  .map((m) =>
-                    Array.isArray(m.content)
-                      ? {
-                          ...m,
-                          content: m.content.filter(
-                            (b) => b.type !== 'thinking' && b.type !== 'redacted_thinking',
-                          ),
-                        }
-                      : m,
-                  )
-                  .filter((m) => !Array.isArray(m.content) || m.content.length > 0),
-            tools: this.toApiTools(),
-            maxTokens: this.opts.maxTokens,
+            messages: outboundMessages,
+            tools,
+            maxTokens: requestMaxTokens,
             signal,
           },
           {
@@ -206,32 +333,74 @@ export class Engine {
             ? `API key rejected for ${this.getProvider()} - run \`athena auth\``
             : `API error: ${(err as Error).message}`
         bus.emit({ type: 'error', message, fatal: !aborted })
+        terminal = aborted
+          ? (this.budget.getResult().status === 'limit'
+              ? this.budget.getResult()
+              : this.budget.aborted('aborted'))
+          : this.budget.failed(message)
         break
       }
       const msg = result.message
-      usage = {
+      const responseUsage: TokenUsage = {
         inputTokens: msg.usage.input_tokens,
         outputTokens: msg.usage.output_tokens,
         cacheReadTokens: msg.usage.cache_read_input_tokens ?? 0,
+        cacheWriteTokens: msg.usage.cache_creation_input_tokens ?? 0,
       }
-      contextManager.update(usage)
+      const usageLimit = this.budget.addUsage(
+        responseUsage,
+        usageCostUsd(this.getProvider(), this.opts.model, responseUsage),
+      )
+      contextManager.update(responseUsage)
       this.push({ role: 'assistant', content: msg.content })
 
       const toolUses = msg.content.filter((b): b is ToolUseBlock => b.type === 'tool_use')
-      if (msg.stop_reason !== 'tool_use' || toolUses.length === 0) break
+      if (msg.stop_reason !== 'tool_use' || toolUses.length === 0) {
+        if (usageLimit) terminal = this.recordLimit(usageLimit)
+        break
+      }
 
       // Parallel tool_use blocks are executed sequentially in block order, EXCEPT a
       // batch that is entirely Agent calls: sub-agents are independent loops, so they
       // dispatch concurrently (spec section 7). Mixed batches stay sequential.
       const results: ToolResultBlockParam[] = []
       let abortedMidTools = false
+      const toolLimit = usageLimit ?? this.budget.beforeToolCalls(toolUses.length)
+      if (toolLimit) {
+        terminal = this.recordLimit(toolLimit)
+        for (const block of toolUses) {
+          const output = `Tool not executed: run limit reached (${toolLimit})`
+          bus.emit({ type: 'tool-result', id: block.id, name: block.name, output, isError: true })
+          results.push({
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: output,
+            is_error: true,
+          })
+        }
+        this.push({ role: 'user', content: results })
+        break
+      }
+      const agentTool = this.opts.registry.get('Agent')
       const allAgentCalls =
-        !signal.aborted && toolUses.length > 1 && toolUses.every((b) => b.name === 'Agent')
+        !signal.aborted &&
+        toolUses.length > 1 &&
+        toolUses.every(
+          (block) =>
+            block.name === 'Agent' &&
+            (agentTool?.concurrencySafe
+              ? agentTool.concurrencySafe(block.input as never)
+              : agentTool?.readOnly === true),
+        )
       if (allAgentCalls) {
         for (const block of toolUses) {
           bus.emit({ type: 'tool-request', id: block.id, name: block.name, input: block.input })
         }
-        const outs = await Promise.all(toolUses.map((block) => this.dispatchTool(block, signal)))
+        const outs = await mapWithConcurrency(
+          toolUses,
+          Math.max(1, this.opts.limits?.maxConcurrency ?? 4),
+          (block) => this.dispatchTool(block, signal),
+        )
         toolUses.forEach((block, i) => {
           const out = outs[i]!
           bus.emit({
@@ -244,7 +413,7 @@ export class Engine {
           results.push({
             type: 'tool_result',
             tool_use_id: block.id,
-            content: out.output,
+            content: out.content ?? out.output,
             is_error: out.isError,
           })
         })
@@ -265,7 +434,7 @@ export class Engine {
             results.push({
               type: 'tool_result',
               tool_use_id: block.id,
-              content: out.output,
+              content: out.content ?? out.output,
               is_error: out.isError,
             })
             continue
@@ -282,21 +451,64 @@ export class Engine {
           results.push({
             type: 'tool_result',
             tool_use_id: block.id,
-            content: out.output,
+            content: out.content ?? out.output,
             is_error: out.isError,
           })
         }
       }
       if (results.length > 0) this.push({ role: 'user', content: results })
       if (abortedMidTools) {
+        terminal = this.budget.aborted('aborted')
         bus.emit({ type: 'error', message: 'Turn aborted', fatal: false })
         break
       }
 
       if (contextManager.needsCompaction()) {
+        let compactionLimit: string | null = null
         try {
-          const { messages: compacted, summary } = await contextManager.compact(this.messages, (p) =>
-            client.complete({ model: this.getModelId(), prompt: p, maxTokens: 2048 }),
+          const preCompact = await hooks.run('PreCompact', {
+            messageCount: this.messages.length,
+            contextFraction: contextManager.usedFraction(),
+          })
+          if (!preCompact.allowed) {
+            bus.emit({
+              type: 'error',
+              message: `Compaction blocked by hook: ${preCompact.reason ?? 'no reason given'}`,
+              fatal: false,
+            })
+            break
+          }
+          const { messages: compacted, summary } = await contextManager.compact(
+            this.messages,
+            async (prompt) => {
+              const before = this.budget.beforeModelCall(estimateRequestTokens(prompt))
+              if (before) {
+                compactionLimit = before
+                throw new Error(`compaction blocked by ${before}`)
+              }
+              if (client.completeDetailed) {
+                const completion = await client.completeDetailed({
+                  model: this.getModelId(),
+                  prompt,
+                  maxTokens: 2048,
+                  signal,
+                })
+                if (completion.usage) {
+                  compactionLimit =
+                    this.budget.addUsage(
+                      completion.usage,
+                      usageCostUsd(this.getProvider(), this.opts.model, completion.usage),
+                    ) ?? compactionLimit
+                }
+                return completion.text
+              }
+              return client.complete({
+                model: this.getModelId(),
+                prompt,
+                maxTokens: 2048,
+                signal,
+              })
+            },
           )
           // summary === '' means compaction was skipped (too few messages / no clean
           // boundary) — nothing changed, so no event.
@@ -304,8 +516,23 @@ export class Engine {
             this.messages = compacted
             this.opts.onMessagesChanged?.(this.messages)
             bus.emit({ type: 'compaction', summary })
+            const postCompact = await hooks.run('PostCompact', {
+              summary,
+              messageCount: this.messages.length,
+            })
+            if (postCompact.systemMessage) {
+              bus.emit({ type: 'info', message: postCompact.systemMessage })
+            }
+          }
+          if (compactionLimit) {
+            terminal = this.recordLimit(compactionLimit)
+            break
           }
         } catch (err) {
+          if (compactionLimit) {
+            terminal = this.recordLimit(compactionLimit)
+            break
+          }
           // A failed summarization call (rate limit, network) must not kill the turn:
           // continue uncompacted and let a later cycle retry.
           bus.emit({
@@ -320,7 +547,42 @@ export class Engine {
     // Push the fresh context fill to the status line before signalling turn-done; turn-done
     // stays the last event of the turn (tests and the TUI both key off that).
     bus.emit({ type: 'status', patch: { contextPct: Math.round(contextManager.usedFraction() * 100) } })
-    bus.emit({ type: 'turn-done', usage })
+    const result = terminal ?? this.budget.completed()
+    bus.emit({ type: 'turn-done', usage: result.usage })
+    return result
+  }
+
+  private outboundMessages(): MessageParam[] {
+    if (supportsThinking(this.getProvider(), this.opts.model)) return this.messages
+    return this.messages
+      .map((message) =>
+        Array.isArray(message.content)
+          ? {
+              ...message,
+              content: message.content.filter(
+                (block) => block.type !== 'thinking' && block.type !== 'redacted_thinking',
+              ),
+            }
+          : message,
+      )
+      .filter((message) => !Array.isArray(message.content) || message.content.length > 0)
+  }
+
+  private recordLimit(reason: string): RunResult {
+    const result = this.budget.limited(reason)
+    this.opts.bus.emit({ type: 'run-limit', limit: reason, usage: result.usage })
+    this.opts.bus.emit({
+      type: 'error',
+      message: `Run limit reached: ${reason}`,
+      fatal: false,
+    })
+    return result
+  }
+
+  private emitLimit(reason: string): RunResult {
+    const result = this.recordLimit(reason)
+    this.opts.bus.emit({ type: 'turn-done', usage: result.usage })
+    return result
   }
 
   /** Permission gate -> PreToolUse hooks -> validate -> execute -> PostToolUse. Every failure becomes an error tool result. */
@@ -329,11 +591,35 @@ export class Engine {
     const tool = registry.get(block.name)
     if (!tool) return { output: `Unknown tool: ${block.name}`, isError: true }
 
+    const pre = await hooks.run('PreToolUse', { toolName: block.name, input: block.input })
+    if (!pre.allowed) {
+      return {
+        output: `Blocked by PreToolUse hook: ${pre.reason ?? 'no reason given'}`,
+        isError: true,
+      }
+    }
+    const effectiveInput = pre.updatedInput ?? block.input
+    const parsed = tool.schema.safeParse(effectiveInput)
+    if (!parsed.success) {
+      return { output: `Invalid input for ${block.name}: ${parsed.error.message}`, isError: true }
+    }
+    const effectiveBlock = { ...block, input: parsed.data } as ToolUseBlock
+    const permissionHook = await hooks.run('PermissionRequest', {
+      toolName: block.name,
+      input: parsed.data,
+      readOnly: tool.readOnly,
+    })
+    if (!permissionHook.allowed) {
+      return {
+        output: `Permission denied by hook: ${permissionHook.reason ?? 'no reason given'}`,
+        isError: true,
+      }
+    }
     const decision = gate.check({
       toolName: block.name,
-      input: block.input,
+      input: parsed.data,
       readOnly: tool.readOnly,
-      summary: summarize(block),
+      summary: summarize(effectiveBlock),
     })
     let allowed = decision.decision === 'allow'
     let denyReason = decision.reason
@@ -341,13 +627,13 @@ export class Engine {
       const answer = this.opts.askUser
         ? await this.opts.askUser({
             toolName: block.name,
-            input: block.input,
-            summary: summarize(block),
+            input: parsed.data,
+            summary: summarize(effectiveBlock),
             reason: decision.reason,
           })
         : ('deny' as const)
       if (answer === 'allow-always') {
-        gate.grantSession(ruleFor(block, toolContext.cwd))
+        gate.grantSession(ruleFor(effectiveBlock, toolContext.cwd))
         allowed = true
       } else {
         allowed = answer === 'allow-once'
@@ -360,26 +646,38 @@ export class Engine {
     }
     if (!allowed) return { output: `Permission denied: ${denyReason}`, isError: true }
 
-    const pre = await hooks.run('PreToolUse', { toolName: block.name, input: block.input })
-    if (!pre.allowed) {
-      return {
-        output: `Blocked by PreToolUse hook: ${pre.reason ?? 'no reason given'}`,
-        isError: true,
-      }
-    }
-
-    const parsed = tool.schema.safeParse(block.input)
-    if (!parsed.success) {
-      return { output: `Invalid input for ${block.name}: ${parsed.error.message}`, isError: true }
-    }
-
     let out: ToolOutput
     try {
-      out = await tool.execute(parsed.data as never, { ...toolContext, abortSignal: signal })
+      out = await tool.execute(parsed.data as never, {
+        ...toolContext,
+        abortSignal: signal,
+        toolCallId: block.id,
+        toolName: block.name,
+      })
     } catch (err) {
       out = { output: `${block.name} threw: ${(err as Error).message}`, isError: true }
     }
-    await hooks.run('PostToolUse', { toolName: block.name, input: block.input, output: out.output })
+    const postEvent = out.isError ? 'PostToolUseFailure' : 'PostToolUse'
+    const post = await hooks.run(postEvent, {
+      toolName: block.name,
+      input: effectiveInput,
+      output: out.output,
+      isError: out.isError,
+    })
+    if (pre.addedContext || post.addedContext) {
+      out = {
+        ...out,
+        output: [
+          out.output,
+          pre.addedContext ? `[pre-hook context]\n${pre.addedContext}` : '',
+          post.addedContext ? `[post-hook context]\n${post.addedContext}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
+      }
+    }
+    if (pre.systemMessage) this.opts.bus.emit({ type: 'info', message: pre.systemMessage })
+    if (post.systemMessage) this.opts.bus.emit({ type: 'info', message: post.systemMessage })
     return out
   }
 
@@ -387,6 +685,26 @@ export class Engine {
     this.messages.push(m)
     this.opts.onMessagesChanged?.(this.messages)
   }
+}
+
+async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  map: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length)
+  let cursor = 0
+  async function worker(): Promise<void> {
+    for (;;) {
+      const index = cursor++
+      if (index >= values.length) return
+      results[index] = await map(values[index]!)
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, values.length) }, () => worker()),
+  )
+  return results
 }
 
 function summarize(block: ToolUseBlock): string {

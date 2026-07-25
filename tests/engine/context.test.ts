@@ -10,6 +10,18 @@ function makeMessages(n: number): MessageParam[] {
 }
 
 describe('ContextManager', () => {
+  it('counts cache creation when estimating current context pressure', () => {
+    const manager = new ContextManager({ modelWindowTokens: 1000 })
+    manager.update({
+      inputTokens: 100,
+      outputTokens: 100,
+      cacheReadTokens: 100,
+      cacheWriteTokens: 500,
+    })
+    expect(manager.usedFraction()).toBe(0.8)
+    expect(manager.needsCompaction()).toBe(true)
+  })
+
   it('needsCompaction triggers at 80% of the model window', () => {
     const mgr = new ContextManager({ modelWindowTokens: 1000 })
     mgr.update({ inputTokens: 700, outputTokens: 99, cacheReadTokens: 0 })

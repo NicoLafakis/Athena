@@ -1,7 +1,16 @@
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { existsSync } from 'node:fs'
+import { readFile, stat } from 'node:fs/promises'
 import { z } from 'zod'
 import type { ToolDefinition } from '../engine/types.js'
+import {
+  assertReadPrecondition,
+  atomicWriteFile,
+  recordKnownFile,
+  revalidateToolPath,
+  resolveToolPath,
+} from './files.js'
+
+const MAX_EDIT_BYTES = 10 * 1024 * 1024
 
 const EditInput = z.object({
   file_path: z.string(),
@@ -17,15 +26,29 @@ export const editTool: ToolDefinition<z.infer<typeof EditInput>> = {
   schema: EditInput,
   readOnly: false,
   async execute(input, ctx) {
-    const abs = resolve(ctx.cwd, input.file_path)
+    let abs: string
+    try {
+      abs = resolveToolPath(ctx, input.file_path, 'write')
+    } catch (err) {
+      return { output: (err as Error).message, isError: true }
+    }
     if (!existsSync(abs)) return { output: `File not found: ${abs}`, isError: true }
-    if (!ctx.fileReadRegistry.has(abs)) {
-      return { output: `Refusing to edit ${abs}: not Read this session. Read it first.`, isError: true }
+    try {
+      await assertReadPrecondition(abs, ctx)
+    } catch (err) {
+      return { output: `Refusing to edit ${abs}: ${(err as Error).message}`, isError: true }
     }
     if (input.old_string === input.new_string) {
       return { output: 'old_string and new_string are identical.', isError: true }
     }
-    const text = readFileSync(abs, 'utf8')
+    const info = await stat(abs)
+    if (info.size > MAX_EDIT_BYTES) {
+      return {
+        output: `Refusing to edit ${abs}: file exceeds ${MAX_EDIT_BYTES} bytes`,
+        isError: true,
+      }
+    }
+    const text = await readFile(abs, 'utf8')
     const count = text.split(input.old_string).length - 1
     if (count === 0) {
       return {
@@ -42,7 +65,9 @@ export const editTool: ToolDefinition<z.infer<typeof EditInput>> = {
     const next = input.replace_all
       ? text.split(input.old_string).join(input.new_string)
       : text.replace(input.old_string, () => input.new_string) // callback form: literal, no $-pattern expansion
-    writeFileSync(abs, next, 'utf8')
+    revalidateToolPath(ctx, abs, 'write')
+    await atomicWriteFile(abs, next)
+    await recordKnownFile(abs, ctx)
     return {
       output: `Replaced ${input.replace_all ? count : 1} occurrence(s) in ${abs}`,
       isError: false,

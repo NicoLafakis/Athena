@@ -71,6 +71,16 @@ export interface ModelEntry {
   label: string
   supportsEffort: boolean
   supportsThinking: boolean
+  contextWindowTokens: number
+  maxOutputTokens: number
+  pricing: {
+    inputPerMillionUsd: number
+    outputPerMillionUsd: number
+    cacheReadPerMillionUsd: number
+    cacheWritePerMillionUsd: number
+    metered: boolean
+    asOf: string
+  }
 }
 
 // NOTE: Kimi ids verified against https://platform.kimi.ai/docs/models on 2026-07-23
@@ -78,24 +88,104 @@ export interface ModelEntry {
 // endpoint accepts the same ids as the OpenAI one.
 export const MODELS: Record<ProviderId, Record<ModelKey, ModelEntry>> = {
   anthropic: {
-    haiku: { id: 'claude-haiku-4-5', label: 'Haiku 4.5', supportsEffort: false, supportsThinking: false },
-    sonnet: { id: 'claude-sonnet-5', label: 'Sonnet 5', supportsEffort: true, supportsThinking: true },
-    opus: { id: 'claude-opus-4-8', label: 'Opus 4.8', supportsEffort: true, supportsThinking: true },
-    fable: { id: 'claude-fable-5', label: 'Fable 5', supportsEffort: true, supportsThinking: true },
+    haiku: {
+      id: 'claude-haiku-4-5',
+      label: 'Haiku 4.5',
+      supportsEffort: false,
+      supportsThinking: false,
+      contextWindowTokens: 200_000,
+      maxOutputTokens: 64_000,
+      pricing: { inputPerMillionUsd: 1, outputPerMillionUsd: 5, cacheReadPerMillionUsd: 0.1, cacheWritePerMillionUsd: 1.25, metered: true, asOf: '2026-07-24' },
+    },
+    sonnet: {
+      id: 'claude-sonnet-5',
+      label: 'Sonnet 5',
+      supportsEffort: true,
+      supportsThinking: true,
+      contextWindowTokens: 1_000_000,
+      maxOutputTokens: 128_000,
+      pricing: { inputPerMillionUsd: 2, outputPerMillionUsd: 10, cacheReadPerMillionUsd: 0.2, cacheWritePerMillionUsd: 2.5, metered: true, asOf: '2026-07-24' },
+    },
+    opus: {
+      id: 'claude-opus-4-8',
+      label: 'Opus 4.8',
+      supportsEffort: true,
+      supportsThinking: true,
+      contextWindowTokens: 1_000_000,
+      maxOutputTokens: 128_000,
+      pricing: { inputPerMillionUsd: 5, outputPerMillionUsd: 25, cacheReadPerMillionUsd: 0.5, cacheWritePerMillionUsd: 6.25, metered: true, asOf: '2026-07-24' },
+    },
+    fable: {
+      id: 'claude-fable-5',
+      label: 'Fable 5',
+      supportsEffort: true,
+      supportsThinking: true,
+      contextWindowTokens: 1_000_000,
+      maxOutputTokens: 128_000,
+      pricing: { inputPerMillionUsd: 10, outputPerMillionUsd: 50, cacheReadPerMillionUsd: 1, cacheWritePerMillionUsd: 12.5, metered: true, asOf: '2026-07-24' },
+    },
   },
   kimi: {
-    'kimi-k3': { id: 'kimi-k3', label: 'Kimi K3', supportsEffort: false, supportsThinking: false },
-    'kimi-k2.7-code': { id: 'kimi-k2.7-code', label: 'Kimi K2.7 Code', supportsEffort: false, supportsThinking: false },
-    'kimi-k2.6': { id: 'kimi-k2.6', label: 'Kimi K2.6', supportsEffort: false, supportsThinking: false },
+    'kimi-k3': {
+      id: 'kimi-k3',
+      label: 'Kimi K3',
+      supportsEffort: false,
+      supportsThinking: false,
+      contextWindowTokens: 1_048_576,
+      maxOutputTokens: 64_000,
+      pricing: { inputPerMillionUsd: 3, outputPerMillionUsd: 15, cacheReadPerMillionUsd: 0.3, cacheWritePerMillionUsd: 3, metered: true, asOf: '2026-07-24' },
+    },
+    'kimi-k2.7-code': {
+      id: 'kimi-k2.7-code',
+      label: 'Kimi K2.7 Code',
+      supportsEffort: false,
+      supportsThinking: false,
+      contextWindowTokens: 262_144,
+      maxOutputTokens: 32_768,
+      pricing: { inputPerMillionUsd: 0.95, outputPerMillionUsd: 4, cacheReadPerMillionUsd: 0.19, cacheWritePerMillionUsd: 0.95, metered: true, asOf: '2026-07-24' },
+    },
+    'kimi-k2.6': {
+      id: 'kimi-k2.6',
+      label: 'Kimi K2.6',
+      supportsEffort: false,
+      supportsThinking: false,
+      contextWindowTokens: 262_144,
+      maxOutputTokens: 32_768,
+      pricing: { inputPerMillionUsd: 0.95, outputPerMillionUsd: 4, cacheReadPerMillionUsd: 0.16, cacheWritePerMillionUsd: 0.95, metered: true, asOf: '2026-07-24' },
+    },
   },
   // NOTE: kimi-code ids verified against
   // https://www.kimi.com/code/docs/en/third-party-tools/claude-code.html on 2026-07-23.
   // k3 (256K) and k3[1m] (1M context) require the Moderato tier or above — below that the
   // API returns a 404/permission error; kimi-for-coding works on every tier.
   'kimi-code': {
-    'kimi-for-coding': { id: 'kimi-for-coding', label: 'Kimi for Coding', supportsEffort: false, supportsThinking: false },
-    k3: { id: 'k3', label: 'Kimi K3 (256K)', supportsEffort: false, supportsThinking: false },
-    'k3[1m]': { id: 'k3[1m]', label: 'Kimi K3 (1M)', supportsEffort: false, supportsThinking: false },
+    'kimi-for-coding': {
+      id: 'kimi-for-coding',
+      label: 'Kimi for Coding',
+      supportsEffort: false,
+      supportsThinking: false,
+      contextWindowTokens: 262_144,
+      maxOutputTokens: 32_768,
+      pricing: { inputPerMillionUsd: 0, outputPerMillionUsd: 0, cacheReadPerMillionUsd: 0, cacheWritePerMillionUsd: 0, metered: false, asOf: '2026-07-24' },
+    },
+    k3: {
+      id: 'k3',
+      label: 'Kimi K3 (256K)',
+      supportsEffort: false,
+      supportsThinking: false,
+      contextWindowTokens: 262_144,
+      maxOutputTokens: 64_000,
+      pricing: { inputPerMillionUsd: 0, outputPerMillionUsd: 0, cacheReadPerMillionUsd: 0, cacheWritePerMillionUsd: 0, metered: false, asOf: '2026-07-24' },
+    },
+    'k3[1m]': {
+      id: 'k3',
+      label: 'Kimi K3 (1M)',
+      supportsEffort: false,
+      supportsThinking: false,
+      contextWindowTokens: 1_048_576,
+      maxOutputTokens: 64_000,
+      pricing: { inputPerMillionUsd: 0, outputPerMillionUsd: 0, cacheReadPerMillionUsd: 0, cacheWritePerMillionUsd: 0, metered: false, asOf: '2026-07-24' },
+    },
   },
 }
 
@@ -117,6 +207,30 @@ function entry(provider: ProviderId, key: ModelKey): ModelEntry {
     )
   }
   return e
+}
+
+export function modelCapabilities(provider: ProviderId, key: ModelKey): ModelEntry {
+  return entry(provider, key)
+}
+
+export function usageCostUsd(
+  provider: ProviderId,
+  key: ModelKey,
+  usage: {
+    inputTokens: number
+    outputTokens: number
+    cacheReadTokens: number
+    cacheWriteTokens?: number
+  },
+): number {
+  const pricing = entry(provider, key).pricing
+  return (
+    (usage.inputTokens * pricing.inputPerMillionUsd +
+      usage.outputTokens * pricing.outputPerMillionUsd +
+      usage.cacheReadTokens * pricing.cacheReadPerMillionUsd +
+      (usage.cacheWriteTokens ?? 0) * pricing.cacheWritePerMillionUsd) /
+    1_000_000
+  )
 }
 
 export function modelId(provider: ProviderId, key: ModelKey): string {

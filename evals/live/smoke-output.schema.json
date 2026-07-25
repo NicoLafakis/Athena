@@ -1,0 +1,13 @@
+{
+  "type": "object",
+  "required": ["status", "capability"],
+  "additionalProperties": false,
+  "properties": {
+    "status": {
+      "const": "ok"
+    },
+    "capability": {
+      "const": "athena-live-canary"
+    }
+  }
+}

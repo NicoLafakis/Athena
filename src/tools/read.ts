@@ -1,7 +1,8 @@
-import { readFileSync, existsSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { createReadStream, existsSync } from 'node:fs'
+import { createInterface } from 'node:readline'
 import { z } from 'zod'
 import type { ToolDefinition } from '../engine/types.js'
+import { recordKnownFile, resolveToolPath } from './files.js'
 
 const ReadInput = z.object({
   file_path: z.string(),
@@ -9,6 +10,8 @@ const ReadInput = z.object({
   limit: z.number().int().min(1).optional(),
 })
 const DEFAULT_LIMIT = 2000
+const MAX_SCAN_BYTES = 10_000_000
+const MAX_LINE_CHARS = 20_000
 
 export const readTool: ToolDefinition<z.infer<typeof ReadInput>> = {
   name: 'Read',
@@ -17,27 +20,58 @@ export const readTool: ToolDefinition<z.infer<typeof ReadInput>> = {
   schema: ReadInput,
   readOnly: true,
   async execute(input, ctx) {
-    const abs = resolve(ctx.cwd, input.file_path)
-    if (!existsSync(abs)) return { output: `File not found: ${abs}`, isError: true }
-    let text: string
+    let abs: string
     try {
-      text = readFileSync(abs, 'utf8')
+      abs = resolveToolPath(ctx, input.file_path, 'read')
+    } catch (err) {
+      return { output: (err as Error).message, isError: true }
+    }
+    if (!existsSync(abs)) return { output: `File not found: ${abs}`, isError: true }
+    const offset = input.offset ?? 1
+    const limit = input.limit ?? DEFAULT_LIMIT
+    const lines: string[] = []
+    let lineNumber = 0
+    let scannedBytes = 0
+    let hasMore = false
+    let scanTruncated = false
+    try {
+      const stream = createReadStream(abs, { encoding: 'utf8', signal: ctx.abortSignal })
+      stream.on('data', (chunk: string | Buffer) => {
+        scannedBytes += Buffer.byteLength(chunk)
+      })
+      const reader = createInterface({ input: stream, crlfDelay: Infinity })
+      for await (const line of reader) {
+        lineNumber++
+        if (scannedBytes > MAX_SCAN_BYTES) {
+          scanTruncated = true
+          hasMore = true
+          reader.close()
+          stream.destroy()
+          break
+        }
+        if (lineNumber < offset) continue
+        if (lines.length >= limit) {
+          hasMore = true
+          continue
+        }
+        lines.push(
+          line.length > MAX_LINE_CHARS
+            ? `${line.slice(0, MAX_LINE_CHARS)}…[line truncated]`
+            : line,
+        )
+      }
     } catch (err) {
       return { output: `Cannot read ${abs}: ${(err as Error).message}`, isError: true }
     }
-    const allLines = text.split('\n')
-    if (allLines.at(-1) === '') allLines.pop() // trailing newline is not a line
-    const offset = input.offset ?? 1
-    const limit = input.limit ?? DEFAULT_LIMIT
-    const slice = allLines.slice(offset - 1, offset - 1 + limit)
-    const numbered = slice
+    const numbered = lines
       .map((line, i) => `${String(offset + i).padStart(6, ' ')}\t${line}`)
       .join('\n')
-    ctx.fileReadRegistry.add(abs)
-    const shown = slice.length
-    const truncated = offset - 1 + shown < allLines.length
-    const notice = truncated
-      ? `\n(truncated: showing lines ${offset}-${offset + shown - 1} of ${allLines.length})`
+    await recordKnownFile(abs, ctx)
+    const shown = lines.length
+    const notice = hasMore
+      ? `\n(truncated: showing lines ${offset}-${offset + shown - 1} of ${
+          scanTruncated ? 'at least ' : ''
+        }${lineNumber})`
       : ''
     return { output: numbered + notice, isError: false }
   },

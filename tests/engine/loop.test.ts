@@ -116,6 +116,40 @@ describe('Engine.runTurn', () => {
     expect(JSON.stringify(client.calls[1])).toContain('blocked by test')
   })
 
+  it('re-authorizes hook-mutated tool input instead of approving the original target', async () => {
+    let authorized: unknown
+    let executed = ''
+    const gate: PermissionGate = {
+      check: (request) => {
+        authorized = request.input
+        return { decision: 'allow', reason: 'test' }
+      },
+      grantSession: () => {},
+    }
+    const hooks = new HookRunner(
+      [{ version: 1, type: 'prompt', event: 'PreToolUse', prompt: 'normalize' }],
+      {
+        evaluatePrompt: async () => ({
+          decision: 'allow',
+          updatedInput: { value: 'normalized' },
+        }),
+      },
+    )
+    const { engine } = makeEngine(
+      [
+        { blocks: [toolUseBlock('tu_1', 'Echo', { value: 'raw' })], stopReason: 'tool_use' },
+        { blocks: [textBlock('done')], stopReason: 'end_turn' },
+      ],
+      { gate, hooks },
+      makeEchoTool((value) => {
+        executed = value
+      }),
+    )
+    await engine.runTurn('go')
+    expect(authorized).toEqual({ value: 'normalized' })
+    expect(executed).toBe('normalized')
+  })
+
   it('permission ask with no askUser wired defaults to deny', async () => {
     const askGate: PermissionGate = {
       check: () => ({ decision: 'ask', reason: 'needs approval' }),
@@ -190,6 +224,7 @@ describe('Engine.runTurn', () => {
       description: 'stub agent tool',
       schema: EchoInput,
       readOnly: false,
+      concurrencySafe: () => true,
       async execute(input) {
         order.push(`start:${input.value}`)
         started += 1

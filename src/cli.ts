@@ -1,28 +1,39 @@
 // src/cli.ts — composition root: brain + engine + harness + TUI.
 import { execSync } from 'node:child_process'
 import { appendFileSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { basename, join, resolve } from 'node:path'
+import { createInterface } from 'node:readline/promises'
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
 import { render } from 'ink'
 import React from 'react'
 import { resolveBrainPaths } from './brain/paths.js'
-import { loadSettings } from './brain/settings.js'
+import { loadSettings, readProjectSettingsCapabilities } from './brain/settings.js'
 import {
   normalizeModel,
+  modelCapabilities,
   modelLabel,
   modelKeys,
   supportsEffort,
+  EFFORTS,
   PROVIDERS,
   PROVIDER_IDS,
   normalizeProvider,
   type ProviderId,
+  type Effort,
 } from './brain/models.js'
 import {
   loadCredentials,
   resolveApiKey,
   formatAuthStatus,
+  migrateCredentialsToVault,
   type Credentials,
 } from './brain/credentials.js'
+import {
+  createCredentialVault,
+  formatCredentialVaultStatus,
+  type CredentialVault,
+} from './brain/credential-vault.js'
 import { runAuthWizard } from './auth/wizard.js'
 import { ClientHolder } from './engine/client-holder.js'
 import { loadConstitution, loadMemoryIndex } from './brain/loader.js'
@@ -30,26 +41,44 @@ import {
   loadSkillsIndexWithPlugins,
   loadAgentsIndexWithPlugins,
   loadCommandsIndexWithPlugins,
+  loadPluginRuntimeExtensions,
 } from './brain/plugins.js'
 import { importBrain } from './brain/import.js'
 import { ensureBrainScaffold } from './harness/bootstrap.js'
 import { PermissionEngine } from './harness/permissions.js'
+import { ResourcePolicy } from './harness/resource-policy.js'
+import {
+  ProjectTrustStore,
+  capabilityDigest,
+  canonicalProjectPath,
+  type ProjectCapability,
+} from './harness/trust.js'
 import { HookRunner } from './harness/hooks.js'
 import { McpManager } from './harness/mcp.js'
 import { Session, SessionStore, type SessionInfo } from './harness/sessions.js'
+import { RunTraceWriter } from './harness/traces.js'
 import { AgentOrchestrator } from './harness/agents.js'
+import { PluginManager } from './harness/plugins.js'
 import { Engine } from './engine/loop.js'
 import { AnthropicClient } from './engine/client.js'
+import type { ModelClient } from './engine/client.js'
+import { FixtureModelClient } from './engine/fixture-client.js'
 import { EngineEventBus } from './engine/events.js'
 import { ContextManager } from './engine/context.js'
 import { assembleSystemPrompt, findProjectContextFiles } from './engine/prompt.js'
 import type { BrainPaths } from './brain/paths.js'
-import type { ToolDefinition } from './engine/types.js'
+import type { ToolContext, ToolDefinition } from './engine/types.js'
+import type { PermissionMode, RunLimits, SandboxMode } from './engine/types.js'
+import { validateJsonOutput } from './engine/output-schema.js'
 import { ToolRegistry } from './tools/registry.js'
 import {
   readTool,
   writeTool,
   editTool,
+  applyPatchTool,
+  readImageTool,
+  notebookEditTool,
+  diagnosticsTool,
   globTool,
   grepTool,
   bashTool,
@@ -59,6 +88,7 @@ import {
   memoryTool,
   webfetchTool,
   websearchTool,
+  shutdownBackgroundTasks,
 } from './tools/index.js'
 import { makeSkillTool } from './tools/skill.js'
 import { makeAgentTool } from './tools/agent.js'
@@ -66,18 +96,305 @@ import { App, PermissionBridge } from './tui/App.js'
 import { SessionPicker } from './tui/components/SessionPicker.js'
 import type { SlashCommand } from './tui/slash.js'
 import { getVersion } from './version.js'
+import { admitCandidate, CandidateStore, reflectTraces } from './learning/candidates.js'
+import { LearningEvaluator } from './learning/evaluation.js'
+import { LearningMemoryStore } from './learning/memory.js'
+import { PromotionManager } from './learning/promotion.js'
+import { TraceWarehouse } from './learning/warehouse.js'
+import { collectDiagnostics, formatDiagnostics } from './harness/diagnostics.js'
 
 export type CliCommand =
   | { command: 'run'; provider?: ProviderId }
   | { command: 'resume'; provider?: ProviderId }
   | { command: 'continue'; provider?: ProviderId }
   | { command: 'help' }
+  | { command: 'exec-help' }
   | { command: 'version' }
+  | { command: 'doctor'; json: boolean }
   | { command: 'auth'; sub: 'wizard' | 'status'; provider?: ProviderId }
   | { command: 'import'; sourceDir: string; force: boolean }
+  | { command: 'trust'; revoke: boolean; capabilities: ProjectCapability[] }
+  | { command: 'exec'; provider?: ProviderId; options: ExecOptions }
+  | {
+      command: 'session'
+      action: 'list' | 'checkpoints' | 'rewind' | 'fork' | 'rename' | 'search' | 'delete'
+      args: string[]
+    }
+  | {
+      command: 'plugin'
+      action: 'list' | 'install' | 'update' | 'enable' | 'disable' | 'remove' | 'verify'
+      args: string[]
+      requireSignature: boolean
+    }
+  | {
+      command: 'learn'
+      action:
+        | 'traces'
+        | 'reflect'
+        | 'add'
+        | 'candidates'
+        | 'evaluate'
+        | 'promote'
+        | 'canary'
+        | 'finalize'
+        | 'rollback'
+        | 'consolidate'
+        | 'lineage'
+      args: string[]
+      approved: boolean
+    }
   | { command: 'error'; message: string }
 
+export type ExecOutputMode = 'text' | 'json' | 'jsonl'
+
+export interface ExecOptions {
+  prompt: string | null
+  output: ExecOutputMode
+  outputSchemaFile: string | null
+  persistSession: boolean
+  resumeId: string | null
+  permissionMode: PermissionMode
+  sandboxMode: SandboxMode
+  model: string | null
+  effort: Effort
+  limits: RunLimits
+}
+
+export const CLI_EXIT = {
+  success: 0,
+  usage: 2,
+  permission: 3,
+  limit: 4,
+  outputSchema: 5,
+  provider: 10,
+  internal: 70,
+  aborted: 130,
+} as const
+
+const EXEC_USAGE =
+  'Usage: athena exec [prompt] [--output text|json|jsonl] [--output-schema file] ' +
+  '[--max-turns n] [--max-tool-calls n] [--max-tokens n] [--max-cost-usd n] ' +
+  '[--timeout-ms n] [--max-concurrency n] [--permission-mode mode] [--sandbox mode] ' +
+  '[--session|--resume id] [--provider id] [--model key] [--effort level]'
+
+function parseNumberFlag(
+  flag: string,
+  raw: string | undefined,
+  allowZero = false,
+): number | string {
+  if (raw === undefined) return `${flag} requires a value`
+  const value = Number(raw)
+  if (!Number.isFinite(value) || (allowZero ? value < 0 : value <= 0)) {
+    return `${flag} requires ${allowZero ? 'a non-negative' : 'a positive'} number`
+  }
+  return value
+}
+
+function parseExecArgs(argv: string[]): CliCommand {
+  const options: ExecOptions = {
+    prompt: null,
+    output: 'text',
+    outputSchemaFile: null,
+    persistSession: false,
+    resumeId: null,
+    permissionMode: 'normal',
+    sandboxMode: 'workspace-write',
+    model: null,
+    effort: 'high',
+    limits: {
+      maxModelCalls: 50,
+      maxToolCalls: 200,
+      maxTokens: 2_000_000,
+      maxCostUsd: 10,
+      maxDurationMs: 30 * 60_000,
+      maxConcurrency: 4,
+    },
+  }
+  let provider: ProviderId | undefined
+  const prompt: string[] = []
+  for (let index = 0; index < argv.length; index++) {
+    const arg = argv[index]!
+    const value = argv[index + 1]
+    if (!arg.startsWith('-')) {
+      prompt.push(arg)
+      continue
+    }
+    if (arg === '--session') {
+      options.persistSession = true
+      continue
+    }
+    if (arg === '--output') {
+      if (!['text', 'json', 'jsonl'].includes(value ?? '')) {
+        return { command: 'error', message: '--output needs text, json, or jsonl' }
+      }
+      options.output = value as ExecOutputMode
+      index++
+      continue
+    }
+    if (arg === '--output-schema') {
+      if (!value) return { command: 'error', message: '--output-schema requires a file' }
+      options.outputSchemaFile = value
+      index++
+      continue
+    }
+    if (arg === '--resume') {
+      if (!value) return { command: 'error', message: '--resume requires a session id' }
+      options.resumeId = value
+      options.persistSession = true
+      index++
+      continue
+    }
+    if (arg === '--provider') {
+      const parsed = value ? normalizeProvider(value) : null
+      if (!parsed) {
+        return {
+          command: 'error',
+          message: `--provider needs one of: ${PROVIDER_IDS.join(', ')}`,
+        }
+      }
+      provider = parsed
+      index++
+      continue
+    }
+    if (arg === '--model') {
+      if (!value) return { command: 'error', message: '--model requires a key or model id' }
+      options.model = value
+      index++
+      continue
+    }
+    if (arg === '--effort') {
+      if (!value || !EFFORTS.includes(value as Effort)) {
+        return { command: 'error', message: `--effort needs one of: ${EFFORTS.join(', ')}` }
+      }
+      options.effort = value as Effort
+      index++
+      continue
+    }
+    if (arg === '--permission-mode') {
+      if (!value || !['normal', 'acceptEdits', 'plan', 'trusted'].includes(value)) {
+        return { command: 'error', message: '--permission-mode needs normal, acceptEdits, plan, or trusted' }
+      }
+      options.permissionMode = value as PermissionMode
+      index++
+      continue
+    }
+    if (arg === '--sandbox') {
+      if (!value || !['read-only', 'workspace-write', 'unrestricted'].includes(value)) {
+        return { command: 'error', message: '--sandbox needs read-only, workspace-write, or unrestricted' }
+      }
+      options.sandboxMode = value as SandboxMode
+      index++
+      continue
+    }
+    const limitFlag: Record<string, { key: keyof RunLimits; allowZero?: boolean }> = {
+      '--max-turns': { key: 'maxModelCalls' },
+      '--max-tool-calls': { key: 'maxToolCalls', allowZero: true },
+      '--max-tokens': { key: 'maxTokens' },
+      '--max-cost-usd': { key: 'maxCostUsd' },
+      '--timeout-ms': { key: 'maxDurationMs' },
+      '--max-concurrency': { key: 'maxConcurrency' },
+    }
+    const limit = limitFlag[arg]
+    if (limit) {
+      const parsed = parseNumberFlag(arg, value, limit.allowZero)
+      if (typeof parsed === 'string') return { command: 'error', message: parsed }
+      options.limits[limit.key] = parsed
+      index++
+      continue
+    }
+    if (arg === '--help' || arg === '-h') return { command: 'exec-help' }
+    return { command: 'error', message: `Unknown exec argument: ${arg}\n${EXEC_USAGE}` }
+  }
+  options.prompt = prompt.length > 0 ? prompt.join(' ') : null
+  return { command: 'exec', provider, options }
+}
+
 export function parseArgs(argv: string[]): CliCommand {
+  if (argv[0] === 'exec') return parseExecArgs(argv.slice(1))
+  if (argv[0] === 'doctor') {
+    const unknown = argv.slice(1).find((arg) => arg !== '--json')
+    return unknown
+      ? { command: 'error', message: `Unknown doctor argument: ${unknown}` }
+      : { command: 'doctor', json: argv.includes('--json') }
+  }
+  if (argv[0] === 'learn') {
+    const action = argv[1] ?? 'candidates'
+    const actions = new Set([
+      'traces',
+      'reflect',
+      'add',
+      'candidates',
+      'evaluate',
+      'promote',
+      'canary',
+      'finalize',
+      'rollback',
+      'consolidate',
+      'lineage',
+    ])
+    if (!actions.has(action)) {
+      return {
+        command: 'error',
+        message:
+          'Usage: athena learn <traces|reflect|add|candidates|evaluate|promote|canary|finalize|rollback|consolidate|lineage>',
+      }
+    }
+    const rest = argv.slice(2)
+    const unknown = rest.find((arg) => arg.startsWith('--') && arg !== '--approve')
+    if (unknown) return { command: 'error', message: `Unknown learn argument: ${unknown}` }
+    return {
+      command: 'learn',
+      action: action as Extract<CliCommand, { command: 'learn' }>['action'],
+      args: rest.filter((arg) => arg !== '--approve'),
+      approved: rest.includes('--approve'),
+    }
+  }
+  if (argv[0] === 'plugin') {
+    const action = argv[1] ?? 'list'
+    const actions = new Set(['list', 'install', 'update', 'enable', 'disable', 'remove', 'verify'])
+    if (!actions.has(action)) {
+      return {
+        command: 'error',
+        message: 'Usage: athena plugin <list|install|update|enable|disable|remove|verify> [source|id]',
+      }
+    }
+    const rest = argv.slice(2)
+    const unknown = rest.find((arg) => arg.startsWith('--') && arg !== '--require-signature')
+    if (unknown) return { command: 'error', message: `Unknown plugin argument: ${unknown}` }
+    return {
+      command: 'plugin',
+      action: action as Extract<CliCommand, { command: 'plugin' }>['action'],
+      args: rest.filter((arg) => arg !== '--require-signature'),
+      requireSignature: rest.includes('--require-signature'),
+    }
+  }
+  if (argv[0] === 'session') {
+    const action = argv[1] ?? 'list'
+    const actions = new Set(['list', 'checkpoints', 'rewind', 'fork', 'rename', 'search', 'delete'])
+    if (!actions.has(action)) {
+      return {
+        command: 'error',
+        message: 'Usage: athena session <list|checkpoints|rewind|fork|rename|search|delete> [args]',
+      }
+    }
+    return {
+      command: 'session',
+      action: action as Extract<CliCommand, { command: 'session' }>['action'],
+      args: argv.slice(2),
+    }
+  }
+  if (argv[0] === 'trust') {
+    const known = new Set(['--revoke', '--hooks', '--mcp', '--all'])
+    const unknown = argv.slice(1).find((arg) => !known.has(arg))
+    if (unknown) return { command: 'error', message: `Unknown trust argument: ${unknown}` }
+    if (argv.includes('--revoke') && argv.some((arg) => ['--hooks', '--mcp', '--all'].includes(arg))) {
+      return { command: 'error', message: 'Usage: athena trust [--hooks|--mcp|--all] | --revoke' }
+    }
+    const capabilities: ProjectCapability[] = []
+    if (argv.includes('--hooks') || argv.includes('--all')) capabilities.push('hooks')
+    if (argv.includes('--mcp') || argv.includes('--all')) capabilities.push('mcp')
+    return { command: 'trust', revoke: argv.includes('--revoke'), capabilities }
+  }
   if (argv[0] === 'import') {
     const sourceDir = argv[1]
     if (!sourceDir || sourceDir.startsWith('--'))
@@ -138,18 +455,28 @@ const HELP_TEXT = `athena — standalone terminal coding agent
 
 Usage:
   athena                 new session in the current project
+  athena exec [prompt]   non-interactive run; reads stdin when prompt is omitted
+  athena exec --help     automation flags and budgets
   athena --continue      resume the most recent session here
   athena --resume        pick a past session
   athena --provider <${PROVIDER_IDS.join('|')}>  session-only provider override (first-time key setup adopts it as your default)
   athena auth            add/replace API keys, switch the default provider
   athena auth status     show configured providers and redacted keys
+  athena doctor          inspect credentials, trust, dependencies, sandbox, and update status
   athena import <path>   one-time import of an ares-style brain (--force to merge)
+  athena trust           trust this canonical project path
+  athena trust --hooks   separately approve the current project hook definitions
+  athena trust --mcp     separately approve the current project MCP definitions
+  athena trust --revoke  revoke all trust for this project
+  athena session list    manage durable sessions, checkpoints, rewind, and forks
+  athena plugin list     manage installed plugins (install/update/enable/disable/remove/verify)
+  athena learn candidates inspect governed learning candidates, held-out evals, canaries, and rollback
   athena --help          this help
   athena --version       print the installed version
 
 In-session: /help /clear /resume /compact /model /effort /provider /mode /tui /memory /skills /agents /quit. Esc interrupts a turn.
 Custom commands: drop a .md file (with description/argument-hint frontmatter) into .athena/commands/ or ~/.athena/commands/ to add /<name>.
-Plugins: drop a bundle into ~/.athena/plugins/<plugin-id>/{skills,agents,commands}/ (optional plugin.json for metadata) to add namespaced <plugin-id>:<name> skills/agents/commands, without overriding anything you already have.`
+Plugins: use \`athena plugin install <directory-or-git-url>\`; managed bundles can contribute namespaced skills, agents, commands, hooks, MCP, and app metadata.`
 
 function gitBranch(cwd: string): string | null {
   try {
@@ -193,11 +520,23 @@ interface SlashDeps {
   store: SessionStore
   session: Session | null
   paths: BrainPaths
+  credentialVault: CredentialVault
   commands?: ReadonlyMap<string, { description: string; argumentHint: string | null }>
 }
 
 export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
-  const { bus, engine, gate, contextManager, client, store, session, paths, commands } = deps
+  const {
+    bus,
+    engine,
+    gate,
+    contextManager,
+    client,
+    store,
+    session,
+    paths,
+    credentialVault,
+    commands,
+  } = deps
   const info = (message: string) => bus.emit({ type: 'info', message })
   return (cmd) => {
     switch (cmd.kind) {
@@ -251,7 +590,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         }
         let resolved
         try {
-          resolved = resolveApiKey(p, loadCredentials(paths))
+          resolved = resolveApiKey(p, loadCredentials(paths), process.env, credentialVault)
         } catch (err) {
           info((err as Error).message)
           break
@@ -351,27 +690,159 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
   }
 }
 
-function makeClient(provider: ProviderId, key: string): AnthropicClient {
+function makeClient(provider: ProviderId, key: string): ModelClient {
+  const fixture = process.env['ATHENA_TEST_MODEL_SCRIPT']
+  if (process.env['NODE_ENV'] === 'test' && fixture) return new FixtureModelClient(fixture)
   return new AnthropicClient(key, PROVIDERS[provider].baseURL ?? undefined, PROVIDERS[provider].authMode)
+}
+
+function describeCapability(
+  capability: ProjectCapability,
+  value: unknown,
+): string {
+  if (capability === 'hooks') {
+    const hooks = Array.isArray(value) ? value : []
+    return hooks
+      .map((hook) => {
+        const item = hook as Record<string, unknown>
+        return `  ${String(item['event'] ?? '?')}: ${String(item['command'] ?? '?')}`
+      })
+      .join('\n')
+  }
+  return Object.entries((value ?? {}) as Record<string, unknown>)
+    .map(([name, raw]) => {
+      const item = (raw ?? {}) as Record<string, unknown>
+      const args = Array.isArray(item['args']) ? item['args'].map(String) : []
+      const envNames = Object.keys((item['env'] ?? {}) as Record<string, unknown>)
+      return `  ${name}: ${String(item['command'] ?? '?')} ${args.join(' ')}\n    cwd: ${process.cwd()}\n    env names: ${envNames.join(', ') || '(none)'}`
+    })
+    .join('\n')
+}
+
+async function confirm(question: string): Promise<boolean> {
+  const reader = createInterface({ input: process.stdin, output: process.stdout })
+  try {
+    const answer = (await reader.question(`${question} [y/N] `)).trim().toLowerCase()
+    return answer === 'y' || answer === 'yes'
+  } finally {
+    reader.close()
+  }
+}
+
+async function resolveProjectTrust(
+  paths: BrainPaths,
+  cwd: string,
+): Promise<{
+  trusted: boolean
+  allowProjectHooks: boolean
+  allowProjectMcp: boolean
+}> {
+  if (!paths.projectBrainDir) {
+    return { trusted: true, allowProjectHooks: true, allowProjectMcp: true }
+  }
+  const store = new ProjectTrustStore(paths.trustFile)
+  let trusted = store.isTrusted(cwd)
+  if (!trusted) {
+    trusted = await confirm(
+      `Trust project ${canonicalProjectPath(cwd)}? Project instructions and extensions are ignored until trusted.`,
+    )
+    if (trusted) store.trust(cwd)
+  }
+  if (!trusted) return { trusted: false, allowProjectHooks: false, allowProjectMcp: false }
+
+  const capabilities = readProjectSettingsCapabilities(paths)
+  const approved: Record<ProjectCapability, boolean> = { hooks: true, mcp: true }
+  for (const capability of ['hooks', 'mcp'] as const) {
+    const value = capability === 'hooks' ? capabilities.hooks : capabilities.mcpServers
+    const present = capability === 'hooks'
+      ? capabilities.hooks.length > 0
+      : Object.keys(capabilities.mcpServers).length > 0
+    if (!present) continue
+    const digest = capabilityDigest(value)
+    if (store.isCapabilityApproved(cwd, capability, digest)) continue
+    const details = describeCapability(capability, value)
+    const accepted = await confirm(
+      `Approve project ${capability.toUpperCase()} configuration?\n${details}\nApproval is invalidated when it changes.`,
+    )
+    approved[capability] = accepted
+    if (accepted) store.approveCapability(cwd, capability, digest)
+  }
+  return {
+    trusted,
+    allowProjectHooks: approved.hooks,
+    allowProjectMcp: approved.mcp,
+  }
+}
+
+function resolveStoredProjectTrust(
+  paths: BrainPaths,
+  cwd: string,
+): {
+  trusted: boolean
+  allowProjectHooks: boolean
+  allowProjectMcp: boolean
+} {
+  if (!paths.projectBrainDir) {
+    return { trusted: true, allowProjectHooks: true, allowProjectMcp: true }
+  }
+  const store = new ProjectTrustStore(paths.trustFile)
+  const trusted = store.isTrusted(cwd)
+  if (!trusted) return { trusted: false, allowProjectHooks: false, allowProjectMcp: false }
+  const capabilities = readProjectSettingsCapabilities(paths)
+  return {
+    trusted: true,
+    allowProjectHooks:
+      capabilities.hooks.length === 0 ||
+      store.isCapabilityApproved(cwd, 'hooks', capabilityDigest(capabilities.hooks)),
+    allowProjectMcp:
+      Object.keys(capabilities.mcpServers).length === 0 ||
+      store.isCapabilityApproved(cwd, 'mcp', capabilityDigest(capabilities.mcpServers)),
+  }
+}
+
+function finalAssistantText(messages: MessageParam[]): string {
+  const message = [...messages].reverse().find((item) => item.role === 'assistant')
+  if (!message) return ''
+  if (typeof message.content === 'string') return message.content
+  return message.content
+    .filter((block): block is Extract<typeof block, { type: 'text' }> => block.type === 'text')
+    .map((block) => block.text)
+    .join('')
+}
+
+async function readStdin(): Promise<string> {
+  let value = ''
+  process.stdin.setEncoding('utf8')
+  for await (const chunk of process.stdin) value += chunk
+  return value
 }
 
 async function main(): Promise<void> {
   const cwd = process.cwd()
   const paths = resolveBrainPaths({ cwd })
-  ensureBrainScaffold(paths)
   const cmd = parseArgs(process.argv.slice(2))
 
   if (cmd.command === 'error') {
     console.error(cmd.message)
-    process.exitCode = 1
+    process.exitCode = CLI_EXIT.usage
     return
   }
   if (cmd.command === 'help') {
     console.log(HELP_TEXT)
     return
   }
+  if (cmd.command === 'exec-help') {
+    console.log(EXEC_USAGE)
+    return
+  }
   if (cmd.command === 'version') {
     console.log(getVersion())
+    return
+  }
+  if (cmd.command === 'doctor') {
+    const report = collectDiagnostics(paths, cwd, getVersion())
+    console.log(cmd.json ? JSON.stringify(report, null, 2) : formatDiagnostics(report))
+    process.exitCode = report.checks.some((check) => check.status === 'error') ? 1 : 0
     return
   }
   if (cmd.command === 'import') {
@@ -387,11 +858,245 @@ async function main(): Promise<void> {
     }
     return
   }
+  if (cmd.command === 'trust') {
+    if (!paths.projectBrainDir) {
+      console.error(`No .athena project configuration exists in ${cwd}`)
+      process.exitCode = 1
+      return
+    }
+    const store = new ProjectTrustStore(paths.trustFile)
+    if (cmd.revoke) {
+      console.log(store.revoke(cwd) ? `Revoked trust for ${canonicalProjectPath(cwd)}` : 'Project was not trusted.')
+      return
+    }
+    if (!store.isTrusted(cwd)) store.trust(cwd)
+    const values = readProjectSettingsCapabilities(paths)
+    for (const capability of cmd.capabilities) {
+      const value = capability === 'hooks' ? values.hooks : values.mcpServers
+      store.approveCapability(cwd, capability, capabilityDigest(value))
+    }
+    console.log(
+      `Trusted ${canonicalProjectPath(cwd)}${
+        cmd.capabilities.length ? `; approved ${cmd.capabilities.join(', ')}` : ''
+      }`,
+    )
+    return
+  }
+  ensureBrainScaffold(paths)
+  if (cmd.command === 'plugin') {
+    const manager = new PluginManager(paths)
+    const [target] = cmd.args
+    try {
+      switch (cmd.action) {
+        case 'list':
+          console.log(
+            manager
+              .list()
+              .map(
+                (plugin) =>
+                  `${plugin.id}\t${plugin.version}\t${plugin.enabled ? 'enabled' : 'disabled'}\t` +
+                  `${plugin.signatureVerified ? 'signed' : 'unsigned'}\t${plugin.source}`,
+              )
+              .join('\n'),
+          )
+          break
+        case 'install': {
+          if (!target) throw new Error('Usage: athena plugin install <directory-or-git-url> [--require-signature]')
+          const installed = manager.install(target, { requireSignature: cmd.requireSignature })
+          console.log(`Installed ${installed.id}@${installed.version} (${installed.digest.slice(0, 12)})`)
+          break
+        }
+        case 'update': {
+          if (!target) throw new Error('Usage: athena plugin update <id> [--require-signature]')
+          const updated = manager.update(target, { requireSignature: cmd.requireSignature })
+          console.log(`Updated ${updated.id}@${updated.version} (${updated.digest.slice(0, 12)})`)
+          break
+        }
+        case 'enable':
+        case 'disable':
+          if (!target) throw new Error(`Usage: athena plugin ${cmd.action} <id>`)
+          manager.setEnabled(target, cmd.action === 'enable')
+          console.log(`${cmd.action === 'enable' ? 'Enabled' : 'Disabled'} ${target}`)
+          break
+        case 'remove':
+          if (!target) throw new Error('Usage: athena plugin remove <id>')
+          console.log(`Removed ${target}; recoverable copy: ${manager.remove(target)}`)
+          break
+        case 'verify':
+          if (!target) throw new Error('Usage: athena plugin verify <id>')
+          if (!manager.verify(target)) {
+            console.error(`Plugin ${target} differs from its installed digest`)
+            process.exitCode = 1
+          } else {
+            console.log(`Plugin ${target} verified`)
+          }
+          break
+      }
+    } catch (error) {
+      console.error((error as Error).message)
+      process.exitCode = CLI_EXIT.usage
+    }
+    return
+  }
+  if (cmd.command === 'learn') {
+    const candidates = new CandidateStore(paths)
+    const evaluator = new LearningEvaluator(paths)
+    const promotions = new PromotionManager(paths)
+    const [first, second] = cmd.args
+    try {
+      switch (cmd.action) {
+        case 'traces':
+          console.log(JSON.stringify(await new TraceWarehouse(paths.runsDir).list(), null, 2))
+          break
+        case 'reflect': {
+          if (cmd.args.length === 0) throw new Error('Usage: athena learn reflect <run-id> [run-id...]')
+          const candidate = await reflectTraces(paths, cmd.args)
+          console.log(candidate.id)
+          break
+        }
+        case 'add': {
+          if (!first) throw new Error('Usage: athena learn add <candidate.json>')
+          const candidate = await admitCandidate(
+            paths,
+            JSON.parse(await readFile(resolve(cwd, first), 'utf8')),
+          )
+          console.log(candidate.id)
+          break
+        }
+        case 'candidates':
+          console.log(
+            candidates
+              .list()
+              .map(
+                (candidate) =>
+                  `${candidate.id}\t${candidate.status}\t${candidate.target}\t` +
+                  `${candidate.confidence.toFixed(2)}\t${candidate.hypothesis.slice(0, 100)}`,
+              )
+              .join('\n'),
+          )
+          break
+        case 'evaluate': {
+          if (!first || !second) {
+            throw new Error('Usage: athena learn evaluate <candidate-id> <suite.json>')
+          }
+          const comparison = await evaluator.evaluate(
+            candidates.load(first),
+            evaluator.loadSuite(resolve(cwd, second)),
+            cwd,
+          )
+          console.log(JSON.stringify(comparison, null, 2))
+          break
+        }
+        case 'promote': {
+          if (!first) throw new Error('Usage: athena learn promote <candidate-id> --approve')
+          const record = promotions.promoteCanary(first, cwd, cmd.approved)
+          console.log(`Canary ${record.id} applied; run a canary evaluation before finalize.`)
+          break
+        }
+        case 'canary': {
+          if (!first || !second) throw new Error('Usage: athena learn canary <candidate-id> <suite.json>')
+          const run = await evaluator.runCanary(
+            candidates.load(first),
+            evaluator.loadSuite(resolve(cwd, second)),
+            cwd,
+          )
+          console.log(run.id)
+          break
+        }
+        case 'finalize': {
+          if (!first || !second) {
+            throw new Error('Usage: athena learn finalize <candidate-id> <canary-run-id>')
+          }
+          console.log(promotions.finalize(first, second, cwd).id)
+          break
+        }
+        case 'rollback':
+          if (!first) throw new Error('Usage: athena learn rollback <candidate-id>')
+          console.log(promotions.rollback(first, cwd).id)
+          break
+        case 'consolidate': {
+          const claims = new LearningMemoryStore(paths).consolidate()
+          console.log(`Consolidated ${claims.length} learned-memory claim(s).`)
+          break
+        }
+        case 'lineage':
+          console.log(
+            JSON.stringify(
+              {
+                verification: promotions.verifyLineage(),
+                records: promotions.lineage(),
+              },
+              null,
+              2,
+            ),
+          )
+          break
+      }
+    } catch (error) {
+      console.error((error as Error).message)
+      process.exitCode = CLI_EXIT.usage
+    }
+    return
+  }
+  if (cmd.command === 'session') {
+    const store = new SessionStore(paths.sessionsDir, cwd)
+    const [id, ...rest] = cmd.args
+    try {
+      switch (cmd.action) {
+        case 'list':
+          console.log(
+            store.list().map((item) => `${item.id}\t${item.updatedAt.toISOString()}\t${item.title}`).join('\n'),
+          )
+          break
+        case 'search':
+          if (!id) throw new Error('Usage: athena session search <query>')
+          console.log(
+            store.search(cmd.args.join(' ')).map((item) => `${item.id}\t${item.title}`).join('\n'),
+          )
+          break
+        case 'checkpoints':
+          if (!id) throw new Error('Usage: athena session checkpoints <session-id>')
+          console.log(
+            store
+              .checkpoints(id)
+              .map((item) => `${item.id}\t${item.timestamp.toISOString()}\t${item.label}`)
+              .join('\n'),
+          )
+          break
+        case 'rewind':
+          if (!id || !rest[0]) throw new Error('Usage: athena session rewind <session-id> <checkpoint-id>')
+          store.rewind(id, rest[0])
+          console.log(`Rewound ${id} to ${rest[0]}`)
+          break
+        case 'fork': {
+          if (!id) throw new Error('Usage: athena session fork <session-id> [checkpoint-id]')
+          const fork = store.fork(id, rest[0])
+          console.log(fork.id)
+          break
+        }
+        case 'rename':
+          if (!id || rest.length === 0) throw new Error('Usage: athena session rename <session-id> <title>')
+          store.rename(id, rest.join(' '))
+          console.log(`Renamed ${id}`)
+          break
+        case 'delete':
+          if (!id) throw new Error('Usage: athena session delete <session-id>')
+          console.log(`Deleted ${id}; recoverable copy: ${store.delete(id)}`)
+          break
+      }
+    } catch (err) {
+      console.error((err as Error).message)
+      process.exitCode = CLI_EXIT.usage
+    }
+    return
+  }
+  const credentialVault = createCredentialVault(paths)
   if (cmd.command === 'auth') {
     if (cmd.sub === 'status') {
       try {
         const creds = loadCredentials(paths)
-        console.log(formatAuthStatus(creds, creds.activeProvider))
+        console.log(formatAuthStatus(creds, creds.activeProvider, process.env, credentialVault))
+        console.log(formatCredentialVaultStatus(credentialVault))
       } catch (err) {
         console.error((err as Error).message)
         process.exitCode = 1
@@ -403,43 +1108,65 @@ async function main(): Promise<void> {
       process.exitCode = 1
       return
     }
-    await runAuthWizard({ paths, provider: cmd.provider })
+    await runAuthWizard({ paths, provider: cmd.provider, vault: credentialVault })
     return
   }
 
-  // Interactive commands need a real terminal; headless invocations get help instead of a hung TUI.
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+  const isExec = cmd.command === 'exec'
+  // Interactive commands need a real terminal; `exec` is the intentional
+  // non-TTY surface and therefore bypasses this guard.
+  if (!isExec && (!process.stdin.isTTY || !process.stdout.isTTY)) {
     console.log(HELP_TEXT)
     console.log('\n(interactive session skipped: not a TTY)')
     return
   }
+  const projectTrust = isExec
+    ? resolveStoredProjectTrust(paths, cwd)
+    : await resolveProjectTrust(paths, cwd)
+  const effectivePaths: BrainPaths = projectTrust.trusted
+    ? paths
+    : { ...paths, projectBrainDir: null }
   let credentials: Credentials
   try {
-    credentials = loadCredentials(paths)
+    credentials = migrateCredentialsToVault(
+      paths,
+      loadCredentials(paths),
+      credentialVault,
+    )
   } catch (err) {
     console.error((err as Error).message)
     process.exitCode = 1
     return
   }
   let provider: ProviderId = cmd.provider ?? credentials.activeProvider
-  let resolved = resolveApiKey(provider, credentials)
+  let resolved = resolveApiKey(provider, credentials, process.env, credentialVault)
   if (!resolved && cmd.provider === undefined) {
     // The default provider has no key but another one does (e.g. no credentials file
     // and only MOONSHOT_API_KEY set, while activeProvider defaults to anthropic):
     // adopt the keyed provider for the session instead of forcing the wizard.
-    const withKey = PROVIDER_IDS.find((p) => resolveApiKey(p, credentials))
+    const withKey = PROVIDER_IDS.find((p) =>
+      resolveApiKey(p, credentials, process.env, credentialVault),
+    )
     if (withKey) {
       provider = withKey
-      resolved = resolveApiKey(provider, credentials)!
+      resolved = resolveApiKey(provider, credentials, process.env, credentialVault)!
       console.log(`Using ${PROVIDERS[provider].label} (only provider with a configured key).`)
     }
   }
   if (!resolved) {
-    if (cmd.provider === undefined && PROVIDER_IDS.every((p) => !resolveApiKey(p, credentials))) {
+    if (isExec) {
+      console.error(`No API key found for ${PROVIDERS[provider].label}; run \`athena auth\`.`)
+      process.exitCode = CLI_EXIT.provider
+      return
+    }
+    if (
+      cmd.provider === undefined &&
+      PROVIDER_IDS.every((p) => !resolveApiKey(p, credentials, process.env, credentialVault))
+    ) {
       // True cold start: no --provider flag and no key anywhere. Run the FULL wizard
       // (provider pick included) and adopt whatever the user chose.
       console.log(`No API key configured yet. Let's set one up.`)
-      const done = await runAuthWizard({ paths })
+      const done = await runAuthWizard({ paths, vault: credentialVault })
       provider = done.provider
       resolved = { key: done.key, source: 'file' }
     } else {
@@ -448,26 +1175,90 @@ async function main(): Promise<void> {
       console.log(
         `No API key found for ${PROVIDERS[provider].label} - let's set one up. (This provider becomes your default; athena auth switches it.)`,
       )
-      const done = await runAuthWizard({ paths, provider })
+      const done = await runAuthWizard({ paths, provider, vault: credentialVault })
       resolved = { key: done.key, source: 'file' }
     }
   }
   // Settings warnings (e.g. a model that is invalid for the active provider falling
   // back to the provider default) surface on stderr before the TUI mounts.
-  const settings = loadSettings(paths, provider, (msg) => console.error(msg))
+  const settings = loadSettings(paths, provider, (msg) => console.error(msg), {
+    projectTrusted: projectTrust.trusted,
+    allowProjectHooks: projectTrust.allowProjectHooks,
+    allowProjectMcp: projectTrust.allowProjectMcp,
+  })
+  const pluginExtensions = loadPluginRuntimeExtensions(
+    effectivePaths,
+    (message) => console.error(message),
+  )
+  settings.hooks = [...pluginExtensions.hooks, ...settings.hooks]
+  settings.mcpServers = { ...pluginExtensions.mcpServers, ...settings.mcpServers }
+  if (isExec) {
+    settings.permissionMode = cmd.options.permissionMode
+    settings.sandboxMode = cmd.options.sandboxMode
+    settings.effort = cmd.options.effort
+    if (cmd.options.model) {
+      const selected = normalizeModel(provider, cmd.options.model)
+      if (!selected) {
+        console.error(`Unknown model '${cmd.options.model}' for ${provider}: ${modelKeys(provider).join(', ')}`)
+        process.exitCode = CLI_EXIT.usage
+        return
+      }
+      settings.model = selected
+    }
+  }
+  let execPrompt: string | null = null
+  let outputSchema: unknown = null
+  if (isExec) {
+    execPrompt = cmd.options.prompt
+    if (execPrompt === null) {
+      if (process.stdin.isTTY) {
+        console.error(`${EXEC_USAGE}\nProvide a prompt argument or pipe one over stdin.`)
+        process.exitCode = CLI_EXIT.usage
+        return
+      }
+      execPrompt = (await readStdin()).trim()
+    }
+    if (execPrompt === '') {
+      console.error('athena exec received an empty prompt')
+      process.exitCode = CLI_EXIT.usage
+      return
+    }
+    if (cmd.options.outputSchemaFile) {
+      try {
+        outputSchema = JSON.parse(
+          await readFile(resolve(cwd, cmd.options.outputSchemaFile), 'utf8'),
+        ) as unknown
+      } catch (err) {
+        console.error(`Cannot load output schema: ${(err as Error).message}`)
+        process.exitCode = CLI_EXIT.usage
+        return
+      }
+    }
+  }
   // Directory-backed custom slash commands (.athena/commands, ~/.athena/commands). Name
   // collisions with a built-in command are skipped with a warning, never fatal.
   const commands = new Map(
-    loadCommandsIndexWithPlugins(paths, (msg) => console.error(msg)).map((c) => [c.name, c]),
+    loadCommandsIndexWithPlugins(effectivePaths, (msg) => console.error(msg)).map((c) => [c.name, c]),
   )
+  const resourcePolicy = new ResourcePolicy(cwd, settings.sandboxMode, [paths.brainDir])
   const gate = new PermissionEngine({
     mode: settings.permissionMode,
     allow: settings.allow,
     deny: settings.deny,
     cwd, // same coordinate system the tools resolve file_path against
+    sandboxMode: settings.sandboxMode,
+    resourcePolicy,
   })
   const hooks = new HookRunner(settings.hooks)
   const bus = new EngineEventBus()
+  const trace = await RunTraceWriter.create(paths.runsDir, {
+    cwd,
+    provider,
+    model: settings.model,
+    mode: settings.permissionMode,
+    sandbox: settings.sandboxMode,
+  })
+  trace.attach(bus)
   const store = new SessionStore(paths.sessionsDir, cwd)
 
   const registry = new ToolRegistry()
@@ -475,6 +1266,10 @@ async function main(): Promise<void> {
     readTool,
     writeTool,
     editTool,
+    applyPatchTool,
+    readImageTool,
+    notebookEditTool,
+    diagnosticsTool,
     globTool,
     grepTool,
     bashTool,
@@ -489,7 +1284,7 @@ async function main(): Promise<void> {
   }
   // Skill is read-only and part of the base registry so sub-agents can receive it
   // under tool restriction; register it before Agent (which nests one level only).
-  registry.register(makeSkillTool(paths) as ToolDefinition<never>)
+  registry.register(makeSkillTool(effectivePaths) as ToolDefinition<never>)
 
   // MCP: connect to configured servers and mount their tools into the BASE registry
   // BEFORE the orchestrator is built, so sub-agents inherit them under restriction.
@@ -497,13 +1292,13 @@ async function main(): Promise<void> {
   const mcp = new McpManager()
   await mcp.connectAll(settings.mcpServers, registry, (m) => bus.emit({ type: 'info', message: m }))
 
-  const systemPrompt = assembleSystemPrompt({
-    constitution: loadConstitution(paths),
-    memoryIndex: loadMemoryIndex(paths),
-    projectContext: findProjectContextFiles(cwd),
+  let systemPrompt = assembleSystemPrompt({
+    constitution: loadConstitution(effectivePaths),
+    memoryIndex: loadMemoryIndex(effectivePaths),
+    projectContext: projectTrust.trusted ? findProjectContextFiles(cwd) : [],
     toolGuidance:
       'Use Read before Write/Edit. Prefer Grep/Glob over shell find. Keep tool outputs focused.',
-    skills: loadSkillsIndexWithPlugins(paths, (msg) => console.error(msg)),
+    skills: loadSkillsIndexWithPlugins(effectivePaths, (msg) => console.error(msg)),
     environment: {
       cwd,
       platform: process.platform,
@@ -511,9 +1306,14 @@ async function main(): Promise<void> {
       date: new Date().toISOString().slice(0, 10),
     },
   })
+  if (outputSchema !== null) {
+    systemPrompt +=
+      '\n\nReturn the final answer as JSON only, with no Markdown fence, matching this JSON Schema:\n' +
+      JSON.stringify(outputSchema)
+  }
   const client = new ClientHolder(makeClient(provider, resolved.key))
   const orchestrator = new AgentOrchestrator({
-    defs: loadAgentsIndexWithPlugins(paths, (msg) => console.error(msg)),
+    defs: loadAgentsIndexWithPlugins(effectivePaths, (msg) => console.error(msg)),
     clientFactory: () => client,
     baseRegistry: registry,
     gate,
@@ -522,13 +1322,32 @@ async function main(): Promise<void> {
     defaultProvider: () => engine.getProvider(), // thunk: /provider mid-session reaches sub-agents
     defaultEffort: () => engine.getEffort(), // thunk: /effort mid-session reaches sub-agents
     systemPromptBase: systemPrompt,
+    runStoreDir: paths.agentRunsDir,
+    traceRootDir: paths.runsDir,
+    limits: isExec
+      ? {
+          ...cmd.options.limits,
+          maxModelCalls: Math.min(cmd.options.limits.maxModelCalls ?? 50, 50),
+          maxToolCalls: Math.min(cmd.options.limits.maxToolCalls ?? 100, 100),
+          maxConcurrency: Math.min(cmd.options.limits.maxConcurrency ?? 2, 2),
+        }
+      : undefined,
   })
   registry.register(makeAgentTool(orchestrator) as ToolDefinition<never>)
 
   // Session selection: run = fresh; continue = latest here (or fresh); resume = picker (or fresh).
-  let session: Session
+  let session: Session | null = null
   let history: MessageParam[] = []
-  if (cmd.command === 'continue') {
+  if (cmd.command === 'exec') {
+    if (cmd.options.resumeId) {
+      history = store.resume(cmd.options.resumeId)
+      const found = store.list().find((item) => item.id === cmd.options.resumeId)
+      if (!found) throw new Error(`No session ${cmd.options.resumeId}`)
+      session = new Session(cmd.options.resumeId, found.file, history.length)
+    } else if (cmd.options.persistSession) {
+      session = store.create()
+    }
+  } else if (cmd.command === 'continue') {
     const latest = store.continueLatest()
     if (latest) {
       history = latest.messages
@@ -555,7 +1374,7 @@ async function main(): Promise<void> {
   bus.on((e) => {
     if (e.type === 'error' || e.type === 'turn-done' || e.type === 'compaction') {
       try {
-        session.appendEvent(e)
+        session?.appendEvent(e)
       } catch {
         /* journaling is best-effort */
       }
@@ -563,7 +1382,23 @@ async function main(): Promise<void> {
   })
 
   const bridge = new PermissionBridge()
-  const contextManager = new ContextManager({ modelWindowTokens: 200_000 })
+  const activeCapabilities = modelCapabilities(provider, settings.model)
+  const contextManager = new ContextManager({
+    modelWindowTokens: activeCapabilities.contextWindowTokens,
+  })
+  const toolContext: ToolContext = {
+    cwd,
+    brainDir: paths.brainDir,
+    projectBrainDir: effectivePaths.projectBrainDir,
+    fileReadRegistry: new Set(),
+    fileReadHashes: new Map(),
+    todos: [],
+    emit: (event) => bus.emit(event),
+    abortSignal: new AbortController().signal,
+    resolvePath: (path, access) => resourcePolicy.resolvePath(path, access),
+    sandboxMode: settings.sandboxMode,
+    runId: trace.runId,
+  }
   const engine = new Engine({
     client,
     bus,
@@ -571,25 +1406,28 @@ async function main(): Promise<void> {
     gate,
     hooks,
     contextManager,
-    toolContext: {
-      cwd,
-      brainDir: paths.brainDir,
-      projectBrainDir: paths.projectBrainDir,
-      fileReadRegistry: new Set(),
-      todos: [],
-      emit: (e) => bus.emit(e),
-      abortSignal: new AbortController().signal, // replaced per-turn by the engine's own signal
-    },
+    toolContext,
     provider,
     model: settings.model,
     effort: settings.effort,
     systemPrompt,
-    maxTokens: 8192,
-    askUser: (req) => bridge.ask(req),
+    maxTokens: settings.maxOutputTokens ?? activeCapabilities.maxOutputTokens,
+    preflightContext: true,
+    limits: isExec
+      ? cmd.options.limits
+      : {
+          maxModelCalls: 200,
+          maxToolCalls: 1_000,
+          maxTokens: 10_000_000,
+          maxCostUsd: 50,
+          maxDurationMs: 4 * 60 * 60_000,
+          maxConcurrency: 4,
+        },
+    askUser: isExec ? undefined : (req) => bridge.ask(req),
     onMessagesChanged: (messages) => {
       // A full disk / locked file must not kill the TUI mid-turn.
       try {
-        session.rewriteOrAppend(messages)
+        session?.rewriteOrAppend(messages)
       } catch (err) {
         bus.emit({
           type: 'error',
@@ -599,21 +1437,159 @@ async function main(): Promise<void> {
       }
     },
   })
+  hooks.configure({
+    invokeMcpTool: async (name, invocation, signal) => {
+      const tool = registry.get(name)
+      if (!tool || !name.startsWith('mcp__')) throw new Error(`Unknown MCP hook tool "${name}"`)
+      const parsed = tool.schema.safeParse(invocation.payload)
+      if (!parsed.success) throw new Error(`Invalid MCP hook input: ${parsed.error.message}`)
+      const decision = gate.check({
+        toolName: name,
+        input: parsed.data,
+        readOnly: tool.readOnly,
+        summary: `Hook invokes ${name}`,
+      })
+      if (decision.decision !== 'allow') {
+        throw new Error(`MCP hook tool permission denied: ${decision.reason}`)
+      }
+      const result = await tool.execute(parsed.data as never, {
+        ...toolContext,
+        abortSignal: signal,
+      })
+      if (result.isError) throw new Error(result.output)
+      return result.output
+    },
+    evaluatePrompt: async (prompt, invocation, signal) => {
+      const capabilities = modelCapabilities(engine.getProvider(), engine.getModel())
+      return client.complete({
+        model: capabilities.id,
+        prompt:
+          `${prompt}\n\nReturn a HookDecision JSON object only.\n\nInvocation:\n` +
+          JSON.stringify(invocation),
+        maxTokens: Math.min(2_048, capabilities.maxOutputTokens),
+        signal,
+      })
+    },
+    invokeAgent: async (agentName, prompt, _invocation, signal) => {
+      const definition = orchestrator.getDef(agentName)
+      if (!definition) throw new Error(`Unknown hook agent "${agentName}"`)
+      const result = await orchestrator.runAgent(definition, prompt, {
+        ...toolContext,
+        abortSignal: signal,
+      })
+      if (result.isError) throw new Error(result.output)
+      return result.output
+    },
+  })
   if (history.length > 0) engine.loadMessages(history)
 
   await hooks.run('SessionStart', { cwd })
+  let sessionEnded = false
+  const endSession = async (reason: string) => {
+    if (sessionEnded) return
+    sessionEnded = true
+    await hooks.run('SessionEnd', { cwd, reason, run: engine.getRunResult() })
+  }
 
-  // Last-resort crash handlers: an escaped rejection or exception must land on disk
-  // and surface in the TUI, not kill the process (Node >=15 default). Never exit here.
+  if (isExec) {
+    let permissionDenied = false
+    let wroteText = false
+    const unsubscribe = bus.on((event) => {
+      if (
+        event.type === 'tool-result' &&
+        event.isError &&
+        event.output.startsWith('Permission denied:')
+      ) {
+        permissionDenied = true
+      }
+      if (cmd.options.output === 'jsonl') {
+        process.stdout.write(JSON.stringify({ schemaVersion: 1, event }) + '\n')
+      } else if (cmd.options.output === 'text') {
+        if (event.type === 'assistant-text') {
+          wroteText = true
+          process.stdout.write(event.delta)
+        } else if (event.type === 'error') {
+          process.stderr.write(`${event.message}\n`)
+        }
+      }
+    })
+    trace.recordPrompt(execPrompt!)
+    let result
+    try {
+      result = await engine.runTurn(execPrompt!)
+    } finally {
+      unsubscribe()
+      await endSession('exec-complete')
+      shutdownBackgroundTasks(trace.runId)
+      await mcp.closeAll()
+    }
+    const output = finalAssistantText(engine.getMessages())
+    let outputValue: unknown
+    let schemaErrors: string[] = []
+    if (outputSchema !== null) {
+      const validation = validateJsonOutput(output, outputSchema)
+      outputValue = validation.value
+      schemaErrors = validation.errors
+    }
+    let exitCode: number = CLI_EXIT.success
+    if (schemaErrors.length > 0) exitCode = CLI_EXIT.outputSchema
+    else if (permissionDenied) exitCode = CLI_EXIT.permission
+    else if (result.status === 'limit') exitCode = CLI_EXIT.limit
+    else if (result.status === 'aborted') exitCode = CLI_EXIT.aborted
+    else if (result.status === 'error') exitCode = CLI_EXIT.provider
+
+    await trace.close(result)
+    const envelope = {
+      schemaVersion: 1,
+      runId: trace.runId,
+      sessionId: session?.id ?? null,
+      status: result.status,
+      reason: result.reason,
+      exitCode,
+      output,
+      outputValue,
+      schemaErrors,
+      usage: result.usage,
+      traceFile: trace.file,
+    }
+    if (cmd.options.output === 'json') {
+      process.stdout.write(JSON.stringify(envelope) + '\n')
+    } else if (cmd.options.output === 'jsonl') {
+      process.stdout.write(JSON.stringify({ schemaVersion: 1, event: { type: 'exec-result', ...envelope } }) + '\n')
+    } else {
+      if (wroteText) process.stdout.write('\n')
+      if (!wroteText && output) process.stdout.write(output + '\n')
+      if (schemaErrors.length > 0) process.stderr.write(`Output schema failed: ${schemaErrors.join('; ')}\n`)
+    }
+    process.exitCode = exitCode
+    return
+  }
+
+  // Last-resort crash handlers: state is no longer trusted after an escaped
+  // exception. Record a bounded diagnostic, cancel the active run, close MCP
+  // transports, and terminate non-zero instead of continuing in undefined state.
+  let crashing = false
   const crashHandler = (err: unknown) => {
+    if (crashing) return
+    crashing = true
     const message = err instanceof Error ? err.message : String(err)
-    const stack = err instanceof Error ? (err.stack ?? message) : message
+    const stack = (err instanceof Error ? (err.stack ?? message) : message).slice(0, 100_000)
     try {
       appendFileSync(join(paths.brainDir, 'crash.log'), `${new Date().toISOString()} ${stack}\n`, 'utf8')
     } catch {
       /* the crash log failing must not itself crash */
     }
     bus.emit({ type: 'error', message: `Internal crash (logged to crash.log): ${message}`, fatal: true })
+    engine.abort()
+    void (async () => {
+      await Promise.allSettled([
+        endSession('crash'),
+        mcp.closeAll(),
+        trace.close(engine.getRunResult()),
+      ])
+      shutdownBackgroundTasks(trace.runId)
+      process.exit(1)
+    })()
   }
   process.on('unhandledRejection', crashHandler)
   process.on('uncaughtException', crashHandler)
@@ -631,11 +1607,15 @@ async function main(): Promise<void> {
         mode: gate.getMode(),
         contextPct: Math.round(contextManager.usedFraction() * 100),
       },
-      onSubmit: (text: string) => engine.runTurn(text),
+      onSubmit: async (text: string) => {
+        trace.recordPrompt(text)
+        await engine.runTurn(text)
+      },
       onAbort: () => engine.abort(),
       permissionBridge: bridge,
       commands,
       agents: orchestrator.listDefs(),
+      initialMessages: history,
       onSlash: makeSlashHandler({
         bus,
         engine,
@@ -645,6 +1625,7 @@ async function main(): Promise<void> {
         store,
         session,
         paths,
+        credentialVault,
         commands,
       }),
     }),
@@ -656,7 +1637,10 @@ async function main(): Promise<void> {
   try {
     await instance.waitUntilExit()
   } finally {
+    await endSession('interactive-exit')
+    shutdownBackgroundTasks(trace.runId)
     await mcp.closeAll()
+    await trace.close(engine.getRunResult())
   }
 }
 
@@ -668,6 +1652,6 @@ if (['athena', 'athena.js', 'athena.cmd', 'cli.js', 'cli.mjs', 'cli.ts'].include
   // must exit with a clean message, not an unhandled-rejection stack trace.
   main().catch((err: Error) => {
     console.error(err.message)
-    process.exitCode = 1
+    process.exitCode = CLI_EXIT.internal
   })
 }

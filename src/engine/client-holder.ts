@@ -3,7 +3,12 @@
 // so a /provider swap reaches every call site at once — sub-agents and compaction can
 // never be left on the old provider's client. A swap does not affect requests already started;
 // they finish on the old client via the call-time read of `current`.
-import type { ModelClient, StreamCallbacks, StreamResult } from './client.js'
+import type {
+  CompletionResult,
+  ModelClient,
+  StreamCallbacks,
+  StreamResult,
+} from './client.js'
 
 export class ClientHolder implements ModelClient {
   private current: ModelClient
@@ -23,7 +28,15 @@ export class ClientHolder implements ModelClient {
     return this.current.stream(params, callbacks)
   }
 
-  complete(params: { model: string; prompt: string; maxTokens: number }): Promise<string> {
+  complete(params: Parameters<ModelClient['complete']>[0]): Promise<string> {
     return this.current.complete(params)
+  }
+
+  async completeDetailed(
+    params: Parameters<ModelClient['complete']>[0],
+  ): Promise<CompletionResult> {
+    return this.current.completeDetailed
+      ? this.current.completeDetailed(params)
+      : { text: await this.current.complete(params) }
   }
 }

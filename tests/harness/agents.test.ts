@@ -1,12 +1,18 @@
 import { describe, it, expect } from 'vitest'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { z } from 'zod'
 import { AgentOrchestrator, type AgentOrchestratorOptions } from '../../src/harness/agents.js'
 import { makeAgentTool } from '../../src/tools/agent.js'
 import { ToolRegistry } from '../../src/tools/registry.js'
 import { readTool } from '../../src/tools/read.js'
 import { grepTool } from '../../src/tools/grep.js'
+import { writeTool } from '../../src/tools/write.js'
 import { bashTool, taskOutputTool } from '../../src/tools/shell.js'
 import { HookRunner } from '../../src/harness/hooks.js'
+import { TraceWarehouse } from '../../src/learning/warehouse.js'
 import type { AgentDef } from '../../src/brain/loader.js'
 import type { ModelKey } from '../../src/brain/models.js'
 import type { ModelClient, StreamCallbacks, StreamResult } from '../../src/engine/client.js'
@@ -102,7 +108,8 @@ describe('AgentOrchestrator + Agent tool', () => {
       makeCtx(process.cwd()),
     )
     expect(res.isError).toBe(false)
-    expect(res.output).toBe('child answer')
+    expect(res.output).toContain('run_id:')
+    expect(res.output).toContain('child answer')
   })
 
   it('child registry is restricted to the frontmatter tools and NEVER contains Agent (one-level nesting)', () => {
@@ -157,7 +164,7 @@ describe('AgentOrchestrator + Agent tool', () => {
     expect(checks).toContain('Read')
     expect(hookEvents).toContain('UserPromptSubmit')
     expect(res.isError).toBe(false)
-    expect(res.output).toBe('done')
+    expect(res.output).toContain('done')
   })
 
   it('unknown agent name returns an error tool result, not a throw', async () => {
@@ -247,4 +254,128 @@ describe('AgentOrchestrator + Agent tool', () => {
     expect(res.output).toContain('researcher')
     expect(res.output).toContain('api down')
   })
+
+  it('records a separate child trace linked to its parent run', async () => {
+    const traceRoot = mkdtempSync(join(tmpdir(), 'athena-child-trace-'))
+    try {
+      const orchestrator = makeOrchestrator(
+        () =>
+          new MockAnthropicClient([
+            { blocks: [textBlock('child answer')], stopReason: 'end_turn' },
+          ]),
+        { traceRootDir: traceRoot },
+      )
+      const ctx = makeCtx(process.cwd())
+      ctx.runId = 'parent-run'
+      const result = await orchestrator.runAgent(researcherDef(), 'find X', ctx)
+      expect(result.isError).toBe(false)
+      const traces = await new TraceWarehouse(traceRoot).list()
+      expect(traces).toHaveLength(1)
+      expect(traces[0]).toMatchObject({
+        parentRunId: 'parent-run',
+        status: 'completed',
+        integrity: 'valid',
+      })
+    } finally {
+      rmSync(traceRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('returns a durable run id and supports follow-up with prior messages', async () => {
+    const first = new MockAnthropicClient([
+      { blocks: [textBlock('first answer')], stopReason: 'end_turn' },
+    ])
+    const second = new MockAnthropicClient([
+      { blocks: [textBlock('follow-up answer')], stopReason: 'end_turn' },
+    ])
+    const clients = [first, second]
+    const orchestrator = makeOrchestrator(() => clients.shift()!)
+    const parent = makeCtx(process.cwd())
+    const initial = await orchestrator.runAgent(researcherDef(), 'first prompt', parent)
+    const runId = initial.runId
+    expect(runId).toBeTruthy()
+
+    const followup = await orchestrator.followUp(runId!, 'second prompt', parent)
+    expect(followup.output).toContain('follow-up answer')
+    expect(second.calls[0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: 'user', content: 'first prompt' }),
+        expect.objectContaining({ role: 'user', content: 'second prompt' }),
+      ]),
+    )
+  })
+
+  it('only marks read-only child definitions safe for parallel execution', () => {
+    const registry = new ToolRegistry()
+    registry.register(readTool as ToolDefinition<never>)
+    registry.register({
+      name: 'Mutate',
+      description: 'mutates',
+      schema: z.object({}),
+      readOnly: false,
+      async execute() {
+        return { output: 'ok', isError: false }
+      },
+    } as unknown as ToolDefinition<never>)
+    const orchestrator = makeOrchestrator(
+      () => new MockAnthropicClient([]),
+      { baseRegistry: registry },
+    )
+    expect(orchestrator.isConcurrencySafe(researcherDef())).toBe(true)
+    expect(orchestrator.isConcurrencySafe({ ...researcherDef(), tools: null })).toBe(false)
+  })
+
+  it('runs mutating worktree-isolated agents off-tree and merges their reviewed patch', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'athena-agent-isolation-'))
+    try {
+      execFileSync('git', ['init'], { cwd: repo, windowsHide: true })
+      execFileSync('git', ['config', 'user.email', 'athena@example.invalid'], {
+        cwd: repo,
+        windowsHide: true,
+      })
+      execFileSync('git', ['config', 'user.name', 'Athena Test'], {
+        cwd: repo,
+        windowsHide: true,
+      })
+      writeFileSync(join(repo, 'base.txt'), 'base\n')
+      execFileSync('git', ['add', '.'], { cwd: repo, windowsHide: true })
+      execFileSync('git', ['commit', '-m', 'base'], { cwd: repo, windowsHide: true })
+      const registry = new ToolRegistry()
+      registry.register(writeTool as ToolDefinition<never>)
+      const definition: AgentDef = {
+        name: 'isolated-writer',
+        description: 'writes in an isolated worktree',
+        tools: ['Write'],
+        model: null,
+        isolation: 'worktree',
+        systemPrompt: 'Write the requested file.',
+        file: 'isolated.md',
+      }
+      const orchestrator = makeOrchestrator(
+        () =>
+          new MockAnthropicClient([
+            {
+              blocks: [
+                toolUseBlock('write-1', 'Write', {
+                  file_path: 'from-agent.txt',
+                  content: 'child output\n',
+                }),
+              ],
+              stopReason: 'tool_use',
+            },
+            { blocks: [textBlock('done')], stopReason: 'end_turn' },
+          ]),
+        { defs: [definition], baseRegistry: registry },
+      )
+      const ctx = makeCtx(repo)
+      ctx.brainDir = join(repo, '.brain')
+      ctx.sandboxMode = 'workspace-write'
+      const result = await orchestrator.runAgent(definition, 'write it', ctx)
+      expect(result.isError, result.output).toBe(false)
+      expect(readFileSync(join(repo, 'from-agent.txt'), 'utf8')).toBe('child output\n')
+      expect(orchestrator.isConcurrencySafe(definition)).toBe(true)
+    } finally {
+      rmSync(repo, { recursive: true, force: true })
+    }
+  }, 30_000)
 })

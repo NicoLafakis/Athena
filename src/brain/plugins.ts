@@ -15,9 +15,16 @@
 // plugin entry is added under its namespaced key regardless of what bare names already
 // exist in `core`; the bare name (if any) keeps resolving to the personal/project entry,
 // and the plugin's feature remains separately reachable via `<plugin-id>:<name>`.
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { join, relative, resolve, sep } from 'node:path'
 import type { BrainPaths } from './paths.js'
+import { loadPluginState } from './plugin-state.js'
+import {
+  HookDefSchema,
+  McpServerSchema,
+  type ParsedHookDef,
+  type ParsedMcpServerConfig,
+} from './settings.js'
 import {
   skillFilesIn,
   parseSkillFile,
@@ -44,6 +51,89 @@ export interface DiscoveredPlugin {
   manifest: PluginManifest | null
 }
 
+interface PluginContributions {
+  skills?: string
+  agents?: string
+  commands?: string
+  hooks?: string
+  mcp?: string
+  apps?: string[]
+}
+
+function readContributions(plugin: DiscoveredPlugin): PluginContributions {
+  const file = join(plugin.dir, 'plugin.json')
+  if (!existsSync(file)) return {}
+  const raw = JSON.parse(readFileSync(file, 'utf8')) as { contributes?: PluginContributions }
+  return raw.contributes ?? {}
+}
+
+function contributionPath(plugin: DiscoveredPlugin, entry: string): string {
+  const root = realpathSync.native(plugin.dir)
+  const candidate = resolve(root, entry)
+  const rel = relative(root, candidate)
+  if (rel === '..' || rel.startsWith(`..${sep}`)) {
+    throw new Error(`Plugin '${plugin.id}' contribution escapes its root: ${entry}`)
+  }
+  if (existsSync(candidate) && lstatSync(candidate).isSymbolicLink()) {
+    throw new Error(`Plugin '${plugin.id}' contribution may not be a symlink: ${entry}`)
+  }
+  return candidate
+}
+
+function contributionDir(
+  plugin: DiscoveredPlugin,
+  kind: 'skills' | 'agents' | 'commands',
+): string {
+  const configured = readContributions(plugin)[kind] ?? kind
+  return contributionPath(plugin, configured)
+}
+
+export interface PluginRuntimeExtensions {
+  hooks: ParsedHookDef[]
+  mcpServers: Record<string, ParsedMcpServerConfig>
+  apps: Array<{ plugin: string; path: string }>
+}
+
+/** Load non-tool bundled capabilities from enabled plugins. Each MCP server is
+ * namespaced by plugin id, while hook order follows plugin discovery order. */
+export function loadPluginRuntimeExtensions(
+  paths: BrainPaths,
+  warn?: (message: string) => void,
+): PluginRuntimeExtensions {
+  const result: PluginRuntimeExtensions = { hooks: [], mcpServers: {}, apps: [] }
+  for (const plugin of discoverPlugins(paths, warn)) {
+    try {
+      const contributes = readContributions(plugin)
+      if (contributes.hooks) {
+        const raw = JSON.parse(readFileSync(contributionPath(plugin, contributes.hooks), 'utf8')) as unknown
+        const entries =
+          Array.isArray(raw)
+            ? raw
+            : ((raw as { hooks?: unknown[] }).hooks ?? [])
+        result.hooks.push(...entries.map((entry) => HookDefSchema.parse(entry)))
+      }
+      if (contributes.mcp) {
+        const raw = JSON.parse(readFileSync(contributionPath(plugin, contributes.mcp), 'utf8')) as
+          | Record<string, unknown>
+          | { mcpServers?: Record<string, unknown> }
+        const servers =
+          'mcpServers' in raw && raw.mcpServers
+            ? raw.mcpServers
+            : (raw as Record<string, unknown>)
+        for (const [name, config] of Object.entries(servers)) {
+          result.mcpServers[`${plugin.id}:${name}`] = McpServerSchema.parse(config)
+        }
+      }
+      for (const app of contributes.apps ?? []) {
+        result.apps.push({ plugin: plugin.id, path: contributionPath(plugin, app) })
+      }
+    } catch (error) {
+      warn?.(`Plugin '${plugin.id}' runtime extensions skipped: ${(error as Error).message}`)
+    }
+  }
+  return result
+}
+
 /** Scans `<brainDir>/plugins/*` for plugin bundles. A subdirectory is a plugin whether
  *  or not it has a `plugin.json` — layout alone is authoritative. When present, the
  *  manifest's own `id` field overrides the directory name. A malformed plugin.json is a
@@ -51,8 +141,20 @@ export interface DiscoveredPlugin {
 export function discoverPlugins(paths: BrainPaths, warn?: (message: string) => void): DiscoveredPlugin[] {
   const root = paths.pluginsDir
   if (!existsSync(root)) return []
+  let disabled = new Set<string>()
+  try {
+    const state = loadPluginState(paths)
+    disabled = new Set(
+      Object.entries(state.plugins)
+        .filter(([, record]) => !record.enabled)
+        .map(([id]) => id),
+    )
+  } catch (error) {
+    warn?.((error as Error).message)
+  }
   const out: DiscoveredPlugin[] = []
   for (const entry of readdirSync(root)) {
+    if (entry.startsWith('.')) continue
     const dir = join(root, entry)
     if (!statSync(dir).isDirectory()) continue
     let manifest: PluginManifest | null = null
@@ -72,7 +174,9 @@ export function discoverPlugins(paths: BrainPaths, warn?: (message: string) => v
         )
       }
     }
-    out.push({ id: manifest?.id ?? entry, dir, manifest })
+    const id = manifest?.id ?? entry
+    if (disabled.has(id)) continue
+    out.push({ id, dir, manifest })
   }
   return out
 }
@@ -109,7 +213,14 @@ export function loadSkillsIndexWithPlugins(
   const core = loadSkillsIndex(paths)
   const pluginEntries: Array<{ pluginId: string; entry: SkillIndexEntry }> = []
   for (const plugin of discoverPlugins(paths, warn)) {
-    for (const file of skillFilesIn(join(plugin.dir, 'skills'))) {
+    let directory: string
+    try {
+      directory = contributionDir(plugin, 'skills')
+    } catch (error) {
+      warn?.((error as Error).message)
+      continue
+    }
+    for (const file of skillFilesIn(directory)) {
       const entry = parseSkillFile(file)
       if (entry) pluginEntries.push({ pluginId: plugin.id, entry })
     }
@@ -125,7 +236,13 @@ export function loadAgentsIndexWithPlugins(
   const core = loadAgentsIndex(paths)
   const pluginEntries: Array<{ pluginId: string; entry: AgentDef }> = []
   for (const plugin of discoverPlugins(paths, warn)) {
-    const dir = join(plugin.dir, 'agents')
+    let dir: string
+    try {
+      dir = contributionDir(plugin, 'agents')
+    } catch (error) {
+      warn?.((error as Error).message)
+      continue
+    }
     if (!existsSync(dir)) continue
     for (const entry of readdirSync(dir).filter((f) => f.endsWith('.md'))) {
       const def = parseAgentFile(join(dir, entry))
@@ -145,7 +262,13 @@ export function loadCommandsIndexWithPlugins(
   const core = loadCommandsIndex(paths, warn)
   const pluginEntries: Array<{ pluginId: string; entry: CommandDef }> = []
   for (const plugin of discoverPlugins(paths, warn)) {
-    const dir = join(plugin.dir, 'commands')
+    let dir: string
+    try {
+      dir = contributionDir(plugin, 'commands')
+    } catch (error) {
+      warn?.((error as Error).message)
+      continue
+    }
     if (!existsSync(dir)) continue
     for (const entry of readdirSync(dir).filter((f) => f.endsWith('.md'))) {
       const file = join(dir, entry)

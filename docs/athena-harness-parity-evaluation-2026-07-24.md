@@ -1,5 +1,10 @@
 # Athena Harness Parity Evaluation
 
+> **Implementation update:** The remediation program has been implemented and
+> re-evaluated in
+> [`athena-harness-parity-implementation-report-2026-07-24.md`](athena-harness-parity-implementation-report-2026-07-24.md).
+> This document remains the immutable pre-implementation baseline.
+
 **Date:** 2026-07-24
 
 **Scope:** Athena at commit `6f5864c` before this report

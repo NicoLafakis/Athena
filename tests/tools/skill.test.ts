@@ -40,8 +40,36 @@ describe('makeSkillTool', () => {
     const tool = makeSkillTool(resolveBrainPaths({ cwd: project, homeOverride: home }))
     const res = await tool.execute({ name: 'commit-flow' }, makeCtx(project))
     expect(res.isError).toBe(false)
-    expect(res.output).toBe('# Commit flow\n\nStage by name.')
+    expect(res.output).toContain('Skill root:')
+    expect(res.output).toContain('Instruction file:')
+    expect(res.output).toContain('# Commit flow\n\nStage by name.')
     expect(res.output).not.toContain('name: commit-flow')
+  })
+
+  it('lists and loads supporting resources relative to the canonical skill root', async () => {
+    seedSkill()
+    const dir = join(home, '.athena', 'skills', 'commit-flow')
+    mkdirSync(join(dir, 'references'), { recursive: true })
+    writeFileSync(join(dir, 'references', 'checklist.md'), 'Verify first.')
+    const tool = makeSkillTool(resolveBrainPaths({ cwd: project, homeOverride: home }))
+
+    const overview = await tool.execute({ name: 'commit-flow' }, makeCtx(project))
+    expect(overview.output).toContain('references/checklist.md')
+
+    const resource = await tool.execute(
+      { name: 'commit-flow', resource: 'references/checklist.md' },
+      makeCtx(project),
+    )
+    expect(resource.isError).toBe(false)
+    expect(resource.output).toContain('Resource: references/checklist.md')
+    expect(resource.output).toContain('Verify first.')
+  })
+
+  it('rejects supporting-resource traversal', async () => {
+    seedSkill()
+    const tool = makeSkillTool(resolveBrainPaths({ cwd: project, homeOverride: home }))
+    const res = await tool.execute({ name: 'commit-flow', resource: '../outside.md' }, makeCtx(project))
+    expect(res.isError).toBe(true)
   })
 
   it('errors with an Available list for an unknown skill', async () => {

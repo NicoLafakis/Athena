@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { MessageParam, Message, Tool } from '@anthropic-ai/sdk/resources/messages'
 import type { ThinkingParam, Effort } from '../brain/models.js'
+import type { TokenUsage } from './types.js'
 
 export interface StreamCallbacks {
   onTextDelta: (delta: string) => void
@@ -9,6 +10,11 @@ export interface StreamCallbacks {
 
 export interface StreamResult {
   message: Message
+}
+
+export interface CompletionResult {
+  text: string
+  usage?: TokenUsage
 }
 
 /** The seam the engine depends on. Production impl wraps @anthropic-ai/sdk; tests script it. */
@@ -27,13 +33,25 @@ export interface ModelClient {
     callbacks: StreamCallbacks,
   ): Promise<StreamResult>
   /** One-shot non-streaming call used by the compactor. */
-  complete(params: { model: string; prompt: string; maxTokens: number }): Promise<string>
+  complete(params: {
+    model: string
+    prompt: string
+    maxTokens: number
+    signal?: AbortSignal
+  }): Promise<string>
+  completeDetailed?(params: {
+    model: string
+    prompt: string
+    maxTokens: number
+    signal?: AbortSignal
+  }): Promise<CompletionResult>
 }
 
 const MAX_RETRIES = 3
 
 export class AnthropicClient implements ModelClient {
   private readonly sdk: Anthropic
+  private readonly promptCaching: boolean
 
   constructor(apiKey?: string, baseURL?: string, authMode: 'x-api-key' | 'bearer' = 'x-api-key') {
     // Bearer (Moonshot's Anthropic-compatible endpoint): the key goes out as
@@ -44,6 +62,7 @@ export class AnthropicClient implements ModelClient {
       authMode === 'bearer'
         ? new Anthropic({ apiKey: null, authToken: apiKey, baseURL })
         : new Anthropic({ apiKey, baseURL })
+    this.promptCaching = baseURL === undefined
   }
 
   async stream(
@@ -63,7 +82,9 @@ export class AnthropicClient implements ModelClient {
         // it 400s on sonnet-5/opus-4-8/fable-5; resolveModelRequest guarantees we don't.
         const body: Record<string, unknown> = {
           model: params.model,
-          system: params.system,
+          system: this.promptCaching
+            ? [{ type: 'text', text: params.system, cache_control: { type: 'ephemeral' } }]
+            : params.system,
           messages: params.messages,
           tools: params.tools,
           max_tokens: params.maxTokens,
@@ -91,7 +112,8 @@ export class AnthropicClient implements ModelClient {
         lastError = err
         if (params.signal.aborted) throw err
         const status = (err as { status?: number }).status
-        const retryable = status === 429 || status === 529 || (status !== undefined && status >= 500)
+        const retryable =
+          status === undefined || status === 429 || status === 529 || status >= 500
         if (!retryable || deltaEmitted || attempt === MAX_RETRIES - 1) throw err
         await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt))
       }
@@ -99,15 +121,55 @@ export class AnthropicClient implements ModelClient {
     throw lastError
   }
 
-  async complete(params: { model: string; prompt: string; maxTokens: number }): Promise<string> {
-    const res = await this.sdk.messages.create({
-      model: params.model,
-      max_tokens: params.maxTokens,
-      messages: [{ role: 'user', content: params.prompt }],
-    })
-    return res.content
-      .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
-      .map((b) => b.text)
-      .join('')
+  async complete(params: {
+    model: string
+    prompt: string
+    maxTokens: number
+    signal?: AbortSignal
+  }): Promise<string> {
+    return (await this.completeDetailed(params)).text
+  }
+
+  async completeDetailed(params: {
+    model: string
+    prompt: string
+    maxTokens: number
+    signal?: AbortSignal
+  }): Promise<CompletionResult> {
+    let lastError: unknown
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        const res = await this.sdk.messages.create(
+          {
+            model: params.model,
+            max_tokens: params.maxTokens,
+            messages: [{ role: 'user', content: params.prompt }],
+          },
+          { signal: params.signal },
+        )
+        const text = res.content
+          .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
+          .map((b) => b.text)
+          .join('')
+        return {
+          text,
+          usage: {
+            inputTokens: res.usage.input_tokens,
+            outputTokens: res.usage.output_tokens,
+            cacheReadTokens: res.usage.cache_read_input_tokens ?? 0,
+            cacheWriteTokens: res.usage.cache_creation_input_tokens ?? 0,
+          },
+        }
+      } catch (err) {
+        lastError = err
+        if (params.signal?.aborted) throw err
+        const status = (err as { status?: number }).status
+        const retryable =
+          status === undefined || status === 429 || status === 529 || status >= 500
+        if (!retryable || attempt === MAX_RETRIES - 1) throw err
+        await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt))
+      }
+    }
+    throw lastError
   }
 }

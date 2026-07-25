@@ -16,30 +16,27 @@ afterEach(() => {
 
 const user = (text: string): MessageParam => ({ role: 'user', content: text })
 
-describe('Session atomic rewrite + rewriteOrAppend', () => {
-  it('rewrite replaces the file content and leaves no temp files behind', () => {
+describe('Session immutable checkpoints + rewriteOrAppend', () => {
+  it('rewrite appends a checkpoint and leaves no lock files behind', () => {
     const store = new SessionStore(root, 'C:/proj')
     const session = store.create()
     session.appendMessage(user('one'))
     session.appendMessage(user('two'))
     session.rewrite([user('compacted')])
     const lines = readFileSync(session.file, 'utf8').trim().split('\n')
-    expect(lines).toHaveLength(1)
-    expect((JSON.parse(lines[0]!) as { data: MessageParam }).data.content).toBe('compacted')
+    expect(lines).toHaveLength(3)
+    expect((JSON.parse(lines[2]!) as { kind: string }).kind).toBe('checkpoint')
+    expect(store.resume(session.id)).toEqual([user('compacted')])
     const dir = join(root, readdirSync(root)[0]!)
     expect(readdirSync(dir).filter((f) => !f.endsWith('.jsonl'))).toEqual([])
   })
 
-  it('appends after a rewrite land after the rewritten history (no interleaving corruption)', () => {
+  it('appends after a checkpoint in reconstructed order', () => {
     const store = new SessionStore(root, 'C:/proj')
     const session = store.create()
     session.rewrite([user('a'), user('b')])
     session.appendMessage(user('c'))
-    const contents = readFileSync(session.file, 'utf8')
-      .trim()
-      .split('\n')
-      .map((l) => (JSON.parse(l) as { data: MessageParam }).data.content)
-    expect(contents).toEqual(['a', 'b', 'c'])
+    expect(store.resume(session.id)).toEqual([user('a'), user('b'), user('c')])
   })
 
   it('rewriteOrAppend appends when exactly one message was added, else rewrites', () => {
@@ -48,10 +45,7 @@ describe('Session atomic rewrite + rewriteOrAppend', () => {
     session.rewriteOrAppend([user('a')]) // 0 -> 1: append
     session.rewriteOrAppend([user('a'), user('b')]) // 1 -> 2: append
     session.rewriteOrAppend([user('summary'), user('b')]) // same length: rewrite
-    const contents = readFileSync(session.file, 'utf8')
-      .trim()
-      .split('\n')
-      .map((l) => (JSON.parse(l) as { data: MessageParam }).data.content)
-    expect(contents).toEqual(['summary', 'b'])
+    expect(store.resume(session.id)).toEqual([user('summary'), user('b')])
+    expect(readFileSync(session.file, 'utf8').trim().split('\n')).toHaveLength(3)
   })
 })

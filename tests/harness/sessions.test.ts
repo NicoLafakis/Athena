@@ -15,7 +15,7 @@ afterEach(() => {
 
 describe('projectSlug', () => {
   it('slugifies the project path deterministically', () => {
-    expect(projectSlug('C:/projects/my-app')).toBe('C--projects-my-app')
+    expect(projectSlug('C:/projects/my-app')).toMatch(/^my-app-[a-f0-9]{12}$/)
   })
 
   it('normalizes backslashes the same as forward slashes', () => {
@@ -64,7 +64,7 @@ describe('Session', () => {
     expect(readFileSync(session.file, 'utf8').trim().split('\n')).toHaveLength(4)
   })
 
-  it('rewrite truncates and re-appends the full message array', () => {
+  it('rewrite appends an immutable checkpoint and reconstructs from it', () => {
     const store = new SessionStore(sessionsRoot, 'C:/p')
     const session = store.create()
     session.appendMessage({ role: 'user', content: 'one' })
@@ -77,7 +77,8 @@ describe('Session', () => {
     session.rewrite(compacted)
     expect(store.resume(session.id)).toEqual(compacted)
     const lines = readFileSync(session.file, 'utf8').trim().split('\n')
-    expect(lines).toHaveLength(2)
+    expect(lines).toHaveLength(4)
+    expect(JSON.parse(lines[3]!).kind).toBe('checkpoint')
   })
 })
 
@@ -188,5 +189,46 @@ describe('SessionStore', () => {
       { role: 'user', content: 'before' },
       { role: 'user', content: 'after' },
     ])
+  })
+
+  it('redacts common secrets before durable persistence', () => {
+    const store = new SessionStore(sessionsRoot, 'C:/projects/my-app')
+    const session = store.create()
+    session.appendMessage({
+      role: 'user',
+      content: 'use sk-ant-api03-supersecretvalue123 and Bearer abcdefghijklmnop',
+    })
+    session.appendEvent({ apiKey: 'plain-secret', nested: { password: 'hunter2' } })
+    const disk = readFileSync(session.file, 'utf8')
+    expect(disk).not.toContain('supersecretvalue123')
+    expect(disk).not.toContain('abcdefghijklmnop')
+    expect(disk).not.toContain('plain-secret')
+    expect(disk).not.toContain('hunter2')
+    expect(disk).toContain('[REDACTED]')
+  })
+
+  it('supports checkpoint rewind, fork, rename, search, and delete lifecycles', () => {
+    const store = new SessionStore(sessionsRoot, 'C:/p')
+    const session = store.create()
+    session.appendMessage({ role: 'user', content: 'first state' })
+    const checkpoint = session.checkpoint([{ role: 'user', content: 'first state' }], 'before change')
+    session.appendMessage({ role: 'assistant', content: 'second state' })
+
+    expect(store.checkpoints(session.id)).toEqual([
+      expect.objectContaining({ id: checkpoint, label: 'before change', messageCount: 1 }),
+    ])
+    expect(store.rewind(session.id, checkpoint)).toEqual([{ role: 'user', content: 'first state' }])
+    const fork = store.fork(session.id)
+    expect(store.resume(fork.id)).toEqual([{ role: 'user', content: 'first state' }])
+
+    store.rename(session.id, 'Important work')
+    expect(store.list().find((item) => item.id === session.id)?.title).toBe('Important work')
+    expect(store.search('important').map((item) => item.id)).toContain(session.id)
+    store.delete(fork.id)
+    expect(() => store.resume(fork.id)).toThrow(/No session/)
+  })
+
+  it('uses a path hash so formerly colliding readable slugs remain distinct', () => {
+    expect(projectSlug('/a-b/c')).not.toBe(projectSlug('/a/b-c'))
   })
 })

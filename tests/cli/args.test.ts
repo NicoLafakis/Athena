@@ -91,4 +91,136 @@ describe('parseArgs — auth and --provider', () => {
     expect(parseArgs(['--version'])).toEqual({ command: 'version' })
     expect(parseArgs(['-v'])).toEqual({ command: 'version' })
   })
+
+  it('parses explicit project trust and capability approvals', () => {
+    expect(parseArgs(['trust'])).toEqual({ command: 'trust', revoke: false, capabilities: [] })
+    expect(parseArgs(['trust', '--hooks'])).toEqual({
+      command: 'trust',
+      revoke: false,
+      capabilities: ['hooks'],
+    })
+    expect(parseArgs(['trust', '--all'])).toEqual({
+      command: 'trust',
+      revoke: false,
+      capabilities: ['hooks', 'mcp'],
+    })
+    expect(parseArgs(['trust', '--revoke'])).toEqual({
+      command: 'trust',
+      revoke: true,
+      capabilities: [],
+    })
+  })
+
+  it('parses headless exec prompts, output modes, policy, and budgets', () => {
+    const parsed = parseArgs([
+      'exec',
+      'fix',
+      'the bug',
+      '--output',
+      'jsonl',
+      '--provider',
+      'kimi',
+      '--permission-mode',
+      'trusted',
+      '--sandbox',
+      'workspace-write',
+      '--max-turns',
+      '7',
+      '--max-tool-calls',
+      '0',
+      '--max-cost-usd',
+      '1.5',
+      '--session',
+    ])
+    expect(parsed).toMatchObject({
+      command: 'exec',
+      provider: 'kimi',
+      options: {
+        prompt: 'fix the bug',
+        output: 'jsonl',
+        persistSession: true,
+        permissionMode: 'trusted',
+        sandboxMode: 'workspace-write',
+        limits: {
+          maxModelCalls: 7,
+          maxToolCalls: 0,
+          maxCostUsd: 1.5,
+        },
+      },
+    })
+  })
+
+  it('treats exec help as a successful help command', () => {
+    expect(parseArgs(['exec', '--help'])).toEqual({ command: 'exec-help' })
+    expect(parseArgs(['exec', '-h'])).toEqual({ command: 'exec-help' })
+  })
+
+  it('accepts stdin mode and rejects malformed exec options', () => {
+    expect(parseArgs(['exec'])).toMatchObject({
+      command: 'exec',
+      options: { prompt: null, output: 'text' },
+    })
+    expect(parseArgs(['exec', '--output', 'xml'])).toEqual({
+      command: 'error',
+      message: '--output needs text, json, or jsonl',
+    })
+    expect(parseArgs(['exec', '--max-turns', '0'])).toEqual({
+      command: 'error',
+      message: '--max-turns requires a positive number',
+    })
+  })
+})
+
+describe('parseArgs - diagnostics', () => {
+  it('parses text and JSON doctor output', () => {
+    expect(parseArgs(['doctor'])).toEqual({ command: 'doctor', json: false })
+    expect(parseArgs(['doctor', '--json'])).toEqual({ command: 'doctor', json: true })
+    expect(parseArgs(['doctor', '--bad'])).toEqual({
+      command: 'error',
+      message: 'Unknown doctor argument: --bad',
+    })
+  })
+})
+
+describe('parseArgs - governed learning', () => {
+  it('parses evaluation and explicit promotion approval', () => {
+    expect(parseArgs(['learn', 'evaluate', 'candidate', 'suite.json'])).toEqual({
+      command: 'learn',
+      action: 'evaluate',
+      args: ['candidate', 'suite.json'],
+      approved: false,
+    })
+    expect(parseArgs(['learn', 'promote', 'candidate', '--approve'])).toEqual({
+      command: 'learn',
+      action: 'promote',
+      args: ['candidate'],
+      approved: true,
+    })
+    expect(parseArgs(['learn', 'promote', 'candidate', '--force'])).toMatchObject({
+      command: 'error',
+    })
+  })
+})
+
+describe('parseArgs — managed plugins', () => {
+  it('parses lifecycle commands and signature policy', () => {
+    expect(parseArgs(['plugin'])).toEqual({
+      command: 'plugin',
+      action: 'list',
+      args: [],
+      requireSignature: false,
+    })
+    expect(parseArgs(['plugin', 'install', './bundle', '--require-signature'])).toEqual({
+      command: 'plugin',
+      action: 'install',
+      args: ['./bundle'],
+      requireSignature: true,
+    })
+    expect(parseArgs(['plugin', 'disable', 'acme'])).toEqual({
+      command: 'plugin',
+      action: 'disable',
+      args: ['acme'],
+      requireSignature: false,
+    })
+  })
 })

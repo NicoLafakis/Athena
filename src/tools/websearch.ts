@@ -1,12 +1,13 @@
 import { z } from 'zod'
 import type { ToolDefinition } from '../engine/types.js'
-import { htmlToText } from './webfetch.js'
+import { htmlToText, readBodyCapped } from './webfetch.js'
 
 const SearchInput = z.object({
   query: z.string().min(1),
   max_results: z.number().int().min(1).max(20).optional(),
 })
 const DEFAULT_MAX_RESULTS = 8
+const SEARCH_BODY_CAP = 2_000_000
 
 interface SearchHit {
   title: string
@@ -47,7 +48,8 @@ export const websearchTool: ToolDefinition<z.infer<typeof SearchInput>> = {
         },
       )
       if (!res.ok) return { output: `Search unavailable: HTTP ${res.status}`, isError: true }
-      const hits = parseDuckDuckGoHtml(await res.text(), input.max_results ?? DEFAULT_MAX_RESULTS)
+      const body = await readBodyCapped(res, SEARCH_BODY_CAP)
+      const hits = parseDuckDuckGoHtml(body.text, input.max_results ?? DEFAULT_MAX_RESULTS)
       if (hits.length === 0) return { output: `No results for: ${input.query}`, isError: false }
       const out = hits.map((h, n) => `${n + 1}. ${h.title}\n   ${h.url}\n   ${h.snippet}`).join('\n')
       return { output: out, isError: false }

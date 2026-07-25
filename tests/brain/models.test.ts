@@ -11,6 +11,7 @@ import {
   normalizeProvider,
   normalizeModel,
   resolveModelRequest,
+  usageCostUsd,
 } from '../../src/brain/models.js'
 
 describe('provider registry', () => {
@@ -95,7 +96,8 @@ describe('provider-scoped model registry', () => {
     expect(modelKeys('kimi-code')).toEqual(['kimi-for-coding', 'k3', 'k3[1m]'])
     expect(modelId('kimi-code', 'kimi-for-coding')).toBe('kimi-for-coding')
     expect(modelId('kimi-code', 'k3')).toBe('k3')
-    expect(modelId('kimi-code', 'k3[1m]')).toBe('k3[1m]')
+    // k3[1m] is a local capability alias; the API wire id remains k3.
+    expect(modelId('kimi-code', 'k3[1m]')).toBe('k3')
     expect(modelLabel('kimi-code', 'k3')).toBe('Kimi K3 (256K)')
   })
 
@@ -103,6 +105,17 @@ describe('provider-scoped model registry', () => {
     expect(() => modelId('kimi', 'sonnet')).toThrow(/Unknown model 'sonnet' for provider 'kimi'/)
     expect(() => modelId('anthropic', 'kimi-k3')).toThrow(/Unknown model 'kimi-k3'/)
     expect(() => modelId('kimi', 'k3')).toThrow(/Unknown model 'k3' for provider 'kimi'/)
+  })
+
+  it('accounts for cache reads and cache creation in metered cost', () => {
+    expect(
+      usageCostUsd('anthropic', 'haiku', {
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+        cacheReadTokens: 1_000_000,
+        cacheWriteTokens: 1_000_000,
+      }),
+    ).toBeCloseTo(7.35)
   })
 })
 

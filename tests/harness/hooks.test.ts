@@ -87,4 +87,51 @@ describe('HookRunner', () => {
     const out = await runner.run('PreToolUse', { toolName: 'Bash', input: bigInput })
     expect(out.allowed).toBe(true)
   })
+
+  it('dispatches prompt hooks through the structured adapter contract', async () => {
+    const runner = new HookRunner(
+      [
+        {
+          version: 1,
+          type: 'prompt',
+          event: 'PreToolUse',
+          prompt: 'Decide safely',
+        },
+      ],
+      {
+        evaluatePrompt: async (_prompt, invocation) => ({
+          decision: 'allow',
+          addedContext: `checked ${invocation.payload.toolName}`,
+          updatedInput: { value: 'normalized' },
+        }),
+      },
+    )
+    const out = await runner.run('PreToolUse', { toolName: 'Echo', input: { value: 'raw' } })
+    expect(out).toMatchObject({
+      allowed: true,
+      addedContext: 'checked Echo',
+      updatedInput: { value: 'normalized' },
+    })
+  })
+
+  it('supports bounded HTTP hook decisions and fails gate events closed', async () => {
+    const runner = new HookRunner(
+      [
+        {
+          version: 1,
+          type: 'http',
+          event: 'UserPromptSubmit',
+          url: 'https://example.com/check',
+        },
+      ],
+      {
+        fetch: async () =>
+          new Response(JSON.stringify({ decision: 'deny', reason: 'policy says no' }), {
+            status: 200,
+          }),
+      },
+    )
+    const out = await runner.run('UserPromptSubmit', { prompt: 'unsafe' })
+    expect(out).toEqual({ allowed: false, reason: 'policy says no' })
+  })
 })

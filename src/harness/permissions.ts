@@ -1,5 +1,12 @@
 import { posix, resolve } from 'node:path'
-import type { PermissionDecision, PermissionGate, PermissionMode, PermissionRequest } from '../engine/types.js'
+import type {
+  PermissionDecision,
+  PermissionGate,
+  PermissionMode,
+  PermissionRequest,
+  SandboxMode,
+} from '../engine/types.js'
+import type { ResourcePolicy } from './resource-policy.js'
 
 export interface ParsedRule { tool: string; pattern: string | null }
 
@@ -69,6 +76,11 @@ export function matchTarget(toolName: string, input: unknown, cwd?: string): str
       ? normalizePathTarget(obj['file_path'] as string)
       : canonicalizePath(obj['file_path'] as string, cwd)
   }
+  if (typeof obj['path'] === 'string') {
+    return cwd === undefined
+      ? normalizePathTarget(obj['path'] as string)
+      : canonicalizePath(obj['path'] as string, cwd)
+  }
   if (typeof obj['pattern'] === 'string') return obj['pattern'] as string
   if (typeof obj['url'] === 'string') return obj['url'] as string
   return JSON.stringify(input)
@@ -99,7 +111,8 @@ export function matchesRule(
   // case-insensitive. This closes the `../` escape (a relative target slipping
   // past an absolute deny rule) and lets relative allow rules match absolute
   // targets.
-  const isPathTarget = typeof ((input ?? {}) as Record<string, unknown>)['file_path'] === 'string'
+  const obj = (input ?? {}) as Record<string, unknown>
+  const isPathTarget = typeof obj['file_path'] === 'string' || typeof obj['path'] === 'string'
   if (isPathTarget) {
     const pattern = canonicalizePattern(rule.pattern, cwd)
     const target = matchTarget(toolName, input, cwd)
@@ -117,6 +130,8 @@ export interface PermissionEngineOptions {
   /** Session cwd file-path rules and targets are resolved against — must match
    *  the ToolContext cwd the tools resolve with. Defaults to process.cwd(). */
   cwd?: string
+  sandboxMode?: SandboxMode
+  resourcePolicy?: ResourcePolicy
 }
 
 export class PermissionEngine implements PermissionGate {
@@ -125,12 +140,16 @@ export class PermissionEngine implements PermissionGate {
   private readonly denyRules: ParsedRule[]
   private readonly sessionGrants: ParsedRule[] = []
   private readonly cwd: string
+  private readonly sandboxMode: SandboxMode
+  private readonly resourcePolicy?: ResourcePolicy
 
   constructor(opts: PermissionEngineOptions) {
     this.mode = opts.mode
     this.allowRules = opts.allow.map(parseRule)
     this.denyRules = opts.deny.map(parseRule)
     this.cwd = opts.cwd ?? process.cwd()
+    this.sandboxMode = opts.sandboxMode ?? 'unrestricted'
+    this.resourcePolicy = opts.resourcePolicy
   }
 
   setMode(mode: PermissionMode): void { this.mode = mode }
@@ -139,6 +158,25 @@ export class PermissionEngine implements PermissionGate {
   grantSession(rule: string): void { this.sessionGrants.push(parseRule(rule)) }
 
   check(req: PermissionRequest): PermissionDecision {
+    const input = (req.input ?? {}) as Record<string, unknown>
+    const path =
+      typeof input['file_path'] === 'string'
+        ? input['file_path']
+        : typeof input['path'] === 'string'
+          ? input['path']
+          : null
+    if (path !== null && this.resourcePolicy) {
+      const access = req.readOnly ? 'read' : 'write'
+      if (!this.resourcePolicy.contains(path, access)) {
+        return {
+          decision: 'deny',
+          reason: `${access === 'read' ? 'Read' : 'Write'} target is outside the ${this.sandboxMode} sandbox`,
+        }
+      }
+    }
+    if (this.sandboxMode === 'read-only' && !req.readOnly) {
+      return { decision: 'deny', reason: 'Read-only sandbox: mutating tools are disabled' }
+    }
     // 1. Hard deny — no mode bypasses it.
     for (const rule of this.denyRules) {
       if (matchesRule(rule, req.toolName, req.input, this.cwd)) {

@@ -113,16 +113,14 @@ describe('webfetchTool', () => {
     expect(String(fetchMock.mock.calls[0]![0])).toBe('https://example.com/page')
   })
 
-  it('leaves http alone for localhost and 127.0.0.1', async () => {
-    const fetchMock = vi.fn(
-      async (_url: string | URL) =>
-        new Response('ok', { status: 200, headers: { 'content-type': 'text/plain' } }),
-    )
+  it('blocks localhost and loopback without fetching', async () => {
+    const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
-    await webfetchTool.execute({ url: 'http://localhost:3000/x' }, makeCtx(dir))
-    await webfetchTool.execute({ url: 'http://127.0.0.1:8080/y' }, makeCtx(dir))
-    expect(String(fetchMock.mock.calls[0]![0])).toBe('http://localhost:3000/x')
-    expect(String(fetchMock.mock.calls[1]![0])).toBe('http://127.0.0.1:8080/y')
+    for (const url of ['http://localhost:3000/x', 'http://127.0.0.1:8080/y', 'http://[::1]/']) {
+      const result = await webfetchTool.execute({ url }, makeCtx(dir))
+      expect(result.isError).toBe(true)
+    }
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('blocks the cloud metadata host without fetching', async () => {
@@ -136,6 +134,21 @@ describe('webfetchTool', () => {
       expect(res.isError).toBe(true)
     }
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('blocks a redirect into a private address before the second request', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(null, {
+          status: 302,
+          headers: { location: 'http://127.0.0.1/private' },
+        }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const result = await webfetchTool.execute({ url: 'https://example.com/start' }, makeCtx(dir))
+    expect(result.isError).toBe(true)
+    expect(result.output).toMatch(/private|internal/i)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })
 

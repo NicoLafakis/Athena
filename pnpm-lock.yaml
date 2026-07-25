@@ -29,6 +29,9 @@ importers:
       tinyglobby:
         specifier: ^0.2.10
         version: 0.2.17
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
       zod:
         specifier: ^3.24.1
         version: 3.25.76
@@ -51,9 +54,6 @@ importers:
       tsx:
         specifier: ^4.19.2
         version: 4.23.1
-      typescript:
-        specifier: ^5.7.2
-        version: 5.9.3
       typescript-eslint:
         specifier: ^8.18.0
         version: 8.65.0(eslint@9.39.5)(typescript@5.9.3)

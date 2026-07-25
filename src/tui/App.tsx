@@ -35,6 +35,7 @@ import { todoLineText, todoNoticeText, TODO_HORIZONTAL_CHROME_COLS } from './com
 import { statusLineText } from './components/StatusLine.js'
 import type { AgentMentionSource } from './agentMention.js'
 import { getVersion } from '../version.js'
+import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
 
 // Fixed per-sibling row budgets used below to size Banner/TodoPanel/PermissionDialog
 // against the ACTUAL terminal size in fullscreen mode. This matters because only the
@@ -188,6 +189,66 @@ export interface AppProps {
    *  straight through to InputBox's combined '@' picker the same way `commands` is.
    *  Optional so existing callers/tests that don't wire any stay unaffected. */
   agents?: readonly AgentMentionSource[]
+  /** Reconstructed session history. The TUI and Engine must begin from the same
+   * durable state so a resumed model never sees context hidden from the user. */
+  initialMessages?: MessageParam[]
+}
+
+export function transcriptEntriesFromMessages(messages: MessageParam[]): TranscriptEntry[] {
+  const entries: TranscriptEntry[] = []
+  const toolEntries = new Map<string, number>()
+  for (const message of messages) {
+    if (typeof message.content === 'string') {
+      entries.push({
+        kind: message.role === 'assistant' ? 'assistant' : 'user',
+        text: message.content,
+      })
+      continue
+    }
+    for (const raw of message.content) {
+      const block = raw as {
+        type: string
+        text?: string
+        id?: string
+        name?: string
+        input?: unknown
+        tool_use_id?: string
+        content?: unknown
+        is_error?: boolean
+      }
+      if (block.type === 'text' && block.text) {
+        entries.push({
+          kind: message.role === 'assistant' ? 'assistant' : 'user',
+          text: block.text,
+        })
+      } else if (block.type === 'tool_use' && block.id && block.name) {
+        toolEntries.set(block.id, entries.length)
+        entries.push({
+          kind: 'tool',
+          id: block.id,
+          name: block.name,
+          input: block.input,
+          output: null,
+          isError: false,
+        })
+      } else if (block.type === 'tool_result' && block.tool_use_id) {
+        const index = toolEntries.get(block.tool_use_id)
+        if (index === undefined) continue
+        const current = entries[index]
+        if (current?.kind === 'tool') {
+          entries[index] = {
+            ...current,
+            output:
+              typeof block.content === 'string'
+                ? block.content
+                : JSON.stringify(block.content),
+            isError: block.is_error === true,
+          }
+        }
+      }
+    }
+  }
+  return entries
 }
 
 /** Live terminal row/column count, kept in sync with resize events. Ink's `useStdout`
@@ -220,8 +281,11 @@ export function App({
   permissionBridge,
   commands,
   agents,
+  initialMessages = [],
 }: AppProps) {
-  const [entries, setEntries] = useState<TranscriptEntry[]>([])
+  const [entries, setEntries] = useState<TranscriptEntry[]>(() =>
+    transcriptEntriesFromMessages(initialMessages),
+  )
   const [todos, setTodos] = useState<TodoItem[]>([])
   const [pending, setPending] = useState<PendingPermission | null>(null)
   const [busy, setBusy] = useState(false)
@@ -682,12 +746,65 @@ export function reduceEvent(prev: TranscriptEntry[], e: EngineEvent): Transcript
           ? { ...entry, output: e.output, isError: e.isError }
           : entry,
       )
+    case 'tool-progress':
+      return prev.map((entry) =>
+        entry.kind === 'tool' && entry.id === e.id
+          ? {
+              ...entry,
+              output: `${entry.output ?? ''}${e.delta}`.slice(-30_000),
+            }
+          : entry,
+      )
+    case 'background-output': {
+      const id = `background:${e.taskId}`
+      const existing = prev.findIndex((entry) => entry.kind === 'system' && entry.id === id)
+      if (existing === -1) {
+        return [...prev, { kind: 'system', id, text: `[${e.taskId}] ${e.delta}` }]
+      }
+      return prev.map((entry, index) =>
+        index === existing && entry.kind === 'system'
+          ? { ...entry, text: `${entry.text}${e.delta}`.slice(-30_000) }
+          : entry,
+      )
+    }
     case 'compaction':
       return [...prev, { kind: 'system', text: `Context compacted. ${e.summary.slice(0, 200)}` }]
     case 'info':
       return [...prev, { kind: 'system', text: e.message }]
     case 'error':
       return [...prev, { kind: 'system', text: `Error: ${e.message}` }]
+    case 'child-status':
+      return [
+        ...prev,
+        {
+          kind: 'system',
+          text: `Agent ${e.agent} (${e.runId.slice(0, 8)}): ${e.status}`,
+        },
+      ]
+    case 'child-text':
+      return [
+        ...prev,
+        {
+          kind: 'system',
+          text: `[${e.agent} ${e.runId.slice(0, 8)}] ${e.delta}`,
+        },
+      ]
+    case 'child-tool-request':
+      return [
+        ...prev,
+        {
+          kind: 'system',
+          text: `[${e.agent} ${e.runId.slice(0, 8)}] ${e.name} started`,
+        },
+      ]
+    case 'child-tool-result':
+      return [
+        ...prev,
+        {
+          kind: 'system',
+          text: `[${e.agent} ${e.runId.slice(0, 8)}] ${e.name} ${e.isError ? 'failed' : 'finished'}`,
+        },
+      ]
     default:
       return prev
   }

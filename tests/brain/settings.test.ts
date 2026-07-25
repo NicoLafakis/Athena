@@ -43,6 +43,48 @@ describe('loadSettings', () => {
     expect(s.allow).toEqual(['Read(**)', 'Bash(git:*)'])
   })
 
+  it('safe untrusted mode ignores all project settings', () => {
+    mkdirSync(join(home, '.athena'), { recursive: true })
+    writeFileSync(join(home, '.athena', 'settings.json'), JSON.stringify({ model: 'haiku' }))
+    mkdirSync(join(project, '.athena'), { recursive: true })
+    writeFileSync(
+      join(project, '.athena', 'settings.json'),
+      JSON.stringify({
+        model: 'opus',
+        permissionMode: 'trusted',
+        hooks: [{ event: 'SessionStart', command: 'malicious' }],
+        mcpServers: { bad: { command: 'malicious' } },
+      }),
+    )
+    const settings = loadSettings(
+      resolveBrainPaths({ cwd: project, homeOverride: home }),
+      'anthropic',
+      undefined,
+      { projectTrusted: false },
+    )
+    expect(settings.model).toBe('haiku')
+    expect(settings.permissionMode).toBe('normal')
+    expect(settings.hooks).toEqual([])
+    expect(settings.mcpServers).toEqual({})
+  })
+
+  it('project settings cannot select trusted or unrestricted modes', () => {
+    mkdirSync(join(project, '.athena'), { recursive: true })
+    writeFileSync(
+      join(project, '.athena', 'settings.json'),
+      JSON.stringify({ permissionMode: 'trusted', sandboxMode: 'unrestricted' }),
+    )
+    const warnings: string[] = []
+    const settings = loadSettings(
+      resolveBrainPaths({ cwd: project, homeOverride: home }),
+      'anthropic',
+      (warning) => warnings.push(warning),
+    )
+    expect(settings.permissionMode).toBe('normal')
+    expect(settings.sandboxMode).toBe('workspace-write')
+    expect(warnings).toHaveLength(2)
+  })
+
   it('rule/hook arrays are always defined and never aliased across loads', () => {
     mkdirSync(join(home, '.athena'), { recursive: true })
     writeFileSync(join(home, '.athena', 'settings.json'),
@@ -55,10 +97,11 @@ describe('loadSettings', () => {
     expect(s1.hooks).toHaveLength(1)
     s1.allow.push('Bash(rm:*)')
     s1.deny.push('Edit(**)')
-    s1.hooks[0]!.command = 'mutated'
+    expect(s1.hooks[0]!.type).toBe('command')
+    if (s1.hooks[0]!.type === 'command') s1.hooks[0]!.command = 'mutated'
     expect(s2.allow).toEqual(['Read(**)'])
     expect(s2.deny).toEqual([])
-    expect(s2.hooks[0]!.command).toBe('echo hi')
+    expect(s2.hooks[0]).toMatchObject({ type: 'command', command: 'echo hi', version: 1 })
   })
 
   it('schema defaults do not alias arrays between parses', () => {
@@ -66,7 +109,14 @@ describe('loadSettings', () => {
     const d2 = SettingsSchema.parse({})
     d1.allow.push('X')
     d1.deny.push('Y')
-    d1.hooks.push({ event: 'Stop', command: 'z', timeoutMs: 1 })
+    d1.hooks.push({
+      type: 'command',
+      version: 1,
+      event: 'Stop',
+      command: 'z',
+      timeoutMs: 1,
+      maxOutputChars: 100_000,
+    })
     expect(d2.allow).toEqual([])
     expect(d2.deny).toEqual([])
     expect(d2.hooks).toEqual([])
@@ -82,7 +132,15 @@ describe('loadSettings', () => {
       JSON.stringify({ mcpServers: { fs: { command: 'node' } } }),
     )
     const s = loadSettings(resolveBrainPaths({ cwd: project, homeOverride: home }))
-    expect(s.mcpServers['fs']).toEqual({ command: 'node', args: [], env: {} })
+    expect(s.mcpServers['fs']).toEqual({
+      transport: 'stdio',
+      command: 'node',
+      args: [],
+      env: {},
+      envAllowlist: [],
+      maxOutputChars: 100_000,
+      discoveryLimit: 200,
+    })
   })
 
   it('project mcpServers wins wholesale over global', () => {
@@ -98,7 +156,38 @@ describe('loadSettings', () => {
     )
     const s = loadSettings(resolveBrainPaths({ cwd: project, homeOverride: home }))
     expect(Object.keys(s.mcpServers)).toEqual(['b']) // global 'a' replaced, not merged
-    expect(s.mcpServers['b']!.command).toBe('project-b')
+    expect(s.mcpServers['b']).toMatchObject({ transport: 'stdio', command: 'project-b' })
+  })
+
+  it('parses bounded Streamable HTTP and OAuth client-credentials settings', () => {
+    mkdirSync(join(home, '.athena'), { recursive: true })
+    writeFileSync(
+      join(home, '.athena', 'settings.json'),
+      JSON.stringify({
+        mcpServers: {
+          remote: {
+            transport: 'http',
+            url: 'https://mcp.example.com/v1',
+            bearerTokenEnv: 'REMOTE_MCP_TOKEN',
+            oauth: {
+              flow: 'client_credentials',
+              clientIdEnv: 'REMOTE_MCP_CLIENT_ID',
+              clientSecretEnv: 'REMOTE_MCP_CLIENT_SECRET',
+              scope: 'tools.read',
+            },
+          },
+        },
+      }),
+    )
+    const remote = loadSettings(
+      resolveBrainPaths({ cwd: project, homeOverride: home }),
+    ).mcpServers['remote']
+    expect(remote).toMatchObject({
+      transport: 'http',
+      url: 'https://mcp.example.com/v1',
+      allowPrivateNetwork: false,
+      discoveryLimit: 200,
+    })
   })
 
   it('throws a readable error on invalid settings', () => {

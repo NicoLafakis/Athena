@@ -7,6 +7,7 @@ import { createInterface } from 'node:readline'
 import { PROVIDERS, PROVIDER_IDS, modelId, type ProviderId } from '../brain/models.js'
 import { setProviderKey } from '../brain/credentials.js'
 import type { BrainPaths } from '../brain/paths.js'
+import type { CredentialVault } from '../brain/credential-vault.js'
 import { AnthropicClient } from '../engine/client.js'
 
 export interface WizardIO {
@@ -43,6 +44,7 @@ export async function runAuthWizard(opts: {
   provider?: ProviderId
   io?: WizardIO
   validate?: ValidateFn
+  vault?: CredentialVault
 }): Promise<{ provider: ProviderId; key: string }> {
   const io = opts.io ?? terminalIO()
   const validate = opts.validate ?? validateKey
@@ -64,8 +66,14 @@ export async function runAuthWizard(opts: {
       )
       continue
     }
-    setProviderKey(opts.paths, provider, key)
-    io.say(`Saved to ${opts.paths.credentialsFile}. Active provider: ${provider}.`)
+    const warnings: string[] = []
+    const saved = setProviderKey(opts.paths, provider, key, {
+      vault: opts.vault,
+      onWarn: (message) => warnings.push(message),
+    })
+    const destination = saved.providers[provider]?.vaultRef ? 'the OS credential vault' : opts.paths.credentialsFile
+    for (const warning of warnings) io.say(warning)
+    io.say(`Saved to ${destination}. Active provider: ${provider}.`)
     return { provider, key }
   }
 }

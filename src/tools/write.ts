@@ -1,7 +1,15 @@
-import { writeFileSync, existsSync, mkdirSync } from 'node:fs'
-import { resolve, dirname } from 'node:path'
+import { existsSync } from 'node:fs'
+import { mkdir } from 'node:fs/promises'
+import { dirname } from 'node:path'
 import { z } from 'zod'
 import type { ToolDefinition } from '../engine/types.js'
+import {
+  assertReadPrecondition,
+  atomicWriteFile,
+  recordKnownFile,
+  revalidateToolPath,
+  resolveToolPath,
+} from './files.js'
 
 const WriteInput = z.object({ file_path: z.string(), content: z.string() })
 
@@ -12,16 +20,17 @@ export const writeTool: ToolDefinition<z.infer<typeof WriteInput>> = {
   schema: WriteInput,
   readOnly: false,
   async execute(input, ctx) {
-    const abs = resolve(ctx.cwd, input.file_path)
-    if (existsSync(abs) && !ctx.fileReadRegistry.has(abs)) {
-      return {
-        output: `Refusing to overwrite ${abs}: file exists and has not been Read this session. Read it first.`,
-        isError: true,
-      }
+    let abs: string
+    try {
+      abs = resolveToolPath(ctx, input.file_path, 'write')
+      if (existsSync(abs)) await assertReadPrecondition(abs, ctx)
+    } catch (err) {
+      return { output: `Refusing to overwrite ${input.file_path}: ${(err as Error).message}`, isError: true }
     }
-    mkdirSync(dirname(abs), { recursive: true })
-    writeFileSync(abs, input.content, 'utf8')
-    ctx.fileReadRegistry.add(abs) // its current content is now known
+    await mkdir(dirname(abs), { recursive: true })
+    revalidateToolPath(ctx, abs, 'write')
+    await atomicWriteFile(abs, input.content)
+    await recordKnownFile(abs, ctx)
     return { output: `Wrote ${input.content.length} chars to ${abs}`, isError: false }
   },
 }

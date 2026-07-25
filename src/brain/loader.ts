@@ -1,11 +1,13 @@
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type { BrainPaths } from './paths.js'
 
 export interface SkillIndexEntry {
   name: string
   description: string
   file: string
+  root: string
+  maxContextChars: number
 }
 export interface CommandDef {
   name: string
@@ -38,8 +40,16 @@ export interface AgentDef {
   description: string
   tools: string[] | null // null = all tools (minus Agent, enforced in Task 12)
   model: string | null
+  isolation?: 'shared' | 'worktree'
   systemPrompt: string
   file: string
+  limits?: {
+    maxModelCalls?: number
+    maxToolCalls?: number
+    maxTokens?: number
+    maxCostUsd?: number
+    maxDurationMs?: number
+  }
 }
 
 export function parseFrontmatter(src: string): { attrs: Record<string, string>; body: string } {
@@ -58,7 +68,11 @@ export function loadConstitution(paths: BrainPaths): string | null {
 }
 
 export function loadMemoryIndex(paths: BrainPaths): string | null {
-  return existsSync(paths.memoryIndexFile) ? readFileSync(paths.memoryIndexFile, 'utf8') : null
+  const files = [paths.memoryIndexFile, join(paths.memoryDir, 'LEARNED.md')]
+  const parts = files
+    .filter((file) => existsSync(file))
+    .map((file) => readFileSync(file, 'utf8').slice(0, 200_000))
+  return parts.length > 0 ? parts.join('\n\n---\n\n') : null
 }
 
 /** Skill files under a directory: a bare `<name>.md`, or a subdir holding `SKILL.md`.
@@ -85,7 +99,13 @@ export function parseSkillFile(file: string): SkillIndexEntry | null {
   const { attrs } = parseFrontmatter(readFileSync(file, 'utf8'))
   const name = attrs['name']
   if (!name) return null
-  return { name, description: attrs['description'] ?? '', file }
+  return {
+    name,
+    description: attrs['description'] ?? '',
+    file,
+    root: dirname(file),
+    maxContextChars: positiveInt(attrs['max-context-chars']) ?? 200_000,
+  }
 }
 
 export function loadSkillsIndex(paths: BrainPaths): SkillIndexEntry[] {
@@ -118,9 +138,34 @@ export function parseAgentFile(file: string): AgentDef | null {
           .filter(Boolean)
       : null,
     model: attrs['model'] ?? null,
+    isolation: attrs['isolation'] === 'worktree' ? 'worktree' : 'shared',
     systemPrompt: body.trim(),
     file,
+    limits: {
+      maxModelCalls: positiveInt(attrs['max-turns']),
+      maxToolCalls: nonNegativeInt(attrs['max-tool-calls']),
+      maxTokens: positiveInt(attrs['max-tokens']),
+      maxCostUsd: positiveNumber(attrs['max-cost-usd']),
+      maxDurationMs: positiveInt(attrs['timeout-ms']),
+    },
   }
+}
+
+function positiveNumber(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
+}
+
+function positiveInt(value: string | undefined): number | undefined {
+  const parsed = positiveNumber(value)
+  return parsed !== undefined && Number.isInteger(parsed) ? parsed : undefined
+}
+
+function nonNegativeInt(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined
 }
 
 export function loadAgentsIndex(paths: BrainPaths): AgentDef[] {

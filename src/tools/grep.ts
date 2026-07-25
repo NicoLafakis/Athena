@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process'
-import { resolve } from 'node:path'
 import { rgPath } from '@vscode/ripgrep'
 import { z } from 'zod'
 import type { ToolDefinition, ToolOutput } from '../engine/types.js'
+import { resolveToolPath } from './files.js'
 
 const GrepInput = z.object({
   pattern: z.string(),
@@ -21,16 +21,31 @@ export const grepTool: ToolDefinition<z.infer<typeof GrepInput>> = {
     const args = ['--line-number', '--no-heading', '--color', 'never', '--max-columns', '500']
     if (input.case_insensitive) args.push('-i')
     if (input.glob) args.push('--glob', input.glob)
-    args.push('--', input.pattern, resolve(ctx.cwd, input.path ?? '.'))
+    let base: string
+    try {
+      base = resolveToolPath(ctx, input.path ?? '.', 'read')
+    } catch (err) {
+      return Promise.resolve({ output: (err as Error).message, isError: true })
+    }
+    args.push('--', input.pattern, base)
     return new Promise((resolvePromise) => {
       const child = spawn(rgPath, args, { signal: ctx.abortSignal })
       let out = ''
       let err = ''
+      let truncated = false
       child.stdout.on('data', (d: Buffer) => {
-        out += d.toString('utf8')
+        const chunk = d.toString('utf8')
+        if (out.length >= OUTPUT_CAP) {
+          truncated = true
+          return
+        }
+        const remaining = OUTPUT_CAP - out.length
+        out += chunk.slice(0, remaining)
+        if (chunk.length > remaining) truncated = true
       })
       child.stderr.on('data', (d: Buffer) => {
-        err += d.toString('utf8')
+        if (err.length >= OUTPUT_CAP) return
+        err += d.toString('utf8').slice(0, OUTPUT_CAP - err.length)
       })
       child.on('error', (e) =>
         resolvePromise({ output: `ripgrep failed to start: ${e.message}`, isError: true }),
@@ -39,10 +54,9 @@ export const grepTool: ToolDefinition<z.infer<typeof GrepInput>> = {
         if (code === 1) return resolvePromise({ output: 'No matches found.', isError: false })
         if (code !== 0)
           return resolvePromise({ output: `ripgrep exited ${code}: ${err.trim()}`, isError: true })
-        const capped =
-          out.length > OUTPUT_CAP
-            ? out.slice(0, OUTPUT_CAP) + `\n(truncated: output exceeded ${OUTPUT_CAP} chars)`
-            : out
+        const capped = truncated
+          ? out + `\n(truncated: output exceeded ${OUTPUT_CAP} chars)`
+          : out
         resolvePromise({ output: capped.trimEnd(), isError: false })
       })
     })

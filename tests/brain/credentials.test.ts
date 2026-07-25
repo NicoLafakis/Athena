@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, existsSync, statSync, mkdirSync } from 'node:fs'
+import {
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  statSync,
+  mkdirSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { resolveBrainPaths } from '../../src/brain/paths.js'
@@ -10,8 +18,10 @@ import {
   resolveApiKey,
   redactKey,
   formatAuthStatus,
+  migrateCredentialsToVault,
   CredentialsSchema,
 } from '../../src/brain/credentials.js'
+import type { CredentialVault } from '../../src/brain/credential-vault.js'
 
 let home: string
 let project: string
@@ -25,6 +35,20 @@ afterEach(() => {
 })
 
 const paths = () => resolveBrainPaths({ cwd: project, homeOverride: home })
+
+function memoryVault(): CredentialVault {
+  const values = new Map<string, string>()
+  return {
+    status: () => ({ backend: 'linux-secret-service', available: true, detail: 'test' }),
+    get: (reference) => values.get(reference) ?? null,
+    set: (reference, value) => {
+      values.set(reference, value)
+    },
+    delete: (reference) => {
+      values.delete(reference)
+    },
+  }
+}
 
 describe('credentials load/save', () => {
   it('paths expose credentialsFile under the brain dir', () => {
@@ -167,6 +191,32 @@ describe('resolveApiKey (env over file, per provider)', () => {
       key: 'sk-kimi-code-from-file',
       source: 'file',
     })
+  })
+})
+
+describe('OS credential vault integration', () => {
+  it('stores newly configured keys by reference and resolves them from the vault', () => {
+    const vault = memoryVault()
+    const creds = setProviderKey(paths(), 'anthropic', 'sk-ant-vault-secret', { vault })
+    expect(creds.providers.anthropic).toEqual({ vaultRef: 'provider/anthropic' })
+    expect(readFileSync(paths().credentialsFile, 'utf8')).not.toContain('sk-ant-vault-secret')
+    expect(resolveApiKey('anthropic', creds, {}, vault)).toEqual({
+      key: 'sk-ant-vault-secret',
+      source: 'vault',
+    })
+  })
+
+  it('atomically migrates legacy plaintext keys into the vault', () => {
+    const p = paths()
+    saveCredentials(p, {
+      providers: { kimi: { apiKey: 'sk-kimi-legacy' } },
+      activeProvider: 'kimi',
+    })
+    const vault = memoryVault()
+    const migrated = migrateCredentialsToVault(p, loadCredentials(p), vault)
+    expect(migrated.providers.kimi).toEqual({ vaultRef: 'provider/kimi' })
+    expect(readFileSync(p.credentialsFile, 'utf8')).not.toContain('sk-kimi-legacy')
+    expect(resolveApiKey('kimi', migrated, {}, vault)?.key).toBe('sk-kimi-legacy')
   })
 })
 

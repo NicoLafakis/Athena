@@ -6,8 +6,16 @@ import { dirname } from 'node:path'
 import { z } from 'zod'
 import { PROVIDERS, PROVIDER_IDS, type ProviderId } from './models.js'
 import type { BrainPaths } from './paths.js'
+import type { CredentialVault } from './credential-vault.js'
 
-const ProviderCredSchema = z.object({ apiKey: z.string().min(1) })
+const ProviderCredSchema = z
+  .object({
+    apiKey: z.string().min(1).optional(),
+    vaultRef: z.string().min(1).optional(),
+  })
+  .refine((value) => Boolean(value.apiKey || value.vaultRef), {
+    message: 'apiKey or vaultRef is required',
+  })
 
 export const CredentialsSchema = z
   .object({
@@ -87,7 +95,12 @@ export function saveCredentials(paths: BrainPaths, creds: Credentials): void {
 
 /** Merge one provider's key in and make it the active provider. Tolerates a malformed
  *  existing file (this IS the regeneration path `athena auth` promises). */
-export function setProviderKey(paths: BrainPaths, provider: ProviderId, key: string): Credentials {
+export function setProviderKey(
+  paths: BrainPaths,
+  provider: ProviderId,
+  key: string,
+  options: { vault?: CredentialVault; onWarn?: (message: string) => void } = {},
+): Credentials {
   let creds: Credentials
   try {
     creds = loadCredentials(paths)
@@ -95,8 +108,20 @@ export function setProviderKey(paths: BrainPaths, provider: ProviderId, key: str
     if ((err as { code?: string }).code !== 'ATHENA_CREDENTIALS_INVALID') throw err
     creds = CredentialsSchema.parse({})
   }
+  let providerCredential: { apiKey?: string; vaultRef?: string } = { apiKey: key }
+  if (options.vault?.status().available) {
+    const reference = `provider/${provider}`
+    try {
+      options.vault.set(reference, key)
+      providerCredential = { vaultRef: reference }
+    } catch (error) {
+      options.onWarn?.(
+        `OS credential vault write failed; retaining protected local-file fallback: ${(error as Error).message}`,
+      )
+    }
+  }
   const next: Credentials = {
-    providers: { ...creds.providers, [provider]: { apiKey: key } },
+    providers: { ...creds.providers, [provider]: providerCredential },
     activeProvider: provider,
   }
   saveCredentials(paths, next)
@@ -105,19 +130,48 @@ export function setProviderKey(paths: BrainPaths, provider: ProviderId, key: str
 
 export interface ResolvedKey {
   key: string
-  source: 'env' | 'file'
+  source: 'env' | 'file' | 'vault'
 }
 
 export function resolveApiKey(
   provider: ProviderId,
   creds: Credentials,
   env: NodeJS.ProcessEnv = process.env,
+  vault?: CredentialVault,
 ): ResolvedKey | null {
   const envKey = env[PROVIDERS[provider].envVar]
   if (envKey) return { key: envKey, source: 'env' }
   const fileKey = creds.providers[provider]?.apiKey
   if (fileKey) return { key: fileKey, source: 'file' }
+  const reference = creds.providers[provider]?.vaultRef
+  if (reference && vault) {
+    const key = vault.get(reference)
+    if (key) return { key, source: 'vault' }
+  }
   return null
+}
+
+/** One-way migration of legacy plaintext entries into the active OS vault.
+ * The credentials file is only rewritten after every selected vault write
+ * succeeds, so failed migrations retain the usable original keys. */
+export function migrateCredentialsToVault(
+  paths: BrainPaths,
+  creds: Credentials,
+  vault: CredentialVault,
+): Credentials {
+  if (!vault.status().available) return creds
+  const next = structuredClone(creds)
+  let changed = false
+  for (const provider of PROVIDER_IDS) {
+    const apiKey = next.providers[provider]?.apiKey
+    if (!apiKey) continue
+    const reference = `provider/${provider}`
+    vault.set(reference, apiKey)
+    next.providers[provider] = { vaultRef: reference }
+    changed = true
+  }
+  if (changed) saveCredentials(paths, next)
+  return next
 }
 
 /** `sk-ant-api03-abcdefabc4` -> `sk-ant...abc4`: prefix (6 chars) + ellipsis + last 4.
@@ -134,16 +188,29 @@ export function formatAuthStatus(
   creds: Credentials,
   activeProvider: ProviderId,
   env: NodeJS.ProcessEnv = process.env,
+  vault?: CredentialVault,
 ): string {
   const pad = Math.max(...PROVIDER_IDS.map((p) => PROVIDERS[p].label.length)) + 1
   return PROVIDER_IDS.map((p) => {
     const info = PROVIDERS[p]
     const envKey = env[info.envVar]
     const fileKey = creds.providers[p]?.apiKey
+    const vaultRef = creds.providers[p]?.vaultRef
     let detail: string
-    if (envKey && fileKey) detail = `${redactKey(envKey)} (env ${info.envVar}, overrides file)`
+    if (envKey && (fileKey || vaultRef)) {
+      detail = `${redactKey(envKey)} (env ${info.envVar}, overrides ${vaultRef ? 'vault' : 'file'})`
+    }
     else if (envKey) detail = `${redactKey(envKey)} (env ${info.envVar})`
     else if (fileKey) detail = `${redactKey(fileKey)} (file)`
+    else if (vaultRef) {
+      let stored: string | null = null
+      try {
+        stored = vault?.get(vaultRef) ?? null
+      } catch {
+        // Status must never expose a vault exception or secret.
+      }
+      detail = `${stored ? redactKey(stored) : 'configured'} (OS vault)`
+    }
     else detail = 'not configured'
     const active = p === activeProvider ? ' [active]' : ''
     return `${info.label.padEnd(pad)} ${detail}${active}`

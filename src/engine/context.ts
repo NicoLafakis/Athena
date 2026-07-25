@@ -11,7 +11,7 @@ export interface ContextManagerOptions {
 }
 
 export class ContextManager {
-  private readonly windowTokens: number
+  private windowTokens: number
   private readonly threshold: number
   private readonly keepRecent: number
   private lastTotal = 0
@@ -25,7 +25,23 @@ export class ContextManager {
 
   /** Called with the usage block of each API response; input tokens already include the whole transcript. */
   update(usage: TokenUsage): void {
-    this.lastTotal = usage.inputTokens + usage.cacheReadTokens + usage.outputTokens
+    this.lastTotal =
+      usage.inputTokens +
+      usage.cacheReadTokens +
+      (usage.cacheWriteTokens ?? 0) +
+      usage.outputTokens
+  }
+
+  setModelWindowTokens(tokens: number): void {
+    this.windowTokens = tokens
+  }
+
+  getModelWindowTokens(): number {
+    return this.windowTokens
+  }
+
+  fitsEstimated(inputTokens: number, reservedOutputTokens: number): boolean {
+    return inputTokens + reservedOutputTokens <= this.windowTokens
   }
 
   usedFraction(): number {
@@ -76,6 +92,14 @@ export class ContextManager {
     this.lastTotal = 0 // stale until the next API response reports real usage
     return { messages: [summaryMessage, ...tail], summary }
   }
+}
+
+/** Conservative provider-independent preflight estimate. Exact tokenization is
+ * provider/model specific; the safety margin keeps the estimate useful before
+ * a paid count-tokens call exists on every provider. */
+export function estimateRequestTokens(value: unknown): number {
+  const chars = JSON.stringify(value).length
+  return Math.ceil(chars / 3.2) + 512
 }
 
 /** Max characters a single content block contributes to the summarization prompt. */

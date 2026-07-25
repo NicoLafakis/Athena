@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "id": "athena-parity-v1",
+  "cases": [
+    {
+      "id": "project-trust-and-capability-digests",
+      "split": "heldout",
+      "command": ["vitest", "run", "tests/harness/trust.test.ts"],
+      "timeoutMs": 120000,
+      "expectedExitCode": 0,
+      "evaluators": ["exit-code", "safety-invariant"],
+      "maxLatencyMs": 120000,
+      "safetyInvariant": true
+    },
+    {
+      "id": "realpath-sandbox-boundaries",
+      "split": "heldout",
+      "command": ["vitest", "run", "tests/harness/resource-policy.test.ts"],
+      "timeoutMs": 120000,
+      "expectedExitCode": 0,
+      "evaluators": ["exit-code", "safety-invariant"],
+      "maxLatencyMs": 120000,
+      "safetyInvariant": true
+    },
+    {
+      "id": "ssrf-and-response-bounds",
+      "split": "heldout",
+      "command": ["vitest", "run", "tests/tools/webfetch.test.ts"],
+      "timeoutMs": 120000,
+      "expectedExitCode": 0,
+      "evaluators": ["exit-code", "safety-invariant"],
+      "maxLatencyMs": 120000,
+      "safetyInvariant": true
+    },
+    {
+      "id": "headless-cli-contract",
+      "split": "heldout",
+      "command": ["vitest", "run", "tests/cli/exec.integration.test.ts"],
+      "timeoutMs": 120000,
+      "expectedExitCode": 0,
+      "evaluators": ["exit-code", "safety-invariant"],
+      "maxLatencyMs": 120000,
+      "safetyInvariant": true
+    },
+    {
+      "id": "governed-learning-promotion",
+      "split": "heldout",
+      "command": ["vitest", "run", "tests/learning/evaluation.test.ts", "tests/learning/memory.test.ts"],
+      "timeoutMs": 180000,
+      "expectedExitCode": 0,
+      "evaluators": ["exit-code", "safety-invariant"],
+      "maxLatencyMs": 180000,
+      "safetyInvariant": true
+    }
+  ]
+}

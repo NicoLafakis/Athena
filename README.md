@@ -1,94 +1,185 @@
 # Athena
 
-A standalone terminal coding agent: own agentic loop on the Anthropic SDK, Ink TUI,
-permission engine, scriptable hooks, sub-agents, and a file-based brain in `~/.athena`.
+Athena is a standalone terminal coding-agent harness with an Anthropic-compatible
+model loop, interactive Ink TUI, bounded headless execution, project trust,
+permissions and sandbox policy, durable sessions and child agents, managed
+extensions, immutable traces, and governed recursive learning.
+
+The strict parity position and deliberate exclusions are documented in the
+[implementation report](docs/athena-harness-parity-implementation-report-2026-07-24.md).
 
 ## Quickstart
 
-    pnpm install
-    pnpm build
-    npm link          # puts `athena` on PATH
-    cd path/to/your/project
-    athena
+```sh
+pnpm install
+pnpm build
+npm link
+cd path/to/your/project
+athena
+```
 
-On first run Athena asks you to pick a provider (Anthropic, Kimi/Moonshot, or Kimi Code) and paste
-an API key — input is hidden, the key is validated live, then saved to
-`~/.athena/credentials.json` and the session starts. No shell environment setup needed.
+On first interactive run, Athena asks for a provider and API key. It supports
+Anthropic, Kimi/Moonshot, and Kimi Code. Keys are validated, stored in the
+platform credential vault when available, and otherwise kept in an owner-only
+local credential file.
 
-    athena auth            # add/replace keys or switch the default provider any time
-    athena auth status     # configured providers, active provider, redacted keys
+```sh
+athena auth
+athena auth status
+athena doctor
+```
 
-First run also scaffolds `~/.athena` (constitution, settings, memory, skills, agents, hooks, sessions).
+## Interactive and headless use
 
-## Commands
+```sh
+athena                         # new interactive session
+athena --continue              # latest session in this project
+athena --resume                # pick a saved session
+athena exec "fix the tests"    # bounded non-interactive run
+echo "review this repo" | athena exec --output json
+athena exec "return JSON" \
+  --output jsonl \
+  --output-schema result.schema.json \
+  --max-turns 20 \
+  --max-tool-calls 80 \
+  --max-tokens 200000 \
+  --max-cost-usd 2 \
+  --timeout-ms 600000
+```
 
-    athena                 # new session in the current project
-    athena --continue      # resume the most recent session here
-    athena --resume        # pick a past session
-    athena --provider kimi # session-only override (first-time setup adopts it as default)
-    athena auth            # setup wizard: keys + default provider
-    athena auth status     # redacted key/provider overview
-    athena import <path>   # one-time import of an ares-style brain (--force to merge)
+`athena exec` accepts text, JSON, or JSONL output; prompt arguments or stdin;
+optional durable sessions/resume; output-schema validation; permission and
+sandbox selection; and explicit model-call, tool-call, concurrency, token, cost,
+and wall-clock limits. It uses stable exit codes and the same Engine as the TUI.
 
-In-session: `/help /clear /resume /compact /model /effort /provider /mode /memory /skills /agents /quit`. Esc interrupts a turn.
+In-session commands include `/help`, `/clear`, `/resume`, `/compact`, `/model`,
+`/effort`, `/provider`, `/mode`, `/tui`, `/memory`, `/skills`, `/agents`, and
+`/quit`. Esc cancels an active turn.
 
-## Configuration
+## Project trust and sandboxing
 
-`~/.athena/settings.json` (global) overlaid by `.athena/settings.json` (per project):
-model is a key of the ACTIVE provider (`haiku | sonnet | opus | fable` for Anthropic,
-`kimi-k3 | kimi-k2.7-code | kimi-k2.6` for Kimi, `kimi-for-coding | k3 | k3[1m]` for
-Kimi Code — a legacy/full id like `claude-opus-4-8` is also
-accepted and normalized), effort (`low | medium | high | xhigh | max`; applies to
-Sonnet/Opus/Fable, which also run adaptive thinking — Haiku and all Kimi models ignore
-it), permissionMode (`normal | acceptEdits | plan | trusted`), allow/deny rules like
-`"Bash(git:*)"` or `"Edit(src/**)"`, and hooks (`SessionStart | UserPromptSubmit |
-PreToolUse | PostToolUse | Stop`).
-Switch live with `/model <key>`, `/effort <level>`, and `/provider <anthropic|kimi|kimi-code>`
-(`/provider` is session-only; `athena auth` changes the persisted default).
+Project `.athena` configuration is ignored until the canonical project path is
+trusted. Project hook and MCP definitions require separate approvals bound to
+their exact configuration digest, so an edit invalidates the old approval.
 
-### Providers
+```sh
+athena trust
+athena trust --hooks
+athena trust --mcp
+athena trust --all
+athena trust --revoke
+```
 
-- **Anthropic** — default SDK endpoint; console API key from console.anthropic.com.
-- **Kimi (Moonshot)** — Anthropic-compatible endpoint `https://api.moonshot.ai/anthropic`;
-  pay-per-token key from platform.kimi.ai. Kimi models do not support the effort dial or
-  extended thinking; Athena omits those request fields automatically.
-- **Kimi Code (subscription)** — Kimi-for-Coding subscription endpoint
-  `https://api.kimi.com/coding/`; key from kimi.com/code/console. Models:
-  `kimi-for-coding` (all tiers), `k3` (256K context) and `k3[1m]` (1M context) — the
-  latter two need the Moderato tier or above. Subscription keys are NOT interchangeable
-  with pay-per-token keys: each works only against its own provider.
+Filesystem tools authorize real paths at use time and reject symlink escapes.
+Web brokers reject local/private destinations and unsafe redirects and cap
+responses while streaming. MCP subprocesses receive an allowlisted environment.
 
-### Advanced: env-var override
+Sandbox modes are:
 
-Keys normally live in `~/.athena/credentials.json` (written by the wizard with
-owner-only permissions where the OS supports it). If `ANTHROPIC_API_KEY`,
-`MOONSHOT_API_KEY`, or `KIMI_CODE_API_KEY` is set in the environment, it overrides the
-file for that provider —
-useful for CI or ephemeral machines. `athena auth status` shows when an override is
-active.
+- `read-only`: workspace reads only; no writes.
+- `workspace-write`: writes are limited to the workspace.
+- `unrestricted`: explicit dangerous host access.
 
-## Security model
+Shell calls in restricted modes additionally require an OS process sandbox:
+bubblewrap on Linux or `sandbox-exec` on supported macOS hosts. Athena currently
+has no native Windows process-sandbox adapter, so restricted Windows shell calls
+fail closed. Select `unrestricted` explicitly only when host execution is intended.
 
-Permission rules for file tools are matched in canonical-absolute coordinates:
-both the rule pattern and the tool's `file_path` are resolved against the
-session cwd (backslashes folded to `/`, `.`/`..` segments resolved,
-case-insensitive on Windows) — the same resolution the tools themselves apply.
-Relative rules like `Edit(src/**)` anchor at the project the session runs in,
-and neither `a/../secret/x` nor a `../` escape from a sub-directory can bypass
-a deny rule like `Write(C:/vault/**)`.
+## Sessions and agents
 
-Note that this anchoring applies wherever a rule lives: a relative pattern in
-the **global** `~/.athena/settings.json` still resolves against the directory
-Athena was launched in, so `Edit(src/**)` there means `<launch dir>/src/**` and
-its meaning changes per project. Use absolute patterns in global settings when
-you mean a fixed location.
+Sessions use collision-safe append-only event logs with locking and support list,
+search, checkpoints, rewind, fork, rename, and recoverable delete:
 
-The `Bash(...)`/`PowerShell(...)` command **prefix filter is advisory only**:
-shell metacharacters, subshells, and env tricks can evade a string prefix.
-Real enforcement is the permission ask (mutating tools are deny-by-default
-outside `trusted` mode) plus PreToolUse hooks; command deny rules are a
-convenience guardrail, not a sandbox.
+```sh
+athena session list
+athena session checkpoints <id>
+athena session rewind <id> <checkpoint>
+athena session fork <id> [checkpoint]
+athena session rename <id> <title>
+athena session search <query>
+athena session delete <id>
+```
+
+Child agents have durable run records, status events, budgets, cancellation,
+follow-up/resume, and bounded concurrency. Agent frontmatter may set
+`isolation: worktree`; mutating work then runs off-tree and merges only after the
+generated patch passes Git's applicability and whitespace checks.
+
+## Extensions
+
+- Skills load progressively from `SKILL.md` and can read referenced support files.
+- Hooks support command, HTTP, MCP-tool, prompt, and agent adapters across a
+  versioned lifecycle contract.
+- MCP supports stdio and Streamable HTTP servers, bounded tools/resources/prompts,
+  static/bearer headers, and client-credentials OAuth.
+- Managed plugins can contribute namespaced skills, agents, commands, hooks, MCP,
+  and app metadata.
+
+```sh
+athena plugin install <directory-or-git-url> [--require-signature]
+athena plugin list
+athena plugin update <id>
+athena plugin enable|disable <id>
+athena plugin verify <id>
+athena plugin remove <id>
+```
+
+Plugin manifests are versioned and dependency-checked. Installed content records
+its source, digest, and optional Ed25519 signature status.
+
+## Governed learning
+
+Athena's learning plane does not grant an unrestricted self-edit mechanism.
+Immutable traces can produce low-confidence typed candidates. Candidates are
+evaluated in isolated baseline/candidate worktrees against protected held-out
+cases and safety, cost, latency, and tool-use budgets. Code or policy promotion
+requires human approval, a signed lineage, a measured canary, and rollback.
+
+```sh
+athena learn traces
+athena learn reflect <run-id> [run-id...]
+athena learn add <candidate.json>
+athena learn candidates
+athena learn evaluate <candidate-id> <suite.json>
+athena learn promote <candidate-id> --approve
+athena learn canary <candidate-id> <suite.json>
+athena learn finalize <candidate-id> <canary-run-id>
+athena learn rollback <candidate-id>
+athena learn consolidate
+athena learn lineage
+```
+
+The implementation is L4-capable, but L5 recursive-improvement status remains
+unclaimed until repeated real tasks show a durable measured gain.
+
+## Configuration and credentials
+
+Global `~/.athena/settings.json` is overlaid by trusted project settings. Settings
+select model, effort, permission/sandbox modes, allow/deny rules, hooks, MCP,
+limits, and extension configuration.
+
+Environment variables override stored provider keys:
+
+- `ANTHROPIC_API_KEY`
+- `MOONSHOT_API_KEY`
+- `KIMI_CODE_API_KEY`
+
+`athena doctor --json` reports installation, trust, credential-vault, provider,
+dependency, process-sandbox, and update status without printing secrets. Athena
+is currently a source-installed private package and has no silent self-updater;
+updates are reviewed source revisions followed by locked install, verification,
+and rebuild.
 
 ## Development
 
-    pnpm typecheck && pnpm lint && pnpm test && pnpm build
+```sh
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm build
+```
+
+CI runs those gates on Node 20 and 22 across Linux, Windows, and macOS. The
+protected deterministic suite lives at `evals/heldout/athena-parity-v1.json`;
+the live canary is manual/weekly and skips paid calls unless its dedicated
+repository secret is configured.

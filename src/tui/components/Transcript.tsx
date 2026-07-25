@@ -6,7 +6,7 @@ import { estimateEntryRows, sliceToRows } from '../viewport.js'
 export type TranscriptEntry =
   | { kind: 'user'; text: string }
   | { kind: 'assistant'; text: string }
-  | { kind: 'system'; text: string }
+  | { kind: 'system'; text: string; id?: string }
   | { kind: 'tool'; id: string; name: string; input: unknown; output: string | null; isError: boolean }
 
 /** Lightweight markdown degradation: bold headings, dim code fences. No external md lib. */

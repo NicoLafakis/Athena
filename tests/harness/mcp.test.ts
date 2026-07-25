@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { fileURLToPath } from 'node:url'
-import { McpManager } from '../../src/harness/mcp.js'
+import { McpManager, makeGuardedMcpFetch, makeMcpTool } from '../../src/harness/mcp.js'
 import { ToolRegistry } from '../../src/tools/registry.js'
 import { toolInputSchema } from '../../src/engine/loop.js'
 import type { McpServerConfig } from '../../src/brain/settings.js'
@@ -12,6 +12,23 @@ const ECHO_SERVER = fileURLToPath(new URL('../fixtures/mcp-echo-server.mjs', imp
 const SPAWN_TIMEOUT = 20_000
 
 describe('McpManager', () => {
+  it('honors MCP read-only annotations', () => {
+    const tool = makeMcpTool(
+      'docs',
+      {
+        name: 'lookup',
+        annotations: { readOnlyHint: true },
+      },
+      {} as never,
+    )
+    expect(tool.readOnly).toBe(true)
+  })
+
+  it('blocks private Streamable HTTP endpoints before making a request', async () => {
+    const guarded = makeGuardedMcpFetch(false, 1024)
+    await expect(guarded('http://127.0.0.1:9999/mcp')).rejects.toThrow(/private address/)
+  })
+
   it(
     'connects to a real stdio server, mounts its tool, and the tool round-trips',
     async () => {
@@ -31,7 +48,9 @@ describe('McpManager', () => {
         properties: { text: { type: 'string' } },
         required: ['text'],
       })
-      expect(logs).toContain('MCP: mounted 1 tool(s) from "echo"')
+      expect(logs).toContain(
+        'MCP: mounted 1 tool(s), 0 resource(s), and 0 prompt(s) from "echo" over stdio',
+      )
 
       const res = await tool!.execute({ text: 'hi' } as never, makeCtx(process.cwd()))
       expect(res.isError).toBe(false)

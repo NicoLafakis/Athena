@@ -1,29 +1,179 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
-import type { HookEventName, PermissionMode } from '../engine/types.js'
+import type { HookEventName, PermissionMode, SandboxMode } from '../engine/types.js'
 import type { Effort, ProviderId } from './models.js'
 import { normalizeModel, modelKeys, PROVIDERS } from './models.js'
 import type { BrainPaths } from './paths.js'
 
-export const HookDefSchema = z.object({
-  event: z.enum(['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop']),
-  matcher: z.string().optional(), // tool-name matcher for Pre/PostToolUse, e.g. "Bash" or "*"
-  command: z.string(), // executable + args, run via the system shell
+const HookEventSchema = z.enum([
+  'SessionStart',
+  'SessionEnd',
+  'UserPromptSubmit',
+  'PreToolUse',
+  'PostToolUse',
+  'PostToolUseFailure',
+  'PermissionRequest',
+  'SubagentStart',
+  'SubagentStop',
+  'PreCompact',
+  'PostCompact',
+  'Notification',
+  'Stop',
+])
+const HookCommonShape = {
+  version: z.literal(1).default(1),
+  event: HookEventSchema,
+  matcher: z.string().optional(),
   timeoutMs: z.number().int().positive().max(600_000).default(60_000),
+  maxOutputChars: z.number().int().positive().max(1_000_000).default(100_000),
+}
+const CommandHookSchema = z.object({
+  type: z.literal('command'),
+  command: z.string().min(1),
+  ...HookCommonShape,
 })
-export type HookDef = z.infer<typeof HookDefSchema>
+const HttpHookSchema = z.object({
+  type: z.literal('http'),
+  url: z.string().url(),
+  headers: z.record(z.string(), z.string()).default({}),
+  headerEnv: z.record(z.string(), z.string()).default({}),
+  allowPrivateNetwork: z.boolean().default(false),
+  ...HookCommonShape,
+})
+const McpToolHookSchema = z.object({
+  type: z.literal('mcp-tool'),
+  tool: z.string().min(1),
+  ...HookCommonShape,
+})
+const PromptHookSchema = z.object({
+  type: z.literal('prompt'),
+  prompt: z.string().min(1),
+  ...HookCommonShape,
+})
+const AgentHookSchema = z.object({
+  type: z.literal('agent'),
+  agent: z.string().min(1),
+  prompt: z.string().optional(),
+  ...HookCommonShape,
+})
+
+/** Legacy command hooks normalize to the versioned command contract. */
+export const HookDefSchema = z.preprocess(
+  (raw) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw
+    const value = raw as Record<string, unknown>
+    return {
+      ...value,
+      type: value['type'] ?? 'command',
+      version: value['version'] ?? 1,
+    }
+  },
+  z.discriminatedUnion('type', [
+    CommandHookSchema,
+    HttpHookSchema,
+    McpToolHookSchema,
+    PromptHookSchema,
+    AgentHookSchema,
+  ]),
+)
+export type ParsedHookDef = z.infer<typeof HookDefSchema>
+
+export interface HookDef {
+  version?: 1
+  event: HookEventName
+  type?: 'command' | 'http' | 'mcp-tool' | 'prompt' | 'agent'
+  matcher?: string
+  timeoutMs?: number
+  maxOutputChars?: number
+  command?: string
+  url?: string
+  headers?: Record<string, string>
+  headerEnv?: Record<string, string>
+  allowPrivateNetwork?: boolean
+  tool?: string
+  prompt?: string
+  agent?: string
+}
 
 // An MCP (Model Context Protocol) server Athena connects to as a client. stdio
 // transport only for now — command + args spawn the server process; env is layered
 // over the inherited process env. URL/SSE transports are a future seam (add a
 // discriminated `transport` field then, defaulting to 'stdio').
-export const McpServerSchema = z.object({
-  command: z.string(),
+const McpCommonShape = {
+  maxOutputChars: z.number().int().positive().max(2_000_000).default(100_000),
+  discoveryLimit: z.number().int().positive().max(1_000).default(200),
+}
+
+const McpStdioSchema = z.object({
+  transport: z.literal('stdio'),
+  command: z.string().min(1),
   args: z.array(z.string()).default([]),
   env: z.record(z.string(), z.string()).default({}),
+  envAllowlist: z.array(z.string()).default([]),
+  ...McpCommonShape,
 })
-export type McpServerConfig = z.infer<typeof McpServerSchema>
+
+const McpHttpSchema = z.object({
+  transport: z.literal('http'),
+  url: z.string().url(),
+  headers: z.record(z.string(), z.string()).default({}),
+  // Maps HTTP header names to environment-variable names, keeping secret values
+  // out of settings.json.
+  headerEnv: z.record(z.string(), z.string()).default({}),
+  bearerTokenEnv: z.string().optional(),
+  oauth: z
+    .object({
+      flow: z.literal('client_credentials'),
+      clientIdEnv: z.string().min(1),
+      clientSecretEnv: z.string().min(1),
+      scope: z.string().optional(),
+    })
+    .optional(),
+  allowPrivateNetwork: z.boolean().default(false),
+  ...McpCommonShape,
+})
+
+/** Versioned transport contract. Legacy `{command, args}` definitions normalize
+ * to stdio so existing settings remain compatible. */
+export const McpServerSchema = z.preprocess(
+  (raw) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw
+    const value = raw as Record<string, unknown>
+    return value['transport'] ? value : { ...value, transport: 'stdio' }
+  },
+  z.discriminatedUnion('transport', [McpStdioSchema, McpHttpSchema]),
+)
+export type ParsedMcpServerConfig = z.infer<typeof McpServerSchema>
+
+export type McpStdioConfig = {
+  transport?: 'stdio'
+  command: string
+  args?: string[]
+  env?: Record<string, string>
+  envAllowlist?: string[]
+  maxOutputChars?: number
+  discoveryLimit?: number
+}
+
+export type McpHttpConfig = {
+  transport: 'http'
+  url: string
+  headers?: Record<string, string>
+  headerEnv?: Record<string, string>
+  bearerTokenEnv?: string
+  oauth?: {
+    flow: 'client_credentials'
+    clientIdEnv: string
+    clientSecretEnv: string
+    scope?: string
+  }
+  allowPrivateNetwork?: boolean
+  maxOutputChars?: number
+  discoveryLimit?: number
+}
+
+export type McpServerConfig = McpStdioConfig | McpHttpConfig
 
 // Model keys are provider-scoped: a string (key OR legacy/full model id) is normalized
 // within the active provider before validation; an unrecognized value fails with an
@@ -44,7 +194,9 @@ function modelSchema(provider: ProviderId) {
 
 const baseShape = {
   effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('high'),
+  maxOutputTokens: z.number().int().positive().optional(),
   permissionMode: z.enum(['normal', 'acceptEdits', 'plan', 'trusted']).default('normal'),
+  sandboxMode: z.enum(['read-only', 'workspace-write', 'unrestricted']).default('workspace-write'),
   allow: z.array(z.string()).default([]),
   deny: z.array(z.string()).default([]),
   hooks: z.array(HookDefSchema).default([]),
@@ -63,12 +215,15 @@ export type Settings = z.infer<typeof SettingsSchema>
 // contracts in src/engine/types.ts (import from there, never redefine).
 // model sync is enforced at runtime by modelSchema (ModelKey is an open string type).
 type _AssertPermissionMode = Settings['permissionMode'] extends PermissionMode ? true : never
+type _AssertSandboxMode = Settings['sandboxMode'] extends SandboxMode ? true : never
 type _AssertHookEvent = HookDef['event'] extends HookEventName ? true : never
 type _AssertEffort = Settings['effort'] extends Effort ? true : never
 const _permissionModeInSync: _AssertPermissionMode = true
+const _sandboxModeInSync: _AssertSandboxMode = true
 const _hookEventInSync: _AssertHookEvent = true
 const _effortInSync: _AssertEffort = true
 void _permissionModeInSync
+void _sandboxModeInSync
 void _hookEventInSync
 void _effortInSync
 
@@ -90,11 +245,27 @@ export function loadSettings(
   paths: BrainPaths,
   provider: ProviderId = 'anthropic',
   onWarn?: (msg: string) => void,
+  policy: {
+    projectTrusted?: boolean
+    allowProjectHooks?: boolean
+    allowProjectMcp?: boolean
+  } = {},
 ): Settings {
   const global = readJsonIfExists(paths.settingsFile)
-  const project = paths.projectBrainDir
+  const projectTrusted = policy.projectTrusted ?? true
+  const project = projectTrusted && paths.projectBrainDir
     ? readJsonIfExists(join(paths.projectBrainDir, 'settings.json'))
     : {}
+  if (project['permissionMode'] === 'trusted') {
+    onWarn?.('Project settings cannot select trusted permission mode; using the global/default mode.')
+    delete project['permissionMode']
+  }
+  if (project['sandboxMode'] === 'unrestricted') {
+    onWarn?.('Project settings cannot select unrestricted sandbox mode; using the global/default mode.')
+    delete project['sandboxMode']
+  }
+  if (policy.allowProjectHooks === false) delete project['hooks']
+  if (policy.allowProjectMcp === false) delete project['mcpServers']
   const merged: Record<string, unknown> = { ...global, ...project }
   for (const key of ['allow', 'deny', 'hooks'] as const) {
     merged[key] = [...((global[key] as unknown[]) ?? []), ...((project[key] as unknown[]) ?? [])]
@@ -116,4 +287,24 @@ export function loadSettings(
     throw new Error(`Invalid settings (${paths.settingsFile}): ${issues}`)
   }
   return result.data
+}
+
+export interface ProjectSettingsCapabilities {
+  hooks: unknown[]
+  mcpServers: Record<string, unknown>
+}
+
+/** Reads only the executable project-controlled settings. Callers hash these
+ * values for capability-specific approval; changing either invalidates the
+ * corresponding grant without revoking trust in ordinary project instructions. */
+export function readProjectSettingsCapabilities(paths: BrainPaths): ProjectSettingsCapabilities {
+  if (!paths.projectBrainDir) return { hooks: [], mcpServers: {} }
+  const project = readJsonIfExists(join(paths.projectBrainDir, 'settings.json'))
+  return {
+    hooks: Array.isArray(project['hooks']) ? project['hooks'] : [],
+    mcpServers:
+      project['mcpServers'] && typeof project['mcpServers'] === 'object'
+        ? (project['mcpServers'] as Record<string, unknown>)
+        : {},
+  }
 }

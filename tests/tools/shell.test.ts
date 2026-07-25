@@ -9,6 +9,8 @@ import {
   taskOutputTool,
   makeOutputBuffer,
   killProcessTree,
+  resolveSandboxedCommand,
+  shutdownBackgroundTasks,
 } from '../../src/tools/shell.js'
 import { makeCtx } from '../helpers/tool-ctx.js'
 
@@ -17,6 +19,7 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'athena-shell-'))
 })
 afterEach(() => {
+  shutdownBackgroundTasks()
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -190,6 +193,38 @@ describe('killProcessTree', () => {
     killProcessTree(child, 'linux', fakeSpawn)
     expect(spawnCalls).toEqual([])
     expect(child.kill).toHaveBeenCalled()
+  })
+})
+
+describe('OS-backed shell containment', () => {
+  it('wraps Linux workspace-write commands with bubblewrap and no network', () => {
+    const resolved = resolveSandboxedCommand(
+      'bash',
+      ['-c', 'echo ok'],
+      '/workspace',
+      'workspace-write',
+      'linux',
+      () => true,
+    )
+    expect(resolved.bin).toBe('bwrap')
+    expect(resolved.args).toContain('--unshare-net')
+    expect(resolved.args).toContain('--bind')
+    expect(resolved.args).toContain('/workspace')
+  })
+
+  it('fails closed when an OS sandbox backend is unavailable', () => {
+    expect(() =>
+      resolveSandboxedCommand('bash', [], '/workspace', 'read-only', 'linux', () => false),
+    ).toThrow(/denied.*bubblewrap/i)
+    expect(() =>
+      resolveSandboxedCommand('powershell.exe', [], 'C:\\work', 'workspace-write', 'win32'),
+    ).toThrow(/no OS-backed/i)
+  })
+
+  it('allows host execution only in explicitly unrestricted mode', () => {
+    expect(
+      resolveSandboxedCommand('bash', ['-c', 'echo'], '/workspace', 'unrestricted', 'win32'),
+    ).toEqual({ bin: 'bash', args: ['-c', 'echo'] })
   })
 })
 
