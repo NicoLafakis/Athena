@@ -7,6 +7,7 @@ import {
 import { loadCredentials, resolveApiKey } from '../brain/credentials.js'
 import { PROVIDER_IDS } from '../brain/models.js'
 import type { BrainPaths } from '../brain/paths.js'
+import { collectStaleness, type StalenessOptions } from './staleness.js'
 import { ProjectTrustStore } from './trust.js'
 
 export interface DiagnosticCheck {
@@ -51,6 +52,7 @@ export function collectDiagnostics(
     commandAvailable?: (command: string, platform: NodeJS.Platform) => boolean
     env?: NodeJS.ProcessEnv
     vault?: CredentialVault
+    staleness?: StalenessOptions
   } = {},
 ): AthenaDiagnostics {
   const platform = options.platform ?? process.platform
@@ -150,6 +152,17 @@ export function collectDiagnostics(
         ? 'No supported Windows process sandbox; read-only/workspace-write shell calls fail closed. Use unrestricted only by explicit choice.'
         : `No supported process sandbox backend (${sandboxCommand ?? platform}); restricted shell calls fail closed.`,
   })
+
+  // Environment staleness. Only 'stale' is a warning: 'not-applicable' (fresh clone, no
+  // upstream) and 'unknown' (git absent or hung) are normal states for a doctor run to
+  // report plainly, not conditions to flag.
+  for (const signal of collectStaleness(options.staleness)) {
+    checks.push({
+      name: signal.name,
+      status: signal.state === 'stale' ? 'warning' : 'ok',
+      detail: signal.detail,
+    })
+  }
 
   return {
     schemaVersion: 1,

@@ -102,6 +102,7 @@ import { LearningMemoryStore } from './learning/memory.js'
 import { PromotionManager } from './learning/promotion.js'
 import { TraceWarehouse } from './learning/warehouse.js'
 import { collectDiagnostics, formatDiagnostics } from './harness/diagnostics.js'
+import { stalenessBootWarnings } from './harness/staleness.js'
 
 export type CliCommand =
   | { command: 'run'; provider?: ProviderId }
@@ -1136,6 +1137,10 @@ async function main(): Promise<void> {
     console.log('\n(interactive session skipped: not a TTY)')
     return
   }
+  // Environment staleness, on stderr before Ink mounts (alt-screen entry happens later in a
+  // useEffect, so pre-render stderr is genuinely visible). Filesystem checks only — no git,
+  // no subprocess, nothing that can throw — and silent when everything is fresh.
+  for (const warning of stalenessBootWarnings()) console.error(warning)
   const projectTrust = isExec
     ? resolveStoredProjectTrust(paths, cwd)
     : await resolveProjectTrust(paths, cwd)

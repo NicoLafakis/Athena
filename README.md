@@ -56,6 +56,9 @@ In-session commands include `/help`, `/clear`, `/resume`, `/compact`, `/model`,
 `/effort`, `/provider`, `/mode`, `/tui`, `/memory`, `/skills`, `/agents`, and
 `/quit`. Esc cancels an active turn.
 
+Full keyboard shortcuts for editing, popups, and transcript scrolling are listed in
+[`.wiki/reference/tui-keybindings.md`](.wiki/reference/tui-keybindings.md).
+
 ## Project trust and sandboxing
 
 Project `.athena` configuration is ignored until the canonical project path is

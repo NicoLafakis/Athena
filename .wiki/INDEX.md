@@ -1,11 +1,18 @@
 # Athena Wiki Index
 
+[`AGENTS.md`](../AGENTS.md) at the repo root is the terse, imperative rule set for any
+agent working in this repo, regardless of harness; `CLAUDE.md` is a five-line pointer to
+it. This wiki is where the reasoning and design detail behind those rules live. The two
+must not become duplicate copies of the same content: `AGENTS.md` states the rule and
+links here for depth, this wiki explains it.
+
 ## Architecture
 
 - [TUI fullscreen row budget](architecture/tui-fullscreen-row-budget.md) - The load-bearing layout invariant behind `src/tui/App.tsx`: only the Transcript box clips, every other sibling is unclipped and must be explicitly budgeted or Ink/Yoga corrupts the frame. Precedence order, the popup reserve-exactly-what-you-render rule, and transcript scrolling.
 - [Credential storage and the OS vault](architecture/credential-storage.md) - Resolution order (env, file, vault), plaintext vs. vault-backed states and how the user is told which, the cross-machine story, Windows interpreter selection, and the standing rule that optional hardening must never be a fatal boot precondition.
 - [Athena's self-reflection journal](architecture/self-reflection-journal.md) - Append-only operational journal grounded in evidence: auto-captured trace entries plus a model-authored channel for predictions scored against outcomes. Entry taxonomy, the mechanical guard against subjective self-narration being retrieved as fact, storage and rotation, and a phased build order.
 - [Memory hygiene / anti-rot](architecture/memory-hygiene.md) - Event-driven citation verification, correction capture, contradiction detection, and count-triggered consolidation for the free-text brain-memory surface, distinct from the existing governed-learning MemoryClaim pipeline. Never deletes: proposes via flag/supersede/tombstone, reviewed in seconds via /memory review.
+- [Environment staleness detection](architecture/environment-staleness.md) - Four filesystem/git signals (`stale-build`, `stale-deps`, `branch-behind`, `uncommitted-work`) that catch a stale `dist/` or `node_modules` running against fresh source on a two-machine workflow. Zero-subprocess boot checks versus git-backed doctor-only checks, the shared `VAULT_SPAWN_TIMEOUT_MS` and null-on-timeout lesson, and why every check degrades to `unknown` rather than ever blocking boot.
 
 ## Reference
 

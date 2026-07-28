@@ -48,4 +48,29 @@ describe('harness diagnostics', () => {
       status: 'ok',
     })
   })
+
+  it('reports environment staleness, warning only on genuinely stale state', () => {
+    const paths = resolveBrainPaths({ cwd: '/workspace/athena', homeOverride: '/profile' })
+    const report = collectDiagnostics(paths, '/workspace/athena', '0.1.0', {
+      platform: 'linux',
+      commandAvailable: () => true,
+      env: {},
+      vault: unavailableVault,
+      staleness: {
+        // A directory that does not exist: no build, no lockfile -> not-applicable, plus
+        // a git that is not in a repository -> not-applicable. None of it is a warning.
+        packageRoot: '/workspace/athena/nowhere',
+        runGit: () => ({
+          status: 128,
+          stdout: '',
+          stderr: 'fatal: not a git repository',
+          timedOut: false,
+        }),
+      },
+    })
+    for (const name of ['stale-build', 'stale-deps', 'branch-behind', 'uncommitted-work']) {
+      expect(report.checks.find((check) => check.name === name)).toMatchObject({ status: 'ok' })
+    }
+    expect(formatDiagnostics(report)).toContain('Not a git repository')
+  })
 })
