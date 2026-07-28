@@ -109,14 +109,25 @@ export function setProviderKey(
     creds = CredentialsSchema.parse({})
   }
   let providerCredential: { apiKey?: string; vaultRef?: string } = { apiKey: key }
-  if (options.vault?.status().available) {
+  if (options.vault) {
     const reference = `provider/${provider}`
+    let unavailable: string | null = null
     try {
-      options.vault.set(reference, key)
-      providerCredential = { vaultRef: reference }
+      const status = options.vault.status()
+      unavailable = status.available ? null : status.detail
+      if (status.available) {
+        options.vault.set(reference, key)
+        providerCredential = { vaultRef: reference }
+      }
     } catch (error) {
+      unavailable = (error as Error).message
+    }
+    // Silently degrading to plaintext is how a user ends up believing their key is
+    // encrypted when it is not. Whenever the vault is skipped, say so, in one line,
+    // at the moment it happens.
+    if (unavailable !== null) {
       options.onWarn?.(
-        `OS credential vault write failed; retaining protected local-file fallback: ${(error as Error).message}`,
+        `WARNING: the OS credential vault is unavailable, so this key is stored UNENCRYPTED in ${paths.credentialsFile} (${unavailable})`,
       )
     }
   }
@@ -133,11 +144,15 @@ export interface ResolvedKey {
   source: 'env' | 'file' | 'vault'
 }
 
+/** Never throws. A vault that cannot be read (blob from another machine, reset Windows
+ *  profile, broken interpreter) resolves as "no key from the vault" plus a warning the
+ *  caller can print, so the failure is loud but non-fatal. */
 export function resolveApiKey(
   provider: ProviderId,
   creds: Credentials,
   env: NodeJS.ProcessEnv = process.env,
   vault?: CredentialVault,
+  onWarn?: (message: string) => void,
 ): ResolvedKey | null {
   const envKey = env[PROVIDERS[provider].envVar]
   if (envKey) return { key: envKey, source: 'env' }
@@ -145,33 +160,66 @@ export function resolveApiKey(
   if (fileKey) return { key: fileKey, source: 'file' }
   const reference = creds.providers[provider]?.vaultRef
   if (reference && vault) {
-    const key = vault.get(reference)
-    if (key) return { key, source: 'vault' }
+    try {
+      const key = vault.get(reference)
+      if (key) return { key, source: 'vault' }
+    } catch (error) {
+      onWarn?.((error as Error).message)
+    }
   }
   return null
 }
 
-/** One-way migration of legacy plaintext entries into the active OS vault.
- * The credentials file is only rewritten after every selected vault write
- * succeeds, so failed migrations retain the usable original keys. */
+/** Best-effort, one-way migration of legacy plaintext entries into the active OS vault.
+ * NEVER fatal: this is an optional hardening step layered on top of an already-working
+ * plaintext store, so any vault failure leaves that working state untouched and warns.
+ * A provider's plaintext key is only dropped after the freshly written vault entry has
+ * been read back and matched, so an unreadable blob can never replace a usable key. */
 export function migrateCredentialsToVault(
   paths: BrainPaths,
   creds: Credentials,
   vault: CredentialVault,
+  options: { onWarn?: (message: string) => void } = {},
 ): Credentials {
-  if (!vault.status().available) return creds
+  const pending = PROVIDER_IDS.filter((provider) => Boolean(creds.providers[provider]?.apiKey))
+  // Nothing to migrate: do not even ask the vault for its status, so a normal boot pays
+  // no capability probe (and cannot be broken by one).
+  if (pending.length === 0) return creds
+  let available: boolean
+  try {
+    const status = vault.status()
+    available = status.available
+    if (!available) {
+      options.onWarn?.(
+        `WARNING: the OS credential vault is unavailable, so your API key(s) remain UNENCRYPTED in ${paths.credentialsFile} (${status.detail})`,
+      )
+    }
+  } catch (error) {
+    options.onWarn?.(
+      `WARNING: the OS credential vault could not be checked, so your API key(s) remain UNENCRYPTED in ${paths.credentialsFile} (${(error as Error).message})`,
+    )
+    available = false
+  }
+  if (!available) return creds
   const next = structuredClone(creds)
   let changed = false
-  for (const provider of PROVIDER_IDS) {
+  for (const provider of pending) {
     const apiKey = next.providers[provider]?.apiKey
     if (!apiKey) continue
     const reference = `provider/${provider}`
-    vault.set(reference, apiKey)
-    next.providers[provider] = { vaultRef: reference }
-    changed = true
+    try {
+      vault.set(reference, apiKey)
+      if (vault.get(reference) !== apiKey) throw new Error('vault read-back did not match')
+      next.providers[provider] = { vaultRef: reference }
+      changed = true
+    } catch (error) {
+      options.onWarn?.(
+        `WARNING: could not move the ${provider} key into the OS credential vault, so it remains UNENCRYPTED in ${paths.credentialsFile} (${(error as Error).message})`,
+      )
+    }
   }
   if (changed) saveCredentials(paths, next)
-  return next
+  return changed ? next : creds
 }
 
 /** `sk-ant-api03-abcdefabc4` -> `sk-ant...abc4`: prefix (6 chars) + ellipsis + last 4.
@@ -204,12 +252,17 @@ export function formatAuthStatus(
     else if (fileKey) detail = `${redactKey(fileKey)} (file)`
     else if (vaultRef) {
       let stored: string | null = null
+      let unreadable = false
       try {
         stored = vault?.get(vaultRef) ?? null
       } catch {
-        // Status must never expose a vault exception or secret.
+        // Never expose the raw exception (or a secret) here, but never claim health
+        // either: an unreadable blob is a real, actionable state.
+        unreadable = true
       }
-      detail = `${stored ? redactKey(stored) : 'configured'} (OS vault)`
+      detail = unreadable
+        ? 'UNREADABLE on this machine (encrypted elsewhere?) - run `athena auth`'
+        : `${stored ? redactKey(stored) : 'configured'} (OS vault)`
     }
     else detail = 'not configured'
     const active = p === activeProvider ? ' [active]' : ''

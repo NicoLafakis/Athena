@@ -98,16 +98,26 @@ export function collectDiagnostics(
   })
   try {
     const credentials = loadCredentials(paths)
+    // resolveApiKey never throws: an unreadable vault entry (a DPAPI blob encrypted on a
+    // different machine) comes back as "no key" plus a warning. Without this sink the
+    // diagnostic would report a configured-but-unreadable provider as simply "not
+    // configured", which is exactly the wrong thing for a doctor command to say.
+    const vaultWarnings: string[] = []
     const configured = PROVIDER_IDS.filter((provider) =>
-      Boolean(resolveApiKey(provider, credentials, options.env ?? process.env, vault)),
+      Boolean(
+        resolveApiKey(provider, credentials, options.env ?? process.env, vault, (message) => {
+          if (!vaultWarnings.includes(message)) vaultWarnings.push(message)
+        }),
+      ),
     )
+    const suffix = vaultWarnings.length > 0 ? ` ${vaultWarnings.join(' ')}` : ''
     checks.push({
       name: 'providers',
-      status: configured.length > 0 ? 'ok' : 'warning',
+      status: configured.length > 0 && vaultWarnings.length === 0 ? 'ok' : 'warning',
       detail:
-        configured.length > 0
+        (configured.length > 0
           ? `Configured providers: ${configured.join(', ')}`
-          : 'No provider credential is configured.',
+          : 'No provider credential is configured.') + suffix,
     })
   } catch (error) {
     checks.push({

@@ -4,3 +4,16 @@ dist/
 .env
 .env.*
 !.env.example
+
+# Athena brain directories (src/brain/paths.ts supports a project-local <cwd>/.athena)
+.athena/
+**/.athena/
+
+# Credential stores and key material — never committed, on any machine
+credentials.json
+credentials*.json
+*.vault.json
+*.pem
+*.key
+*.p12
+*.pfx

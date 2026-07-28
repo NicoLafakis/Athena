@@ -6,9 +6,9 @@ import type { EngineEvent, TodoItem, PermissionMode } from '../engine/types.js'
 import { Transcript, type TranscriptEntry } from './components/Transcript.js'
 import { PermissionDialog } from './components/PermissionDialog.js'
 import { StatusLine } from './components/StatusLine.js'
-import { Banner } from './components/Banner.js'
+import { Banner, bannerRowCount } from './components/Banner.js'
 import { TodoPanel } from './components/TodoPanel.js'
-import { InputBox } from './components/InputBox.js'
+import { useInputBox } from './components/InputBox.js'
 import { BusyIndicator, busyIndicatorText } from './components/BusyIndicator.js'
 import { ArgPickerPopup } from './components/ArgPickerPopup.js'
 import { parseSlash, type SlashCommand, type CustomCommandDef, type TuiMode } from './slash.js'
@@ -21,8 +21,9 @@ import {
   type ArgPickerState,
 } from './argPicker.js'
 import { createFullscreenController } from './fullscreen.js'
+import { popupLayout } from './popupWindow.js'
 import type { ProviderId, Effort } from '../brain/models.js'
-import { truncateRowsWithNotice, wrappedRowCount } from './viewport.js'
+import { estimateEntryRows, shiftWindowEnd, truncateRowsWithNotice, wrappedRowCount } from './viewport.js'
 import {
   PERMISSION_HEADER_TEXT,
   PERMISSION_FOOTER_TEXT,
@@ -41,7 +42,10 @@ import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
 // against the ACTUAL terminal size in fullscreen mode. This matters because only the
 // Transcript-wrapping Box has overflow="hidden" (see the render tree below) — Banner,
 // TodoPanel, PermissionDialog, InputBox, and StatusLine are all siblings of a fixed
-// height={rows} column Box with no overflow protection of their own. If their combined
+// height={rows} column Box with no overflow protection of their own — and so are the three
+// overlay popups (ArgPickerPopup here, MentionPopup/SlashMenuPopup inside InputBox), whose
+// window/row math lives in popupWindow.ts and whose height reaches this budget via
+// argPickerLayout and InputBox's onHeightChange respectively. If their combined
 // natural content size ever exceeds `rows`, Ink/Yoga doesn't clip or reflow gracefully —
 // it corrupts the frame (dropped/interleaved lines, headers pushed off, etc.), which is
 // exactly what this whole block exists to make structurally impossible: every dynamic
@@ -62,7 +66,6 @@ import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
 // Border/padding rows and columns below (BANNER_ROWS, *_BORDER_ROWS, *_HORIZONTAL_CHROME)
 // are the one part that's genuinely fixed regardless of content or terminal width — a
 // borderStyle="round" edge is always exactly 1 row/column, never wraps.
-const BANNER_ROWS = 4 // Banner.tsx always renders exactly 4 rows (border, wordmark, border, info line).
 const TODO_BORDER_ROWS = 2 // TodoPanel's border top+bottom (borderStyle="round").
 const DIALOG_BORDER_ROWS = 2 // PermissionDialog's border top+bottom (borderStyle="round").
 // Transcript never drops below this many rows even when TodoPanel/PermissionDialog are
@@ -71,14 +74,36 @@ const DIALOG_BORDER_ROWS = 2 // PermissionDialog's border top+bottom (borderStyl
 // is purely about leaving a shred of visible context, not about avoiding corruption.
 const MIN_TRANSCRIPT_ROWS = 3
 // Pessimistic placeholder hidden-counts used ONLY to size the "+N more" notice
-// reservation below (see dialogChromeRows/todoChromeRows) — NOT real data. Using a
-// placeholder rather than the real (usually much smaller) hidden count means the
-// reservation covers the worst realistic case regardless of how many diff lines/todos
-// actually end up hidden: diffNoticeText/todoNoticeText are otherwise monotonic in the
-// hidden count's digit length, so reserving for a generously large placeholder is always
-// >= whatever the real notice will actually need.
+// reservation below (see dialogChromeRows/todoBudgetRows) — NOT real data. The reservation
+// has to cover whatever the real (unknown at budget time) hidden count will produce.
 const DIFF_NOTICE_PLACEHOLDER_HIDDEN = 999_999
 const TODO_NOTICE_PLACEHOLDER_HIDDEN = 999
+
+/** Rows to reserve for a truncation notice whose hidden count isn't known yet.
+ *
+ *  NOT simply `wrappedRowCount(noticeText(placeholder))`. That assumed the notice text
+ *  grows monotonically with the hidden count, so a generously large placeholder would
+ *  always over-reserve. It does not: both diffNoticeText and todoNoticeText FALL BACK to a
+ *  short one-row form once the verbose form would exceed two rows (itself a fix for an
+ *  earlier round of this same bug). Past that threshold a BIGGER count therefore yields a
+ *  SHORTER notice — so the 999/999999 placeholder quietly reserved 1 row on a narrow
+ *  terminal while the real "+1 more (widen terminal or …)" still rendered the 2-row
+ *  verbose form. One row over budget, and in fullscreen's fixed-height column one row over
+ *  is a corrupted frame.
+ *
+ *  Measuring BOTH ends of the range covers every count in between: the verbose form's
+ *  length is monotonic in digits, and it is only ever chosen when it fits in two rows, so
+ *  the worst case is always at one end or the other, never strictly inside. */
+function noticeReserveRows(
+  noticeText: (hiddenCount: number, columns: number) => string,
+  placeholder: number,
+  columns: number,
+): number {
+  return Math.max(
+    wrappedRowCount(noticeText(1, columns), columns),
+    wrappedRowCount(noticeText(placeholder, columns), columns),
+  )
+}
 // Pessimistic placeholder elapsed time used ONLY to size BusyIndicator's row reservation
 // below — NOT the real elapsed time. App.tsx never sees BusyIndicator's actual (ticking)
 // elapsed-ms state, since that state lives inside the component and updates on its own
@@ -89,6 +114,10 @@ const TODO_NOTICE_PLACEHOLDER_HIDDEN = 999
 const BUSY_ELAPSED_PLACEHOLDER_MS = 999 * 60_000
 const FALLBACK_ROWS = 24
 const FALLBACK_COLUMNS = 80
+// Rows of context carried over between PageUp/PageDown steps, so a page step never leaves
+// the reader without a line of overlap to re-orient against (the same one-line overlap
+// less/vim/most pagers keep).
+const SCROLL_OVERLAP_ROWS = 1
 
 export type PermissionAnswer = 'allow-once' | 'allow-always' | 'deny'
 
@@ -296,15 +325,20 @@ export function App({
   // which would drift if the component is briefly unmounted mid-turn (see the
   // `busy && pending === null` visibility gate below) and would reset to 0 on remount.
   const turnStartRef = useRef(0)
-  // InputBox's actual current row count (it can grow past 1 via backslash-continuation —
-  // see InputBox's onHeightChange). Used to size the fullscreen PermissionDialog/TodoPanel
-  // budgets below against reality instead of a static guess.
-  const [inputRows, setInputRows] = useState(1)
   // Seeded from the prop, then kept live by 'status' events (/mode, /model, per-turn ctx%).
   const [status, setStatus] = useState<AppStatus>(statusProp)
   // Second-level value picker for a bare pickable command (/model /provider /effort
   // /mode /tui) — see detectBarePickableCommand/handleSubmit below. null = not showing.
   const [argPicker, setArgPicker] = useState<ArgPickerState | null>(null)
+  // Transcript scroll position, as the EXCLUSIVE entry index the render window ends at.
+  // null = following the live tail (the default, and exactly the pre-scrolling behavior:
+  // new messages keep the view pinned to the bottom). A number means the user has scrolled
+  // up, and new messages must NOT yank the view back down — which an entry-index anchor
+  // gives for free, since appending at the tail can't move an index that points behind it
+  // (see viewport.ts's sliceToRows/shiftWindowEnd for why the anchor is an index rather
+  // than a row offset measured from the bottom). Fullscreen-only: classic mode has native
+  // scrollback and never virtualizes.
+  const [scrollEnd, setScrollEnd] = useState<number | null>(null)
   const { exit } = useApp()
 
   // Fullscreen (alternate-screen) TUI mode: /tui fullscreen | classic still toggles it
@@ -458,6 +492,9 @@ export function App({
           // Display-only: the engine's message history (and the session file) keep
           // the full conversation — /compact is the tool that shrinks context.
           setEntries([])
+          // A scroll anchor that outlived the transcript it indexed into would leave the
+          // view parked on entries that no longer exist; snap back to the live tail.
+          setScrollEnd(null)
           bus.emit({
             type: 'info',
             message: 'Screen cleared (transcript display only) — conversation context is unchanged.',
@@ -482,12 +519,144 @@ export function App({
     [onSlash, exit, busy, bus, commands, submitTurn, applyTuiMode, status, currentValueFor],
   )
 
-  // Active only while the second-level value picker is open — Up/Down move the cursor
-  // (clamped to the current option list), Escape cancels with no dispatch, Enter
-  // confirms and dispatches through onSlash (or applyTuiMode for 'tui', which App
-  // already handles locally rather than forwarding to the engine — see handleSubmit's
-  // /tui branch above). Kept as its own useInput rather than folded into the
-  // Escape-to-abort one below so each stays readable on its own.
+  // Permission review takes visual priority over ambient decoration/status: a pending
+  // dialog gets the space Banner/TodoPanel would otherwise occupy instead of competing
+  // with them for it. Classic mode is untouched — native scrollback already handles
+  // overflow fine there, so nothing here is gated on `fullscreen` alone without also
+  // checking `pending`.
+  const dialogPendingFullscreen = fullscreen && pending !== null
+
+  // Scroll window end, RE-CLAMPED on every render rather than cached: `entries` can only
+  // ever grow (append) or reset to empty (/clear), and `rows`/`columns` change under the
+  // app's feet on every terminal resize, so a stored index is only ever trustworthy
+  // relative to the history that exists right now. Recomputing here is what makes a stale
+  // anchor structurally impossible — the same discipline availableRows below already
+  // follows for the row budget. undefined = pinned to the live tail.
+  const windowEnd =
+    scrollEnd === null || entries.length === 0
+      ? undefined
+      : Math.min(Math.max(scrollEnd, 1), entries.length)
+  // How many entries sit below the viewport — drives StatusLine's "… N more below" notice.
+  // Computed BEFORE statusLineRows on purpose: the notice is part of the status line's
+  // text, so its own wrapped height has to be inside that measurement or it becomes an
+  // unbudgeted row in a column whose only overflow-protected sibling is the Transcript.
+  const scrolledBelow = windowEnd === undefined ? 0 : entries.length - windowEnd
+
+  // StatusLine is a fixed footer, but its content (cwd/branch/model/mode/ctx%) is
+  // arbitrary-length text with NO border/padding stealing width, so it's measured against
+  // the full terminal width — see the file-header comment on why this can't just be "1".
+  const statusLineRows = wrappedRowCount(statusLineText({ ...status, busy, scrolledBelow }), columns)
+
+  // Banner is ambient branding, so it steps aside on a terminal too short to fit it
+  // alongside the pinned input row, the status line and the Transcript floor — the same
+  // "the fixed chrome wins, decoration yields" rule dialogPendingFullscreen already
+  // applies, just for a size constraint rather than a pending dialog. Without this, every
+  // budget below would start from a negative allowance on a very short terminal.
+  // Measured, not assumed to be 4: the banner's info row carries the cwd and its Greek-key
+  // rules have a minimum width, so both can wrap on a narrow terminal — see bannerRowCount.
+  const bannerProps = { version: getVersion(), model: status.model, cwd: status.cwd, columns }
+  const bannerRowsNeeded = bannerRowCount(bannerProps)
+  const bannerFits = rows - statusLineRows - bannerRowsNeeded - MIN_TRANSCRIPT_ROWS >= 1
+  const showBanner = fullscreen && !dialogPendingFullscreen && bannerFits
+  const bannerRows = showBanner ? bannerRowsNeeded : 0
+
+  // The busy indicator shows only while a turn is actually running with nothing blocking
+  // it — mirrors InputBox's own `disabled={busy || pending !== null}` "is something
+  // blocking normal input" condition. A pending permission dialog means the model isn't
+  // "working", it's waiting on the user, so the indicator (and the row budget it'd
+  // otherwise reserve) steps aside for the dialog exactly like Banner/TodoPanel already
+  // do via dialogPendingFullscreen above.
+  const showBusyIndicator = busy && pending === null
+  // Like StatusLine below, this is a borderless plain-text line measured against the
+  // FULL terminal width (no HORIZONTAL_CHROME_COLS to subtract) — see busyIndicatorText's
+  // own doc comment for why BUSY_ELAPSED_PLACEHOLDER_MS (not the real, ticking elapsed
+  // value App.tsx never sees) is what gets measured here.
+  const busyIndicatorRows = showBusyIndicator
+    ? wrappedRowCount(busyIndicatorText(BUSY_ELAPSED_PLACEHOLDER_MS), columns)
+    : 0
+
+  // Ceiling handed DOWN to InputBox for its text lines plus whichever of its two overlay
+  // popups (MentionPopup/SlashMenuPopup) is open — both of which are unclipped siblings in
+  // this column, which is exactly why they can't be left to render however tall they like
+  // (see InputBox's maxRows/onHeightChange docs). Deliberately computed WITHOUT reference
+  // to `inputRows`, TodoPanel or ArgPickerPopup: those three are budgeted below FROM the
+  // height InputBox reports back, so letting this ceiling depend on them in turn would
+  // close a feedback loop (popup opens -> panel shrinks -> more room -> popup grows -> …)
+  // instead of settling. The precedence that fixes the loop is simply: StatusLine and the
+  // Transcript floor first, then Banner/BusyIndicator, then InputBox, then everything
+  // else out of what InputBox actually used.
+  const inputMaxRows = fullscreen
+    ? Math.max(rows - statusLineRows - bannerRows - busyIndicatorRows - MIN_TRANSCRIPT_ROWS, 1)
+    : undefined
+
+  // The input box is driven from a HOOK rather than rendered as an opaque child, so its
+  // height is a value in this render pass instead of a number reported back one commit
+  // later. Everything below (argPickerLayout, maxDiffLines, todoBudgetRows, availableRows)
+  // is budgeted from `inputRows`, and every one of those siblings is unclipped: a height
+  // that arrives a frame late means a frame drawn to a budget that no longer holds, which
+  // Ink/Yoga resolves by shrinking and OVERWRITING lines rather than clipping them — a
+  // corrupted frame whose row count is still exactly `rows`. See useInputBox's doc comment
+  // for the full failure mode. `element` is rendered in its usual place at the bottom of
+  // the column below; only the measurement had to move up here.
+  //
+  // `disabled` deliberately stays keyed on `argPicker` (the state) rather than on
+  // argPickerLayout (computed just below from `inputRows`): reading the layout here would
+  // reintroduce the very cycle the hook removes. The invisible-picker case that gate was
+  // meant to cover is handled instead by cancelling the picker outright — see the effect
+  // further down.
+  //
+  // busy included: a prompt submitted mid-turn would start a second runTurn and interleave
+  // a user message between a tool_use and its tool_result. argPicker included: no new
+  // keystrokes while the picker owns Up/Down/Enter/Esc.
+  const input = useInputBox({
+    onSubmit: handleSubmit,
+    disabled: busy || pending !== null || argPicker !== null,
+    cwd: status.cwd,
+    commands,
+    agents,
+    columns,
+    maxRows: inputMaxRows,
+  })
+  const inputRows = input.rows
+
+  // ArgPickerPopup is an App-level sibling (App owns the picker's state and key handling,
+  // so it can't live inside InputBox), and it is budgeted here EXPLICITLY, exactly like
+  // TodoPanel and PermissionDialog — not excused by an argument that it can't coexist with
+  // them. The one exclusion that remains is enforced structurally rather than asserted:
+  // `showArgPicker` is gated on !dialogPendingFullscreen, the same gate that hides Banner
+  // and TodoPanel, so "picker and dialog never share the screen" is a property of what
+  // renders rather than a claim in a comment. `argPickerRows` is then derived from the
+  // SAME layout object the component draws from (popupWindow.ts), so reserved height and
+  // rendered height cannot drift apart; a tight budget shrinks the picker's visible window
+  // (with its existing "… N more" notice) and, at the extreme, hides it outright.
+  const showArgPicker = argPicker !== null && !dialogPendingFullscreen
+  const argPickerOptions = argPicker ? pickerOptions(argPicker.kind, status.provider) : []
+  const argPickerLayout =
+    showArgPicker && argPicker
+      ? popupLayout(
+          argPickerOptions.length,
+          argPicker.index,
+          fullscreen
+            ? Math.max(rows - statusLineRows - inputRows - bannerRows - busyIndicatorRows - MIN_TRANSCRIPT_ROWS, 0)
+            : undefined,
+        )
+      : null
+  const argPickerRows = argPickerLayout?.rows ?? 0
+
+  // Active only while the second-level value picker is actually ON SCREEN — Up/Down move
+  // the cursor (clamped to the current option list), Escape cancels with no dispatch, Enter
+  // confirms and dispatches through onSlash (or applyTuiMode for 'tui', which App already
+  // handles locally rather than forwarding to the engine — see handleSubmit's /tui branch
+  // above). Kept as its own useInput rather than folded into the Escape-to-abort one below
+  // so each stays readable on its own.
+  //
+  // `isActive` is keyed on argPickerLayout (did it DRAW), not on argPicker (is it armed) —
+  // which is also why this hook sits here, below the layout, rather than up with the other
+  // handlers. A picker that is armed but not drawn owns nothing: it can't be seen, so it
+  // must not be able to swallow Up/Down/Enter/Esc from whatever the user IS looking at.
+  // Two ways that happens — a permission dialog claiming the screen (showArgPicker is
+  // false, and the dialog should get those keys back), and a terminal too short for even a
+  // one-row picker (the effect below then cancels it outright and says so).
   useInput(
     (_ch, key) => {
       if (!argPicker) return
@@ -527,38 +696,34 @@ export function App({
         }
       }
     },
-    { isActive: argPicker !== null },
+    { isActive: argPickerLayout !== null },
   )
 
-  // Permission review takes visual priority over ambient decoration/status: a pending
-  // dialog gets the space Banner/TodoPanel would otherwise occupy instead of competing
-  // with them for it. Classic mode is untouched — native scrollback already handles
-  // overflow fine there, so nothing here is gated on `fullscreen` alone without also
-  // checking `pending`.
-  const dialogPendingFullscreen = fullscreen && pending !== null
-  const showBanner = fullscreen && !dialogPendingFullscreen
-  const showTodoPanel = todos.length > 0 && !dialogPendingFullscreen
-  const bannerRows = showBanner ? BANNER_ROWS : 0
-
-  // The busy indicator shows only while a turn is actually running with nothing blocking
-  // it — mirrors InputBox's own `disabled={busy || pending !== null}` "is something
-  // blocking normal input" condition. A pending permission dialog means the model isn't
-  // "working", it's waiting on the user, so the indicator (and the row budget it'd
-  // otherwise reserve) steps aside for the dialog exactly like Banner/TodoPanel already
-  // do via dialogPendingFullscreen above.
-  const showBusyIndicator = busy && pending === null
-  // Like StatusLine below, this is a borderless plain-text line measured against the
-  // FULL terminal width (no HORIZONTAL_CHROME_COLS to subtract) — see busyIndicatorText's
-  // own doc comment for why BUSY_ELAPSED_PLACEHOLDER_MS (not the real, ticking elapsed
-  // value App.tsx never sees) is what gets measured here.
-  const busyIndicatorRows = showBusyIndicator
-    ? wrappedRowCount(busyIndicatorText(BUSY_ELAPSED_PLACEHOLDER_MS), columns)
-    : 0
-
-  // StatusLine is a fixed footer, but its content (cwd/branch/model/mode/ctx%) is
-  // arbitrary-length text with NO border/padding stealing width, so it's measured against
-  // the full terminal width — see the file-header comment on why this can't just be "1".
-  const statusLineRows = wrappedRowCount(statusLineText({ ...status, busy }), columns)
+  // A picker that WANTS the screen but can't fit on it is cancelled outright rather than
+  // left armed-but-invisible. Armed-but-invisible was a dead end for the user: nothing
+  // draws, yet InputBox is disabled (its `disabled` includes `argPicker !== null`), so the
+  // input box loses its cursor and stops accepting keystrokes with no visible cause and no
+  // stated way out. Escape did recover, but nothing said so — strictly worse than the
+  // mention/slash popups' "step aside" behavior, which at least leaves typing working.
+  //
+  // Cancelling (rather than gating `disabled` on the layout) is what keeps ONE source of
+  // truth: `argPicker !== null` then always means "the picker is up", so the InputBox
+  // disable, the key handler above, and what's drawn can't disagree — and it avoids
+  // feeding argPickerLayout, which is derived from the input box's own height, back into
+  // the input box's props. The info line names the typed fallback, since the command is
+  // still perfectly usable with an explicit argument.
+  //
+  // Deliberately NOT fired when the picker is merely yielding to a permission dialog
+  // (showArgPicker false): that's a temporary, explained-by-what's-on-screen hand-off, and
+  // the picker should come back when the dialog resolves.
+  useEffect(() => {
+    if (!showArgPicker || argPicker === null || argPickerLayout !== null) return
+    setArgPicker(null)
+    bus.emit({
+      type: 'info',
+      message: `Not enough room to show the /${argPicker.kind} picker — resize the terminal, or set it directly with "/${argPicker.kind} <value>".`,
+    })
+  }, [showArgPicker, argPicker, argPickerLayout, bus])
 
   // Real remaining-rows budget for PermissionDialog's diff view: terminal rows minus
   // StatusLine's ACTUAL wrapped height minus InputBox's ACTUAL current height minus a
@@ -590,7 +755,7 @@ export function App({
       Math.min(wrappedRowCount(pending.summary, dialogTextColumns), DIALOG_SUMMARY_MAX_ROWS) +
       Math.min(wrappedRowCount(pending.reason, dialogTextColumns), DIALOG_REASON_MAX_ROWS) +
       wrappedRowCount(PERMISSION_FOOTER_TEXT, dialogTextColumns) +
-      wrappedRowCount(diffNoticeText(DIFF_NOTICE_PLACEHOLDER_HIDDEN, dialogTextColumns), dialogTextColumns)
+      noticeReserveRows(diffNoticeText, DIFF_NOTICE_PLACEHOLDER_HIDDEN, dialogTextColumns)
     : 0
   const maxDiffLines = dialogPendingFullscreen
     ? Math.max(rows - statusLineRows - inputRows - MIN_TRANSCRIPT_ROWS - dialogChromeRows, 0)
@@ -606,24 +771,31 @@ export function App({
   // todoNoticeText), so TodoPanel doesn't need to steal a row from it either.
   const todoTextColumns = Math.max(columns - TODO_HORIZONTAL_CHROME_COLS, 1)
   const todoRowsOf = (todo: TodoItem): number => wrappedRowCount(todoLineText(todo), todoTextColumns)
-  const todoNoticeReserveRows = wrappedRowCount(
-    todoNoticeText(TODO_NOTICE_PLACEHOLDER_HIDDEN, todoTextColumns),
+  const todoNoticeReserveRows = noticeReserveRows(
+    todoNoticeText,
+    TODO_NOTICE_PLACEHOLDER_HIDDEN,
     todoTextColumns,
   )
-  const maxTodoRows =
-    fullscreen && showTodoPanel
-      ? Math.max(
-          rows -
-            statusLineRows -
-            inputRows -
-            bannerRows -
-            busyIndicatorRows -
-            MIN_TRANSCRIPT_ROWS -
-            TODO_BORDER_ROWS -
-            todoNoticeReserveRows,
-          0,
-        )
-      : undefined
+  // ArgPickerPopup's rows come out of the same pool, subtracted here so the picker and the
+  // panel can coexist (a bare /model typed while the model is mid-TodoWrite is an everyday
+  // combination, and `todos.length > 0` is entirely independent of `busy`/`pending`).
+  const todoBudgetRows =
+    rows -
+    statusLineRows -
+    inputRows -
+    bannerRows -
+    busyIndicatorRows -
+    argPickerRows -
+    MIN_TRANSCRIPT_ROWS -
+    TODO_BORDER_ROWS -
+    todoNoticeReserveRows
+  // Below one content row there is no such thing as a "smaller" TodoPanel — its border
+  // alone costs TODO_BORDER_ROWS — so it steps aside entirely rather than rendering a
+  // 2-row frame the budget can't pay for. Same yield-to-the-fixed-chrome rule as
+  // `bannerFits` above.
+  const showTodoPanel =
+    todos.length > 0 && !dialogPendingFullscreen && (!fullscreen || todoBudgetRows >= 1)
+  const maxTodoRows = fullscreen && showTodoPanel ? Math.max(todoBudgetRows, 0) : undefined
 
   // Fullscreen-only: bound the Transcript's render window to what actually fits above the
   // input/status row(s), so render/memory cost stays flat no matter how long the session
@@ -652,9 +824,69 @@ export function App({
     : dialogPendingFullscreen
       ? MIN_TRANSCRIPT_ROWS
       : Math.max(
-          rows - statusLineRows - inputRows - bannerRows - busyIndicatorRows - todoRowsUsed,
+          rows - statusLineRows - inputRows - bannerRows - busyIndicatorRows - argPickerRows - todoRowsUsed,
           MIN_TRANSCRIPT_ROWS,
         )
+
+  // Write the clamp back into state as well, so a resize or a /clear can't leave the app
+  // reporting "scrolled" while actually rendering the tail. Functional update: when the
+  // clamp is a no-op React bails out and no extra render happens.
+  useEffect(() => {
+    setScrollEnd((prev) => {
+      if (prev === null) return null
+      if (entries.length === 0) return null
+      const clamped = Math.min(Math.max(prev, 1), entries.length)
+      return clamped >= entries.length ? null : clamped
+    })
+  }, [entries.length, rows, columns])
+
+  // The transcript's row estimator, measured at the CURRENT terminal width — the exact
+  // same function (and the same width) Transcript itself slices with below, so a page step
+  // and the window it produces can never disagree about how tall an entry is.
+  const entryRowsOf = useCallback(
+    (entry: TranscriptEntry): number => estimateEntryRows(entry, columns),
+    [columns],
+  )
+
+  // Transcript scrolling. Fullscreen-only: classic mode leaves the terminal's native
+  // scrollback intact, so hijacking PageUp/PageDown there would take away the scrolling
+  // the user already has. Deliberately NOT gated on `busy` — reading back through the
+  // transcript while a turn streams is the main reason this exists.
+  //
+  // Home/End are unreachable: Ink's useInput key object surfaces no home/end booleans, and
+  // it blanks `input` for every key its parser names (home/end included), so those keys
+  // are indistinguishable from F1-F12 at the useInput seam. Ctrl+Home/Ctrl+End fare no
+  // better — the parser maps both to name 'home'/'end' with ctrl set, which Ink then
+  // collapses to the same empty-input/ctrl-only shape. Ctrl+PageUp/Ctrl+PageDown ARE
+  // distinguishable (key.pageUp/key.pageDown survive with key.ctrl alongside them), so
+  // they carry the jump-to-top/jump-to-live bindings instead.
+  const pageRows = Math.max((availableRows ?? MIN_TRANSCRIPT_ROWS) - SCROLL_OVERLAP_ROWS, 1)
+  useInput(
+    (_ch, key) => {
+      if (key.pageUp) {
+        if (entries.length === 0) return
+        setScrollEnd((prev) => {
+          const from = prev ?? entries.length
+          return key.ctrl ? 1 : shiftWindowEnd(entries, entryRowsOf, from, -pageRows)
+        })
+        return
+      }
+      if (key.pageDown) {
+        if (key.ctrl) {
+          setScrollEnd(null)
+          return
+        }
+        setScrollEnd((prev) => {
+          if (prev === null) return null
+          const next = shiftWindowEnd(entries, entryRowsOf, prev, pageRows)
+          // Paging past the last entry resumes following the live tail, rather than
+          // freezing on an index that later messages would scroll away from.
+          return next >= entries.length ? null : next
+        })
+      }
+    },
+    { isActive: fullscreen && argPicker === null },
+  )
 
   return (
     <Box flexDirection="column" height={fullscreen ? rows : undefined}>
@@ -664,7 +896,7 @@ export function App({
           clutter on every turn, and classic already has the compact status line for
           at-a-glance model/cwd. Also hidden whenever a permission dialog is pending (see
           showBanner above) — the dialog gets visual priority, not ambient branding. */}
-      {showBanner && <Banner version={getVersion()} model={status.model} cwd={status.cwd} columns={columns} />}
+      {showBanner && <Banner {...bannerProps} />}
       {/* flexGrow + justifyContent="flex-end" pins whatever fits at the bottom of the
           flexible area (just above the input), and overflow="hidden" clips anything the
           virtualization estimate undershoots instead of pushing the input off-screen.
@@ -676,7 +908,7 @@ export function App({
         justifyContent={fullscreen ? 'flex-end' : 'flex-start'}
         overflow={fullscreen ? 'hidden' : 'visible'}
       >
-        <Transcript entries={entries} maxRows={availableRows} />
+        <Transcript entries={entries} maxRows={availableRows} windowEnd={windowEnd} columns={columns} />
       </Box>
       {/* Hidden whenever a permission dialog is pending in fullscreen (see showTodoPanel
           above) — same visual-priority reasoning as the banner. Classic mode is
@@ -698,33 +930,25 @@ export function App({
       {showBusyIndicator && <BusyIndicator startedAt={turnStartRef.current} />}
       {/* Second-level value picker for a bare pickable command — same region
           SlashMenuPopup/MentionPopup already occupy inside InputBox, just one level up
-          since App doesn't reach InputBox's internal render. Row-budget note: this
-          popup, like those two, is deliberately NOT accounted for in the fullscreen
-          row-budget math above — safe only because it can never be open at the same
-          time as a pending PermissionDialog or a busy turn (see the disabled prop
-          below: InputBox itself goes inert the moment argPicker is non-null, and
-          argPicker can only ever be opened from handleSubmit, which is only reachable
-          while InputBox was NOT already disabled). */}
-      {argPicker && (
+          since App doesn't reach InputBox's internal render. It is budgeted explicitly
+          (argPickerLayout/argPickerRows above), like every other unclipped sibling in
+          this column; a null layout means the budget couldn't fit even a one-row picker,
+          in which case it draws nothing and costs nothing. */}
+      {showArgPicker && argPicker && argPickerLayout && (
         <ArgPickerPopup
           title={pickerTitle(argPicker.kind)}
-          options={pickerOptions(argPicker.kind, status.provider)}
+          options={argPickerOptions}
           index={argPicker.index}
           currentValue={currentValueFor(argPicker.kind)}
+          layout={argPickerLayout}
+          columns={columns}
         />
       )}
-      {/* busy included: a prompt submitted mid-turn would start a second runTurn
-          and interleave a user message between a tool_use and its tool_result.
-          argPicker included: no new keystrokes while the picker owns Up/Down/Enter/Esc. */}
-      <InputBox
-        onSubmit={handleSubmit}
-        disabled={busy || pending !== null || argPicker !== null}
-        cwd={status.cwd}
-        commands={commands}
-        agents={agents}
-        onHeightChange={setInputRows}
-      />
-      <StatusLine {...status} busy={busy} />
+      {/* Built by useInputBox above (see the comment there): rendered here, measured up
+          there, so every budget in between is computed from the height this very frame
+          commits to rather than the previous frame's. */}
+      {input.element}
+      <StatusLine {...status} busy={busy} scrolledBelow={scrolledBelow} />
     </Box>
   )
 }

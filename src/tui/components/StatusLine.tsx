@@ -1,5 +1,5 @@
 // src/tui/components/StatusLine.tsx
-import { Box, Text } from 'ink'
+import { Text } from 'ink'
 import type { AppStatus } from '../App.js'
 
 function modeColor(mode: AppStatus['mode']): string | undefined {
@@ -21,31 +21,61 @@ function modeColor(mode: AppStatus['mode']): string | undefined {
  *  shape — see BusyIndicator.tsx for the "(esc to interrupt)" hint and animated
  *  working indicator this segment used to carry, moved out to avoid showing the same
  *  text in two places on screen at once. */
-function statusLineParts(props: AppStatus & { busy: boolean }): { left: string; mode: string; right: string } {
+function statusLineParts(props: StatusLineProps): {
+  left: string
+  mode: string
+  right: string
+  scroll: string
+} {
   return {
     left: `${props.cwd}${props.gitBranch ? ` · ⎇ ${props.gitBranch}` : ''} · ${props.model} · ${props.effort} · `,
     mode: props.mode,
     right: ` · ctx ${Math.round(props.contextPct)}%`,
+    scroll: scrollNoticeText(props.scrolledBelow ?? 0),
   }
 }
+
+/** `scrolledBelow` is how many transcript entries sit BELOW the scrolled-up viewport
+ *  (0 = following the live tail, so no notice at all). Deliberately lives on the pinned
+ *  status footer rather than as an extra line at the transcript's edge: App.tsx already
+ *  measures this line's real wrapped height into its fullscreen row budget, so the notice
+ *  can never become an unbudgeted row that overflows the frame. Same "… N more" phrasing
+ *  as SlashMenuPopup/DiffPreview/TodoPanel's truncation notices. */
+export function scrollNoticeText(scrolledBelow: number): string {
+  return scrolledBelow > 0 ? ` · ↑ scrolled, … ${scrolledBelow} more below (PgDn)` : ''
+}
+
+export type StatusLineProps = AppStatus & { busy: boolean; scrolledBelow?: number }
 
 /** Plain-text (no ANSI/Ink markup) render of the whole status line — see
  *  statusLineParts above for why this is a single source of truth shared with the
  *  component's own render. */
-export function statusLineText(props: AppStatus & { busy: boolean }): string {
-  const { left, mode, right } = statusLineParts(props)
-  return `${left}${mode}${right}`
+export function statusLineText(props: StatusLineProps): string {
+  const { left, mode, right, scroll } = statusLineParts(props)
+  return `${left}${mode}${right}${scroll}`
 }
 
-export function StatusLine(props: AppStatus & { busy: boolean }) {
-  const { left, mode, right } = statusLineParts(props)
+/** One <Text> with NESTED (inline) colored spans, deliberately not a <Box> of sibling
+ *  <Text>es. A Box lays its children out as a flex ROW: each segment gets its own share of
+ *  the width and wraps inside it, so at a narrow terminal the footer's real height is a
+ *  function of how Yoga divided the columns between four independent boxes — which
+ *  statusLineText, being a single concatenated string, cannot model. App.tsx budgets this
+ *  footer's rows from exactly that string (wrappedRowCount), and in fullscreen's
+ *  fixed-height column an undercounted footer is a corrupted frame, not a clipped one:
+ *  Yoga shrinks the sibling boxes and Ink draws the cwd segment straight through the mode
+ *  and ctx segments. Nested <Text> is inline instead — the whole line wraps as ONE flow of
+ *  text, which is precisely what statusLineText measures, so the estimate is exact by
+ *  construction rather than by luck at 80 columns. Colors are unaffected. */
+export function StatusLine(props: StatusLineProps) {
+  const { left, mode, right, scroll } = statusLineParts(props)
   return (
-    <Box>
-      <Text dimColor>{left}</Text>
+    <Text dimColor>
+      {left}
       <Text color={modeColor(props.mode)} dimColor={modeColor(props.mode) === undefined}>
         {mode}
       </Text>
-      <Text dimColor>{right}</Text>
-    </Box>
+      {right}
+      {scroll ? <Text color="yellow">{scroll}</Text> : null}
+    </Text>
   )
 }

@@ -45,6 +45,8 @@ function AssistantText({ text }: { text: string }) {
 export function Transcript({
   entries,
   maxRows,
+  windowEnd,
+  columns,
 }: {
   entries: TranscriptEntry[]
   /** Fullscreen-mode viewport bound, in terminal rows. Classic mode omits this and
@@ -52,8 +54,19 @@ export function Transcript({
    *  the most recent entries that fit are rendered, keeping render/memory cost flat
    *  regardless of session length (see ../viewport.ts). */
   maxRows?: number
+  /** Exclusive index of the last entry the window ends at — the scroll position (see
+   *  App.tsx's scrollEnd state). Omitted/undefined means "pinned to the live tail",
+   *  which is the pre-scrolling behavior. Only meaningful alongside maxRows: classic
+   *  mode renders everything regardless. */
+  windowEnd?: number
+  /** Current terminal width, so the row estimate that picks the window is measured
+   *  against the width the content actually wraps at rather than viewport.ts's 80-column
+   *  default. Omitted in classic mode (nothing is estimated there). */
+  columns?: number
 }) {
-  const visible = maxRows === undefined ? entries : sliceToRows(entries, estimateEntryRows, maxRows)
+  const rowsOf = (entry: TranscriptEntry): number => estimateEntryRows(entry, columns)
+  const visible =
+    maxRows === undefined ? entries : sliceToRows(entries, rowsOf, maxRows, windowEnd ?? entries.length)
   return (
     <Box flexDirection="column">
       {visible.map((entry, idx) => {

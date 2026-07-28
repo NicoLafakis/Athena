@@ -1,5 +1,5 @@
 // src/tui/components/InputBox.tsx
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { Box, Text, useInput } from 'ink'
 import { MentionPopup } from './MentionPopup.js'
 import { SlashMenuPopup } from './SlashMenuPopup.js'
@@ -16,8 +16,22 @@ import {
   type MentionCandidate,
 } from '../agentMention.js'
 import { buildSlashCatalog, filterSlashCommands } from '../slashMenu.js'
+import { popupLayout } from '../popupWindow.js'
 import { PICKABLE_KINDS } from '../argPicker.js'
 import type { CustomCommandDef } from '../slash.js'
+import {
+  clampCursor,
+  cursorRowCol,
+  deleteBackward,
+  deleteForward,
+  deleteWordBackward,
+  insertAt,
+  isWordBackspaceKey,
+  lineEnd,
+  lineStart,
+  nextWordBoundary,
+  prevWordBoundary,
+} from '../cursor.js'
 
 /** Tracks an in-progress @-mention: `start` is the index of the triggering '@' inside
  *  `value`, so the filter query is always derived as value.slice(start + 1) rather
@@ -46,28 +60,38 @@ export function applyTypedChars(
   value: string,
   mention: MentionState | null,
   chars: string,
-): { value: string; mention: MentionState | null } {
-  let v = value
+  cursor: number = value.length,
+): { value: string; mention: MentionState | null; cursor: number } {
+  const at = clampCursor(value, cursor)
+  let head = value.slice(0, at)
+  const tail = value.slice(at)
   let m = mention
   for (const c of chars) {
     if (m) {
       if (c === ' ') {
         // Whitespace ends the query per spec; the '@word' typed so far is kept as
         // ordinary text rather than swallowed.
-        v += c
+        head += c
         m = null
       } else {
-        v += c
+        head += c
         m = { ...m, index: 0 } // filter narrowed: re-anchor highlight to top
       }
-    } else if (c === '@') {
-      v += c
-      m = { start: v.length - 1, index: 0 }
+    } else if (c === '@' && tail === '') {
+      // A '@' only arms mention mode when it's typed at the END of the buffer. Both the
+      // query (value.slice(start + 1)) and the popup's own accept/backspace handling
+      // assume everything after `start` belongs to the mention — typing '@' in the middle
+      // of existing text would make that assumption silently false and swallow the rest
+      // of the line into the filter. Cursor motion likewise dismisses the popup (see the
+      // motion block in the input handler below), so an armed mention always has its
+      // cursor at the end.
+      head += c
+      m = { start: head.length - 1, index: 0 }
     } else {
-      v += c
+      head += c
     }
   }
-  return { value: v, mention: m }
+  return { value: head + tail, mention: m, cursor: head.length }
 }
 
 /** Burst-safe counterpart of applyTypedChars for the live "/" menu: simulates a run of
@@ -87,14 +111,7 @@ export function beginSlashComposition(chars: string): { value: string; slash: Sl
   return { value: chars.slice(0, boundary), slash: { index: 0 }, rest: chars.slice(boundary) }
 }
 
-export function InputBox({
-  onSubmit,
-  disabled,
-  cwd,
-  commands,
-  agents,
-  onHeightChange,
-}: {
+export interface InputBoxProps {
   onSubmit: (text: string) => void
   disabled: boolean
   /** Project root the @-mention file walk runs from — same coordinate system the
@@ -109,14 +126,57 @@ export function InputBox({
    *  the combined '@' picker. Optional so existing callers/tests that don't wire any
    *  stay unaffected. */
   agents?: readonly AgentMentionSource[]
-  /** Reports the box's actual current row count (`value.split('\n').length`, so it grows
-   *  with backslash-continuation) on every change, so callers that budget remaining
-   *  terminal rows around this component (fullscreen App's PermissionDialog/TodoPanel
-   *  sizing) react to it instead of assuming a fixed 1-row height. Optional so existing
-   *  callers/tests that don't wire any stay unaffected. */
-  onHeightChange?: (rows: number) => void
-}) {
+  /** Terminal column count, threaded down to the popups so each of their rows can be held
+   *  to exactly one row (popupWindow.ts's popupLine). Defaults to 80, matching Banner's
+   *  and TodoPanel's own defaults. */
+  columns?: number
+  /** Total rows this component (text lines + open popup) may occupy, from App's fullscreen
+   *  row budget. An open popup is clamped to whatever is left after the text lines, and
+   *  steps aside entirely when even a one-item popup wouldn't fit — showing fewer
+   *  candidates is correct; overflowing an unclipped sibling corrupts the frame. Undefined
+   *  in classic mode (unbounded, exactly as before — native scrollback makes fixed-height
+   *  layout a non-issue there). */
+  maxRows?: number
+}
+
+/** What the input box will actually draw this render, and — critically — exactly how tall
+ *  it will be, both derived in ONE pass so a caller can budget the rest of the screen
+ *  around the very same numbers this render commits to.
+ *
+ *  This is a hook rather than the `onHeightChange` callback prop it replaces because a
+ *  callback can only ever report the height AFTER the commit that already rendered (and
+ *  wrote to the terminal) at that height — one full frame late. That lag was harmless
+ *  while the box only ever grew a single text row per keystroke, but an overlay popup
+ *  opens in one keystroke and jumps the height by ~12 rows, and for that one committed
+ *  frame every sibling budgeted from the reported height (TodoPanel, ArgPickerPopup, the
+ *  Transcript window) was still sized for the OLD height. In fullscreen mode's fixed
+ *  height={rows} column that is not a clipped frame, it is a corrupted one: Yoga shrinks
+ *  the oversized siblings and Ink then overwrites/interleaves their lines — dropped todos,
+ *  a popup title fused into its first item, the input line drawn over the popup's border —
+ *  all while the frame's ROW COUNT still reads exactly `rows`, which is why no row-count
+ *  assertion ever caught it. Deriving the height in the same render that consumes it makes
+ *  the stale window not smaller but nonexistent.
+ *
+ *  The anti-oscillation property is unchanged and still structural: `maxRows` (the ceiling
+ *  handed IN) must not be derived from any of the panels budgeted OUT of `rows`, or the
+ *  loop "popup opens -> panel shrinks -> more room -> popup grows" replaces the lag with a
+ *  non-settling layout. See App.tsx's inputMaxRows. */
+export function useInputBox({
+  onSubmit,
+  disabled,
+  cwd,
+  commands,
+  agents,
+  columns = 80,
+  maxRows,
+}: InputBoxProps): { rows: number; element: ReactElement } {
   const [value, setValue] = useState('')
+  // Flat index into `value` (0..value.length) marking the insertion point. A single index,
+  // NOT a [row, col] pair — `value` can contain '\n' via backslash-continuation, and
+  // multi-line behavior is expressed by respecting those '\n' boundaries inside this flat
+  // index (see ../cursor.ts). Every mutation path below moves it explicitly; nothing may
+  // assume it sits at value.length any more.
+  const [cursor, setCursor] = useState(0)
   const [history, setHistory] = useState<string[]>([])
   // historyIndex === history.length means "editing a fresh line"
   const [historyIndex, setHistoryIndex] = useState(0)
@@ -158,10 +218,20 @@ export function InputBox({
   const slashQuery = slashMenu ? value.slice(1) : ''
   const slashMatches = slashMenu ? filterSlashCommands(slashCatalog, slashQuery) : []
 
+  /** The single seam every buffer mutation goes through, so value and cursor can never be
+   *  updated independently and drift apart (the cursor is clamped against the NEW text,
+   *  not the old one). */
+  function setBuffer(next: { value: string; cursor: number }): void {
+    setValue(next.value)
+    setCursor(clampCursor(next.value, next.cursor))
+  }
+
   function selectMention(candidate: MentionCandidate): void {
     if (!mention) return
     const before = value.slice(0, mention.start)
-    setValue(`${before}@${candidate.value} `)
+    // Cursor lands just past the inserted token's trailing space, ready to keep typing.
+    const inserted = `${before}@${candidate.value} `
+    setBuffer({ value: inserted, cursor: inserted.length })
     setMention(null)
     // Only file rows have content to cache — agent guidance is re-derived fresh from
     // the `agents` prop at submit time (extractAgentMentionBlocks), no caching needed.
@@ -172,6 +242,71 @@ export function InputBox({
 
   useInput(
     (ch, key) => {
+      // --- Cursor motion and word-wise editing. Claimed FIRST, ahead of both sub-modes
+      // below AND ahead of all three `if (key.ctrl || key.meta …) return` short-circuits
+      // that used to swallow every modifier combo before any handler could see it. One
+      // block rather than three copies: the bindings are identical in every mode, and the
+      // sub-modes' own short-circuits still guard whatever this block doesn't claim.
+      //
+      // Any motion or word-delete DISMISSES an open @-mention / "/" popup. Both derive
+      // their query from a value the cursor is assumed to sit at the end of
+      // (value.slice(mention.start + 1) and value.slice(1) respectively), so editing away
+      // from the end would leave the popup filtering on text that is no longer there.
+      // Dismissing keeps the typed characters as ordinary literal text, exactly like Esc
+      // already does, and keeps every in-mode edit path below at cursor === value.length.
+      //
+      // Encoding note (Windows Terminal + PowerShell is the primary host): Ink's vendored
+      // parser reads modified arrows as xterm CSI (`\x1b[1;5D` -> leftArrow + ctrl,
+      // `\x1b[1;3D` -> leftArrow + meta). Hosts that instead emit the readline-style
+      // ESC-prefixed `\x1b b` / `\x1b f` arrive as meta + input 'b'/'f', handled below as
+      // an alias. Anything else the parser doesn't recognize yields an empty `input` and
+      // no matching key flag, so it falls through every branch and does nothing at all —
+      // never inserting stray escape bytes into the buffer.
+      const dismissPopups = (): void => {
+        setMention(null)
+        setSlashMenu(null)
+      }
+      if (key.leftArrow || key.rightArrow) {
+        const byWord = key.ctrl || key.meta
+        const next = key.leftArrow
+          ? byWord
+            ? prevWordBoundary(value, cursor)
+            : Math.max(0, cursor - 1)
+          : byWord
+            ? nextWordBoundary(value, cursor)
+            : Math.min(value.length, cursor + 1)
+        dismissPopups()
+        setCursor(next)
+        return
+      }
+      if (key.meta && !key.ctrl && (ch === 'b' || ch === 'f')) {
+        dismissPopups()
+        setCursor(ch === 'b' ? prevWordBoundary(value, cursor) : nextWordBoundary(value, cursor))
+        return
+      }
+      if (key.ctrl && (ch === 'a' || ch === 'e')) {
+        // Line-wise, not buffer-wise: '\n' boundaries are respected so these behave the
+        // way they do in any shell once backslash-continuation has made the input
+        // multi-line.
+        dismissPopups()
+        setCursor(ch === 'a' ? lineStart(value, cursor) : lineEnd(value, cursor))
+        return
+      }
+      if ((key.ctrl && ch === 'w') || isWordBackspaceKey(key)) {
+        dismissPopups()
+        setBuffer(deleteWordBackward(value, cursor))
+        return
+      }
+      if (key.ctrl && ch === 'd') {
+        // Forward-delete's readline binding. The Delete key itself is NOT bindable here:
+        // Ink's parser names both `\x7f` (plain Backspace on most hosts) and `\x1b[3~`
+        // (the real Delete key) 'delete', and blanks `input` for both, so honoring Delete
+        // as a forward delete would silently turn every Backspace into one.
+        dismissPopups()
+        setBuffer(deleteForward(value, cursor))
+        return
+      }
+
       // --- @-mention mode: intercepts navigation before any normal-mode handling
       // below (in particular, Enter here selects instead of submitting). ---
       if (mention) {
@@ -195,8 +330,12 @@ export function InputBox({
           return
         }
         if (key.backspace || key.delete) {
-          const next = value.slice(0, -1)
-          setValue(next)
+          // An armed mention always has its cursor at the end (motion dismisses it), so
+          // this is the same single-character delete it always was — just routed through
+          // the cursor-aware helper rather than assuming the end.
+          const edit = deleteBackward(value, cursor)
+          const next = edit.value
+          setBuffer(edit)
           if (next.length <= mention.start) {
             setMention(null) // deleted the '@' itself
           } else {
@@ -209,8 +348,8 @@ export function InputBox({
         }
         if (key.ctrl || key.meta) return
         if (ch) {
-          const result = applyTypedChars(value, mention, ch)
-          setValue(result.value)
+          const result = applyTypedChars(value, mention, ch, cursor)
+          setBuffer(result)
           setMention(result.mention)
         }
         return
@@ -259,7 +398,7 @@ export function InputBox({
             // (App.tsx owns detectBarePickableCommand and the picker itself).
             setHistory((prev) => [...prev, `/${picked.name}`])
             setHistoryIndex(history.length + 1)
-            setValue('')
+            setBuffer({ value: '', cursor: 0 })
             setSlashMenu(null)
             onSubmit(`/${picked.name}`)
             return
@@ -267,7 +406,9 @@ export function InputBox({
           if (nothingLeftToComplete) {
             setSlashMenu(null) // fall through to the shared Enter-submit logic below
           } else if (picked) {
-            setValue(`/${picked.name} `)
+            // Cursor lands after the completed name's trailing space, ready for an argument.
+            const completed = `/${picked.name} `
+            setBuffer({ value: completed, cursor: completed.length })
             setSlashMenu(null)
             return
           } else {
@@ -275,20 +416,20 @@ export function InputBox({
             return
           }
         } else if (key.backspace || key.delete) {
-          const next = value.slice(0, -1)
-          setValue(next)
-          if (next.length === 0) setSlashMenu(null) // deleted the '/' itself
+          // Cursor is always at the end while the menu is armed (motion dismisses it).
+          const edit = deleteBackward(value, cursor)
+          setBuffer(edit)
+          if (edit.value.length === 0) setSlashMenu(null) // deleted the '/' itself
           return
         } else if (key.ctrl || key.meta) {
           return
         } else if (ch) {
+          setBuffer(insertAt(value, cursor, ch))
           if (/\s/.test(ch)) {
             // Whitespace ends composition per spec; the '/word' typed so far is kept
             // as ordinary text rather than swallowed.
-            setValue(value + ch)
             setSlashMenu(null)
           } else {
-            setValue(value + ch)
             setSlashMenu({ index: 0 }) // filter narrowed: re-anchor highlight to top
           }
           return
@@ -299,8 +440,11 @@ export function InputBox({
 
       if (key.return) {
         if (value.endsWith('\\')) {
-          // Backslash continuation: strip the backslash, insert a newline.
-          setValue(value.slice(0, -1) + '\n')
+          // Backslash continuation: strip the backslash, insert a newline. Stays anchored
+          // to the END of the buffer (that's where the trailing backslash is by
+          // definition), and the cursor follows onto the new line.
+          const continued = `${value.slice(0, -1)}\n`
+          setBuffer({ value: continued, cursor: continued.length })
           return
         }
         const text = value
@@ -317,14 +461,14 @@ export function InputBox({
           ...extractAgentMentionBlocks(text, agents ?? []),
         ]
         const finalText = blocks.length > 0 ? `${text}\n\n${blocks.join('\n\n')}` : text
-        setValue('')
+        setBuffer({ value: '', cursor: 0 })
         setDraft('')
         mentionedFiles.current = new Map() // next turn re-reads files fresh (they may have changed)
         onSubmit(finalText)
         return
       }
       if (key.backspace || key.delete) {
-        setValue((v) => v.slice(0, -1))
+        setBuffer(deleteBackward(value, cursor))
         return
       }
       if (key.upArrow) {
@@ -332,14 +476,18 @@ export function InputBox({
         if (historyIndex === history.length) setDraft(value)
         const next = historyIndex - 1
         setHistoryIndex(next)
-        setValue(history[next] ?? '')
+        // Recalled text arrives ready to be appended to / edited from its end, the way
+        // every shell's history recall behaves.
+        const recalled = history[next] ?? ''
+        setBuffer({ value: recalled, cursor: recalled.length })
         return
       }
       if (key.downArrow) {
         if (historyIndex >= history.length) return
         const next = historyIndex + 1
         setHistoryIndex(next)
-        setValue(next === history.length ? draft : (history[next] ?? ''))
+        const recalled = next === history.length ? draft : (history[next] ?? '')
+        setBuffer({ value: recalled, cursor: recalled.length })
         return
       }
       if (key.ctrl || key.meta || key.escape || key.tab) return
@@ -355,16 +503,16 @@ export function InputBox({
             // a pasted "/tui fullscreen") — replay the remainder through the normal
             // (mention-aware) typing path so a trailing @mention still arms correctly.
             const after = applyTypedChars(begun.value, null, begun.rest)
-            setValue(after.value)
+            setBuffer(after)
             if (after.mention) setMention(after.mention)
           } else {
-            setValue(begun.value)
+            setBuffer({ value: begun.value, cursor: begun.value.length })
             setSlashMenu(begun.slash)
           }
           return
         }
-        const result = applyTypedChars(value, null, ch)
-        setValue(result.value)
+        const result = applyTypedChars(value, null, ch, cursor)
+        setBuffer(result)
         if (result.mention) setMention(result.mention)
       }
     },
@@ -372,20 +520,82 @@ export function InputBox({
   )
 
   const lines = value.split('\n')
-  useEffect(() => {
-    onHeightChange?.(lines.length)
-  }, [lines.length, onHeightChange])
-  return (
+  const caret = cursorRowCol(value, cursor)
+  // The text lines are non-negotiable (they're what the user is typing into), so the popup
+  // gets whatever `maxRows` leaves over rather than the other way round. `null` from
+  // popupLayout means "not even one row fits" — the popup then renders nothing and costs
+  // nothing, instead of overflowing a sibling nothing clips. mention/slashMenu are armed
+  // mutually exclusively (see the two input branches above), but summing both is what
+  // makes that a fact about the reported height rather than an assumption baked into it.
+  const popupBudget = maxRows === undefined ? undefined : Math.max(maxRows - lines.length, 0)
+  const mentionLayout = mention ? popupLayout(matches.length, mention.index, popupBudget) : null
+  const slashLayout = slashMenu ? popupLayout(slashMatches.length, slashMenu.index, popupBudget) : null
+  // One height number covering everything this hook actually draws — the text lines PLUS
+  // whichever popup is open, since MentionPopup/SlashMenuPopup render as siblings inside
+  // this same column and are just as unclipped in fullscreen mode's fixed-height layout as
+  // the text lines are. mention/slashMenu are armed mutually exclusively (see the two input
+  // branches above), but summing both layouts is what makes that a fact about the number
+  // rather than an assumption baked into it. Returned alongside the element rather than
+  // pushed out through a callback, so the caller has it BEFORE it renders anything sized
+  // against it — see the hook's doc comment.
+  const totalRows = lines.length + (mentionLayout?.rows ?? 0) + (slashLayout?.rows ?? 0)
+  const element = (
     <Box flexDirection="column">
-      {mention && <MentionPopup query={query} matches={matches} index={mention.index} loading={!allFiles} />}
-      {slashMenu && <SlashMenuPopup query={slashQuery} matches={slashMatches} index={slashMenu.index} />}
-      {lines.map((line, idx) => (
-        <Text key={idx}>
-          {idx === 0 ? '❯ ' : '… '}
-          {line}
-          {idx === lines.length - 1 && !disabled ? <Text inverse> </Text> : null}
-        </Text>
-      ))}
+      {mention && mentionLayout && (
+        <MentionPopup
+          query={query}
+          matches={matches}
+          index={mention.index}
+          loading={!allFiles}
+          layout={mentionLayout}
+          columns={columns}
+        />
+      )}
+      {slashMenu && slashLayout && (
+        <SlashMenuPopup
+          query={slashQuery}
+          matches={slashMatches}
+          index={slashMenu.index}
+          layout={slashLayout}
+          columns={columns}
+        />
+      )}
+      {lines.map((line, idx) => {
+        const prefix = idx === 0 ? '❯ ' : '… '
+        // The cursor is drawn as an inverse-video block ON the character it sits at (or on
+        // a trailing space when it's past the end of that line), so it's visible wherever
+        // in the buffer editing is happening rather than only ever at the end. A disabled
+        // box (busy turn / pending dialog / open arg picker) draws none at all, exactly as
+        // before. Rendering-only derivation — the cursor itself is never stored as a
+        // row/col pair (see ../cursor.ts).
+        if (disabled || idx !== caret.row) {
+          return (
+            <Text key={idx}>
+              {prefix}
+              {line}
+            </Text>
+          )
+        }
+        return (
+          <Text key={idx}>
+            {prefix}
+            {line.slice(0, caret.col)}
+            <Text inverse>{line.slice(caret.col, caret.col + 1) || ' '}</Text>
+            {line.slice(caret.col + 1)}
+          </Text>
+        )
+      })}
     </Box>
   )
+  return { rows: totalRows, element }
+}
+
+/** Component form of useInputBox, for callers that don't budget any other sibling against
+ *  this box's height and so have no use for the number (classic-mode-shaped usage, and
+ *  every focused InputBox test). App.tsx deliberately does NOT go through this wrapper —
+ *  it calls the hook directly, because it needs `rows` in the same render that sizes
+ *  TodoPanel/ArgPickerPopup/the Transcript window around it. One implementation either
+ *  way: this is the hook, minus the number. */
+export function InputBox(props: InputBoxProps): ReactElement {
+  return useInputBox(props).element
 }

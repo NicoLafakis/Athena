@@ -1,14 +1,19 @@
 // src/tui/components/ArgPickerPopup.tsx
 import { Box, Text } from 'ink'
 import type { ArgPickerOption } from '../argPicker.js'
-
-const WINDOW = 8
+import { popupLine, popupTextColumns, type PopupLayout } from '../popupWindow.js'
 
 export interface ArgPickerPopupProps {
   title: string
   options: readonly ArgPickerOption[]
   index: number
   currentValue: string
+  /** Which slice to draw and how tall it is. Unlike the two InputBox-owned popups this
+   *  one's owner is App itself, which reserves exactly `layout.rows` for it in the
+   *  fullscreen budget — see popupWindow.ts and App.tsx's argPicker budget. */
+  layout: PopupLayout
+  /** Terminal column count, so every row can be held to exactly one row (popupLine). */
+  columns?: number
 }
 
 /** Second-level "pick a value" popup for slash commands with an enumerable argument
@@ -23,16 +28,17 @@ export interface ArgPickerPopupProps {
  *  (`currentValue`, leading marker) are independent signals — the cursor moves as the
  *  user browses, but the marker stays put until Enter actually changes anything, so
  *  both must render correctly even when they point at different rows. */
-export function ArgPickerPopup({ title, options, index, currentValue }: ArgPickerPopupProps) {
-  // Windowed render: keep the selection visible without drawing an unbounded list —
-  // same math as SlashMenuPopup/MentionPopup, future-proofing for a longer option list
-  // even though every current kind's option count is small.
-  const start = Math.min(Math.max(0, index - WINDOW + 1), Math.max(0, options.length - WINDOW))
-  const visible = options.slice(start, start + WINDOW)
+export function ArgPickerPopup({ title, options, index, currentValue, layout, columns = 80 }: ArgPickerPopupProps) {
+  const width = popupTextColumns(columns)
+  // Windowed render: keep the selection visible without drawing an unbounded list — the
+  // window comes from `layout` (popupWindow.ts), the same math SlashMenuPopup/MentionPopup
+  // now use, so a long option list degrades to fewer visible rows instead of overflowing.
+  const { start, count } = layout
+  const visible = options.slice(start, start + count)
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="green" paddingX={1}>
       <Text bold color="green">
-        {title} (↑/↓ select, Enter confirm, Esc cancel)
+        {popupLine(`${title} (↑/↓ select, Enter confirm, Esc cancel)`, width)}
       </Text>
       {start > 0 && <Text dimColor>… {start} earlier</Text>}
       {visible.map((option, i) => {
@@ -41,12 +47,11 @@ export function ArgPickerPopup({ title, options, index, currentValue }: ArgPicke
         const isCurrent = option.value === currentValue
         return (
           <Text key={option.value} color={active ? 'green' : undefined} inverse={active}>
-            {isCurrent ? '● ' : '  '}
-            {option.label}
+            {popupLine(`${isCurrent ? '● ' : '  '}${option.label}`, width)}
           </Text>
         )
       })}
-      {start + WINDOW < options.length && <Text dimColor>… {options.length - start - WINDOW} more</Text>}
+      {start + count < options.length && <Text dimColor>… {options.length - start - count} more</Text>}
     </Box>
   )
 }

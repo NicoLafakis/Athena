@@ -589,10 +589,26 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
           break
         }
         let resolved
+        // Every resolveApiKey call site must pass a warning sink: a vault read that
+        // fails (the cross-machine DPAPI blob case) resolves as "no key" plus a warning
+        // instead of throwing, so without a sink the specific, actionable message is
+        // swallowed and the user is told the key is simply "not configured".
+        // Boot-time sites warn on stderr; inside a mounted TUI stderr is unreadable, so
+        // the sink is the same transcript channel every other slash message uses.
+        let vaultWarned = false
+        const warnCredentials = (message: string): void => {
+          vaultWarned = true
+          info(message)
+        }
         try {
-          resolved = resolveApiKey(p, loadCredentials(paths), process.env, credentialVault)
+          resolved = resolveApiKey(p, loadCredentials(paths), process.env, credentialVault, warnCredentials)
         } catch (err) {
           info((err as Error).message)
+          break
+        }
+        if (!resolved && vaultWarned) {
+          // The warning already named the cause and the fix (`athena auth`); adding the
+          // generic "not configured" line on top of it would contradict it.
           break
         }
         if (!resolved) {
@@ -1126,30 +1142,38 @@ async function main(): Promise<void> {
   const effectivePaths: BrainPaths = projectTrust.trusted
     ? paths
     : { ...paths, projectBrainDir: null }
+  // One line per distinct credential-path problem, on stderr, before the TUI mounts.
+  // Deduped because key resolution runs several times below.
+  const seenCredentialWarnings = new Set<string>()
+  const warnCredentials = (message: string): void => {
+    if (seenCredentialWarnings.has(message)) return
+    seenCredentialWarnings.add(message)
+    console.error(message)
+  }
   let credentials: Credentials
   try {
-    credentials = migrateCredentialsToVault(
-      paths,
-      loadCredentials(paths),
-      credentialVault,
-    )
+    // Vault migration is best effort by construction (it cannot throw), so this catch
+    // only ever sees genuine credentials-file errors: malformed JSON, I/O, permissions.
+    credentials = migrateCredentialsToVault(paths, loadCredentials(paths), credentialVault, {
+      onWarn: warnCredentials,
+    })
   } catch (err) {
     console.error((err as Error).message)
     process.exitCode = 1
     return
   }
   let provider: ProviderId = cmd.provider ?? credentials.activeProvider
-  let resolved = resolveApiKey(provider, credentials, process.env, credentialVault)
+  let resolved = resolveApiKey(provider, credentials, process.env, credentialVault, warnCredentials)
   if (!resolved && cmd.provider === undefined) {
     // The default provider has no key but another one does (e.g. no credentials file
     // and only MOONSHOT_API_KEY set, while activeProvider defaults to anthropic):
     // adopt the keyed provider for the session instead of forcing the wizard.
     const withKey = PROVIDER_IDS.find((p) =>
-      resolveApiKey(p, credentials, process.env, credentialVault),
+      resolveApiKey(p, credentials, process.env, credentialVault, warnCredentials),
     )
     if (withKey) {
       provider = withKey
-      resolved = resolveApiKey(provider, credentials, process.env, credentialVault)!
+      resolved = resolveApiKey(provider, credentials, process.env, credentialVault, warnCredentials)!
       console.log(`Using ${PROVIDERS[provider].label} (only provider with a configured key).`)
     }
   }
@@ -1161,7 +1185,9 @@ async function main(): Promise<void> {
     }
     if (
       cmd.provider === undefined &&
-      PROVIDER_IDS.every((p) => !resolveApiKey(p, credentials, process.env, credentialVault))
+      PROVIDER_IDS.every(
+        (p) => !resolveApiKey(p, credentials, process.env, credentialVault, warnCredentials),
+      )
     ) {
       // True cold start: no --provider flag and no key anywhere. Run the FULL wizard
       // (provider pick included) and adopt whatever the user chose.
