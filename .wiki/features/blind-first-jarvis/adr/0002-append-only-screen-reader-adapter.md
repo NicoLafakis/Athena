@@ -1,6 +1,6 @@
 # ADR 0002: Use an append-only screen-reader adapter instead of adapting fullscreen Ink
 
-**Status:** proposed
+**Status:** accepted; presentation-neutral adapter implemented, composition pending
 **Date:** 2026-07-29
 **Serves:** [PRD](../prd.md)
 

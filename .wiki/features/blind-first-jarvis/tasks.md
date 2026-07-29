@@ -42,8 +42,8 @@ editing under the active Global Rule.
   current Ink queue still behaves identically and request/resolution events are observable
   outside React. The engine/event-adapter half is complete: paired, stable, redacted
   `permission-requested`/`permission-resolved` events now drive exact blocking attention
-  outside React, including headless default-deny. The presentation contract and existing
-  Ink queue migration remain pending. **Frontend approval gate applies before editing
+  outside React, including headless default-deny. The adapter-neutral presentation
+  contract is also complete; existing Ink queue migration remains pending. **Frontend approval gate applies before editing
   `App.tsx`.**
 - [x] **1.4 Implement pure reducer** - create `src/interaction/state.ts`; test every
   fixture after every event - done when snapshots are deterministic and runtime/user
@@ -91,7 +91,7 @@ editing under the active Global Rule.
 - [ ] **3.2 Add CLI selection** - modify argument parsing/help in `src/cli.ts`; tests in
   `tests/cli/args.test.ts` - done when `--accessibility screen-reader|standard` overrides
   global settings for one invocation and invalid values fail clearly.
-- [ ] **3.3 Implement line adapter** - create `src/presentation/screen-reader.ts` and
+- [x] **3.3 Implement line adapter** - create `src/presentation/screen-reader.ts` and
   `src/presentation/line-input.ts`; integration tests capture raw bytes - done when output
   is append-only, contains no prohibited escape sequences, and prompt/announcement lines
   never corrupt each other.
@@ -105,6 +105,8 @@ editing under the active Global Rule.
   `src/presentation/permission-format.ts`; reuse existing diff logic through a
   presentation-neutral helper; tests for queue/order/detail/deny - done when all choices,
   target, consequence, reason, and detail route are available without sight.
+  The formatter and serialized line-adapter flow are complete; extracting the existing
+  TUI diff helper and wiring both presentations remain approval-gated.
 - [ ] **3.6 Add accessible cancellation/resume** - modify adapter-neutral input and engine
   handoff; tests for busy, waiting-permission, idle, and aborted states - done when every
   interrupt gets explicit acknowledgement and no dead prompt remains.

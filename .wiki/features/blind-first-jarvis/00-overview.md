@@ -161,3 +161,9 @@ versioned proxy fixture covers all eleven core journey capabilities, a research-
 vocabulary contract freezes the seven semantic labels, and every deterministic detector
 has exact helpful and quiet replay evidence through the production adapter. These remain
 explicitly distinct from the open blind-participant and assistive-technology gates.
+
+The append-only presentation-neutral core is also implemented under `src/presentation/`.
+It provides shared lifecycle/permission contracts, stable accessible permission wording,
+serialized line input, and byte-tested plain output with queued announcements instead of
+prompt rewriting. Selection, engine handoff, and the existing Ink bridge remain pending
+behind the frontend approval boundary.

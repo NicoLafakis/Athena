@@ -81,6 +81,12 @@ In screen-reader mode:
 - all status meanings survive ANSI/color stripping;
 - JSONL remains valid and schema-versioned.
 
+The presentation-neutral adapter enforces these byte-level invariants in
+`tests/presentation/screen-reader.test.ts`. The suite captures the exact written chunks,
+asserts every chunk is newline-terminated, rejects terminal control bytes, and exercises
+announcement/input serialization. This proves adapter mechanics, not behavior in NVDA,
+Narrator, VoiceOver, Orca, or Braille hardware; those manual rows remain open.
+
 ### Existing TUI regression gates
 
 Any visual TUI change must use current fullscreen budget primitives. Capture every frame

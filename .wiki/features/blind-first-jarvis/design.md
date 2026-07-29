@@ -226,6 +226,10 @@ The existing `PermissionBridge` becomes an Ink implementation of this contract o
 wrapped by one. Headless execution continues to deny when no interactive presentation is
 present.
 
+Implemented presentation-neutral boundary: `src/presentation/types.ts` defines the
+shared lifecycle and request contracts. The existing Ink bridge is intentionally not yet
+modified; migrating it remains behind the explicit frontend approval gate.
+
 ### `src/presentation/screen-reader.ts`
 
 Uses line-oriented input and output, not a React tree. Requirements:
@@ -243,6 +247,14 @@ Input should reuse parsing and command handlers, not fork slash-command semantic
 Node `readline` cannot safely support concurrent announcements and editable input in the
 tested terminals, use a serialized prompt loop: queue nonblocking announcements and
 flush them before the next prompt rather than rewriting the active line.
+
+Implemented adapter core: `ScreenReaderPresentation` writes bounded newline-terminated
+plain text only, never emits terminal control sequences, and serializes prompts and
+permission requests. Announcements arriving during input are queued and flushed when the
+line completes, before the next queued prompt. `ReadlineLineInput` runs with terminal
+editing disabled. Byte-level tests cover append-only output, cancellation acknowledgement,
+queued announcements, invalid permission choices, FIFO request order, and idempotent
+plain completion output. CLI selection and engine composition remain pending.
 
 ### `src/interaction/status-tool.ts` or direct slash handlers
 
@@ -313,10 +325,12 @@ For Write/Edit it includes bounded diff statistics and `/details permission <id>
 full bounded diff. It never substitutes a summary for the existing permission engine.
 
 Current implementation boundary: the engine lifecycle/semantic events described above
-are complete, but the richer target/consequence/diff formatter and presentation-neutral
-FIFO request contract are not. Until that approved presentation work lands, the public
-event summary deliberately names only the tool and policy reason and never exposes raw
-tool input.
+are complete. The richer presentation-neutral formatter now provides bounded tool,
+target, consequence, reason, line-change statistics, choices, and detail route without
+copying command/content secrets. The line adapter serializes concurrent decisions. The
+existing Ink diff calculation has not yet been extracted or wired into this contract,
+and the public event summary remains deliberately minimal until the approved composition
+work lands.
 
 ## Proactive attention
 
