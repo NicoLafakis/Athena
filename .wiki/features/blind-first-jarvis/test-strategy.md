@@ -21,7 +21,7 @@ tests with manual keyboard, screen-reader, and user validation.
 | R-007 outcome behavior | scenario replay | `tests/interaction/journeys.test.ts` and `tests/fixtures/interaction/core-journeys.json` |
 | R-008 proactivity | detector fixtures | `tests/interaction/attention-quality.test.ts` and `tests/fixtures/interaction/attention-quality.json` |
 | R-009 watchers | platform-gated integration | `tests/harness/watchers.integration.test.ts` |
-| R-010 voice | adapter contract + manual | later phase, separate matrix |
+| R-010 voice | schema/unit + golden semantic context + manual | `tests/voice/`, later audio/AT matrix |
 | R-011 privacy/evidence | redaction + trace verification | interaction/trace tests |
 | R-012 release validation | CI + signed manual checklist | release artifact |
 
@@ -92,6 +92,13 @@ sentinel and observe a known file; executable/platform presence is not accepted 
 evidence. Separate fault tests inject probe/startup failure, a corrupt optional index,
 and an event racing with shutdown. They assert bounded recovery warnings, unchanged
 persisted state, and no post-abort observation.
+
+Voice golden tests prove context comes only from bounded redacted semantic state,
+session ambiguity produces clarification, screen-reader ownership suppresses duplicate
+routine direct speech, recognition failure is a no-op, and consequential calls require a
+separate opaque local confirmation. They do not prove microphone, playback, Realtime,
+wake-word, latency, cost, or assistive-technology behavior; those spike/manual gates
+remain open.
 
 ### Existing TUI regression gates
 

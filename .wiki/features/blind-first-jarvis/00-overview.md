@@ -173,3 +173,10 @@ Athena boot. Explicit user-created definitions are resource-policy scoped and at
 stored; a real sentinel probe proves backend availability; foreground observation is
 bounded, path-free, abortable, and nonfatal under corrupt state, backend failure, or
 shutdown races. The visible foreground command and cross-platform dogfood remain open.
+
+The provider-neutral Phase 7 voice core is also implemented as a removable adapter over
+semantic state: bounded spoken context, deterministic session disambiguation,
+announcement-only speech ownership, normal prompt/command translation, and a local
+two-step confirmation gate that the conductor cannot self-satisfy. Current Realtime and
+audio capability research remains open pending activation of the newly installed
+official Docs connector and real device/backend probes.

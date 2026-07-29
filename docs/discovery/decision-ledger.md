@@ -33,6 +33,7 @@ turning an unanswered choice into an invisible requirement.
 | D-018 | Which upgrade plan survives the remote sync? | answered | The blind-first Jarvis package is the only source of truth. Fold useful voice and experiential decisions into component pages here, remove their standalone artifacts, and update every inbound reference. | Nico: "make sure that YOUR version of this upgrade is the only one that survives" (2026-07-29). | Resolves competing roadmaps and authorizes documentation reconciliation. | Nico explicitly designates another canonical plan. |
 | D-019 | Which implementation sequence is active? | default-applied | Build the semantic truth plane first, while keeping voice as a later opt-in adapter over that authority. | active user objective: "complete the blind-first-jarvis upgrade" plus the Q-001 recommended default (2026-07-29). | Lets implementation proceed without making voice or an external audio dependency foundational. | Nico explicitly directs voice to lead or the semantic seam proves insufficient. |
 | D-020 | What may the first foreground watcher observe? | default-applied | One explicitly named existing file or direct directory inside the current resource-policy workspace. V1 is non-recursive, notification-only, and stops on Ctrl-C/process exit; missed events never authorize, block, or verify work. | R-009, threat model, and foreground-first D-009. | Dogfood establishes a concrete recursive, external-resource, or persistent-service need. |
+| D-021 | Can the Realtime conductor assert that a spoken consequential action was confirmed? | answered-by-safety-invariant | No. Approve, deny, and cancel calls always enter a bounded local confirmation gate. Only a separate exact recognized `confirm` tied to the opaque pending confirmation ID releases that action. | D-010, R-005, voice threat review (2026-07-29). | Never; recognition UX may change but the conductor cannot self-confirm. |
 
 ## Priority-ranked open questions
 
@@ -85,3 +86,10 @@ turning an unanswered choice into an invisible requirement.
   filesystem resource, foreground lifetime, non-recursive observation, and advisory-only
   consequences. The backend must pass a real sentinel round trip before availability is
   claimed.
+- The official OpenAI developer-docs MCP endpoint was added to the local Codex
+  configuration for the Realtime spike. This running Codex session must restart before
+  those tools become callable, so no current model, price, retention, or wire-schema
+  claim was promoted from memory. Provider-neutral voice work proceeded independently.
+- D-021 closes a voice permission threat found during implementation: confirmation is a
+  separate local state transition with an opaque pending ID, never a boolean supplied by
+  the Realtime conductor.

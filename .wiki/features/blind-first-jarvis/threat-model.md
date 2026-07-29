@@ -39,6 +39,7 @@ Trust boundaries:
 | Accessibility downgrade | Standard fallback silently restores inaccessible fullscreen | Plain warning names fallback and user command; never silent mode change |
 | Watch-scope escape | Symlink or absolute path reaches outside the approved workspace | Resolve through `ResourcePolicy` before persistence; only existing files/directories are accepted |
 | Watch event mistaken for authority | A filesystem notification is treated as proof of success or a safety decision | Observations are advisory change facts only; they cannot authorize, block, or verify work |
+| Voice self-confirmation | Realtime tool call includes its own `confirmed: true` for approval | Conductor calls cannot carry confirmation; local bounded gate requires a separate exact confirmation tied to an opaque ID |
 
 ## Security invariants
 
@@ -53,6 +54,8 @@ Trust boundaries:
   mark an outcome verified.
 - A non-voice watch exists only after an explicit user request, watches one resolved
   in-workspace resource, and owns no process after its foreground invocation exits.
+- Voice routing never silently selects an ambiguous session, and the Realtime conductor
+  cannot complete its own approve, deny, or cancel confirmation.
 
 ## Review gates
 

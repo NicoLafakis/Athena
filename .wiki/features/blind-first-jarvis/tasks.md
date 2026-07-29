@@ -186,16 +186,24 @@ editing under the active Global Rule.
 - [ ] **7.1 Implement the canonical voice component** - follow [voice.md](voice.md) and
   consume `InteractionSnapshot`/`Announcement` instead of inventing a second digest truth
   model - done when code and docs have one voice architecture and one state authority.
+  The provider-neutral context, function, routing, speech-ownership, and confirmation
+  core is complete; daemon/audio/Realtime composition remains open.
 - [ ] **7.2 Run the plan's capability/cost spike and resolve current API contracts** - use
   only official OpenAI docs for the supported Realtime model and wire schema; do not pin
   the older draft's `gpt-realtime-2` without re-verification - done when audio, wake word,
   model, cost, privacy, latency, and licenses are proven or fail with a concrete report.
+  The official Docs MCP is installed but requires a Codex restart before research can
+  continue; no stale model claim was accepted as a substitute.
 - [ ] **7.3 Implement speech output adapter** - consume `Announcement`, not raw events -
   done when exclusive/supplemental ownership avoids duplicate routine speech and all
   controls retain keyboard/Braille parity.
+  Deterministic ownership and announcement-only output are complete; a proven audio
+  backend and end-to-end parity remain open.
 - [ ] **7.4 Implement optional speech input** - translate into normal prompts/commands -
   done when recognition failure loses no state and confirmation is required for
   consequential ambiguity.
+  The provider-neutral recognized-input and local confirmation adapters are complete;
+  microphone/recognizer integration remains open.
 - [ ] **7.5 Manual AT/voice validation** - test with actual screen readers enabled and
   disabled - done when voice improves measured workflows and can be entirely removed
   without reducing capability.
