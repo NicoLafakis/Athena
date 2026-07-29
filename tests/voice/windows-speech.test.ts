@@ -18,8 +18,14 @@ describe('Windows local speech backend', () => {
   )
 
   it('uses a real probe result instead of inferring support from the platform', async () => {
-    await expect(probeWindowsSpeech(async () => '{"recognizers":1,"voices":2}', 'win32'))
-      .resolves.toMatchObject({ available: true, recognizers: 1, voices: 2 })
+    await expect(probeWindowsSpeech(async () => '{"recognizers":1,"voices":2,"recognizer":"English","voice":"Zira"}', 'win32'))
+      .resolves.toMatchObject({
+        available: true,
+        recognizers: 1,
+        voices: 2,
+        recognizer: 'English',
+        voice: 'Zira',
+      })
     await expect(probeWindowsSpeech(async () => '{"recognizers":0,"voices":2}', 'win32'))
       .resolves.toMatchObject({ available: false })
     await expect(probeWindowsSpeech(async () => '', 'linux'))

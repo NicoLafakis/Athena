@@ -44,8 +44,16 @@ describe('voice conductor composition', () => {
     )).resolves.toEqual({
       passed: true,
       heard: ['The things that was', 'Athena probe', 'Athena probe'],
+      command: 'probe',
     })
     expect(retry).toHaveBeenCalledTimes(2)
+  })
+
+  it('separates a working Athena wake word from an imperfect command transcript', async () => {
+    await expect(waitForWakeProbe(
+      async () => ({ text: 'Athena status', confidence: 0.92 }),
+      async () => {},
+    )).resolves.toEqual({ passed: true, heard: ['Athena status'], command: 'status' })
   })
 
   it('starts one durable Athena session, then resumes it without relaxing shell permissions', () => {

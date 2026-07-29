@@ -146,8 +146,12 @@ readback. `OPENAI_API_KEY` remains the zero-file override. A failed replacement 
 to restore the prior working vault entry. `athena voice probe` audibly asks the user to
 repeat `Athena probe`, allows three audible ten-second attempts while ignoring bad or
 low-confidence transcripts, verifies the local microphone/wake path, and then opens a
-Realtime session. Every failure names the recovery command and leaves core Athena
-untouched.
+Realtime session. A recognized `Athena` proves the wake path even if the legacy Windows
+recognizer mishears `probe`; that mismatch is reported separately as a speech-quality
+warning. Diagnostics name the Windows default-input route, recognizer, and locally
+selected prompt voice. Local prompts prefer an installed female Windows voice and fall
+back to the system default. Every failure names the recovery command and leaves core
+Athena untouched.
 
 ### Official Realtime contract resolved by the documentation spike
 

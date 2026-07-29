@@ -14,6 +14,8 @@ export interface SpeechBackendProbe {
   available: boolean
   recognizers: number
   voices: number
+  recognizer: string | null
+  voice: string | null
   detail: string
 }
 
@@ -72,10 +74,22 @@ $args=[string[]]($athenaVoiceArgsJson|ConvertFrom-Json)
 const PROBE_SCRIPT = String.raw`
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName System.Speech
-$recognizers=[System.Speech.Recognition.SpeechRecognitionEngine]::InstalledRecognizers().Count
+$installedRecognizers=[System.Speech.Recognition.SpeechRecognitionEngine]::InstalledRecognizers()
+$recognizers=$installedRecognizers.Count
+$recognizer=if ($recognizers -gt 0) { $installedRecognizers[0].Description } else { $null }
 $synth=New-Object System.Speech.Synthesis.SpeechSynthesizer
-try { $voices=$synth.GetInstalledVoices().Count } finally { $synth.Dispose() }
-[Console]::Out.Write((@{recognizers=$recognizers;voices=$voices}|ConvertTo-Json -Compress))
+try {
+  $installedVoices=$synth.GetInstalledVoices()
+  $voices=$installedVoices.Count
+  $preferred=$installedVoices | Where-Object {
+    $_.Enabled -and $_.VoiceInfo.Gender -eq [System.Speech.Synthesis.VoiceGender]::Female
+  } | Select-Object -First 1
+  if ($null -ne $preferred) { $synth.SelectVoice($preferred.VoiceInfo.Name) }
+  $voice=$synth.Voice.Name
+} finally { $synth.Dispose() }
+[Console]::Out.Write((@{
+  recognizers=$recognizers;voices=$voices;recognizer=$recognizer;voice=$voice
+}|ConvertTo-Json -Compress))
 `
 
 const RECOGNIZE_SCRIPT = String.raw`
@@ -102,7 +116,13 @@ const SPEAK_TEXT_SCRIPT = String.raw`
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName System.Speech
 $synth=New-Object System.Speech.Synthesis.SpeechSynthesizer
-try { $synth.Speak($args[0]) } finally { $synth.Dispose() }
+try {
+  $preferred=$synth.GetInstalledVoices() | Where-Object {
+    $_.Enabled -and $_.VoiceInfo.Gender -eq [System.Speech.Synthesis.VoiceGender]::Female
+  } | Select-Object -First 1
+  if ($null -ne $preferred) { $synth.SelectVoice($preferred.VoiceInfo.Name) }
+  $synth.Speak($args[0])
+} finally { $synth.Dispose() }
 `
 
 const PLAY_WAVE_SCRIPT = String.raw`
@@ -121,21 +141,34 @@ export async function probeWindowsSpeech(
       available: false,
       recognizers: 0,
       voices: 0,
+      recognizer: null,
+      voice: null,
       detail: 'The first voice backend supports Windows System.Speech only.',
     }
   }
   try {
-    const raw = JSON.parse(await runner(PROBE_SCRIPT)) as { recognizers?: unknown; voices?: unknown }
+    const raw = JSON.parse(await runner(PROBE_SCRIPT)) as {
+      recognizers?: unknown
+      voices?: unknown
+      recognizer?: unknown
+      voice?: unknown
+    }
     const recognizers = Number(raw.recognizers ?? 0)
     const voices = Number(raw.voices ?? 0)
+    const recognizer = typeof raw.recognizer === 'string' ? raw.recognizer.trim() || null : null
+    const voice = typeof raw.voice === 'string' ? raw.voice.trim() || null : null
     const available = recognizers > 0 && voices > 0
     return {
       backend: available ? 'windows-system-speech' : 'unavailable',
       available,
       recognizers,
       voices,
+      recognizer,
+      voice,
       detail: available
-        ? `${recognizers} local recognizer(s), ${voices} local voice(s)`
+        ? `${recognizers} local recognizer(s), ${voices} local voice(s); ` +
+          `input: Windows default capture endpoint; recognizer: ${recognizer ?? 'unknown'}; ` +
+          `prompt voice: ${voice ?? 'Windows default'}`
         : 'System.Speech loaded but no recognizer or voice is installed.',
     }
   } catch (error) {
@@ -144,6 +177,8 @@ export async function probeWindowsSpeech(
       available: false,
       recognizers: 0,
       voices: 0,
+      recognizer: null,
+      voice: null,
       detail: (error as Error).message,
     }
   }

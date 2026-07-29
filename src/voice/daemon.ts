@@ -52,6 +52,7 @@ export class KeyboardVoiceCommandInput implements VoiceCommandInput {
 export interface WakeProbeResult {
   passed: boolean
   heard: string[]
+  command: string | null
 }
 
 export async function waitForWakeProbe(
@@ -69,10 +70,10 @@ export async function waitForWakeProbe(
     const command = phrase && phrase.confidence >= 0.6
       ? stripWakePhrase(phrase.text)
       : null
-    if (command?.toLowerCase() === 'probe') return { passed: true, heard }
+    if (command) return { passed: true, heard, command }
     if (attempt + 1 < attempts) await onRetry()
   }
-  return { passed: false, heard }
+  return { passed: false, heard, command: null }
 }
 
 export interface DelegateResult {
@@ -262,7 +263,15 @@ export async function runVoiceProbe(apiKey: string, model: RealtimeVoiceModel): 
     report.push('Recovery: check the default microphone and Windows speech language, then rerun `athena voice probe`.')
     return report
   }
-  report.push('Microphone wake probe: passed (Athena probe).')
+  if (wake.command?.toLowerCase() === 'probe') {
+    report.push('Microphone wake probe: passed (Athena probe).')
+  } else {
+    report.push(
+      `Microphone wake probe: passed (wake word Athena; heard command: ` +
+      `${plainBounded(wake.command ?? 'unknown', 128)}).`,
+    )
+    report.push('Speech recognition warning: expected “probe”; Windows may misrecognize command words.')
+  }
   const client = new RealtimeVoiceClient({ apiKey, model })
   try {
     await client.connect()
