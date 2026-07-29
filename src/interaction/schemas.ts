@@ -102,6 +102,16 @@ export const InteractionEventEnvelopeSchema = z.discriminatedUnion('kind', [
     kind: z.literal('next-expected-set'),
     payload: z.object({ nextExpected: z.string().min(1).max(SUMMARY_MAX).nullable() }).strict(),
   }).strict(),
+  z.object({
+    ...EnvelopeBase,
+    kind: z.literal('guidance-qualified'),
+    payload: z.object({
+      guidanceId: IdSchema,
+      experienceIds: z.array(IdSchema).min(1).max(64),
+      signal: z.enum(['consider', 'avoid', 'stop-if', 'switch-if']),
+      confidence: z.number().min(0).max(1),
+    }).strict(),
+  }).strict(),
 ])
 
 const sourced = <T extends z.ZodTypeAny>(value: T) => z.object({

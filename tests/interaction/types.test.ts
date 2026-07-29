@@ -78,4 +78,27 @@ describe('interaction schemas', () => {
     expect(AnnouncementSchema.parse(announcement).priority).toBe('blocking')
     expect(AnnouncementSchema.safeParse({ ...announcement, text: 'x'.repeat(1_025) }).success).toBe(false)
   })
+
+  it('keeps qualified guidance metadata-only at the interaction boundary', () => {
+    const envelope = {
+      schemaVersion: 1,
+      id: 'run-1:1',
+      runId: 'run-1',
+      sequence: 1,
+      timestamp: '2026-07-29T12:00:00.000Z',
+      source: 'runtime',
+      kind: 'guidance-qualified',
+      payload: {
+        guidanceId: 'guide-1',
+        experienceIds: ['exp-1'],
+        signal: 'avoid',
+        confidence: 0.8,
+      },
+    }
+    expect(InteractionEventEnvelopeSchema.parse(envelope)).toEqual(envelope)
+    expect(InteractionEventEnvelopeSchema.safeParse({
+      ...envelope,
+      payload: { ...envelope.payload, text: 'retrieved prose must not cross this seam' },
+    }).success).toBe(false)
+  })
 })

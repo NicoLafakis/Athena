@@ -3,6 +3,12 @@ import { spawnSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
+import {
+  ExperienceRecordSchema,
+  ExperienceStore,
+  GuidanceRecordSchema,
+} from '../../src/experience/index.js'
+import { projectId } from '../../src/harness/trust.js'
 
 let root: string
 let home: string
@@ -126,5 +132,51 @@ describe('athena exec process contract', () => {
     const result = run(['exec', 'answer', '--output', 'json', '--output-schema', schema])
     expect(result.status, result.stderr).toBe(0)
     expect(JSON.parse(result.stdout)).toMatchObject({ outputValue: { answer: 'yes' } })
+  })
+
+  it('qualifies reviewed project guidance after a repeated unchanged failure', () => {
+    const experienceStore = new ExperienceStore(join(home, '.athena', 'experience'))
+    experienceStore.appendExperience(ExperienceRecordSchema.parse({
+      schemaVersion: 1,
+      id: 'exp-read-failure',
+      projectScope: projectId(project),
+      situation: 'Inspect a missing file safely.',
+      actions: ['Read failed.'],
+      outcome: 'failed',
+      evidenceRefs: ['trace:prior:hash'],
+      tags: ['read', 'failed'],
+      createdAt: '2026-07-29T12:00:00.000Z',
+    }))
+    experienceStore.appendGuidance(GuidanceRecordSchema.parse({
+      schemaVersion: 1,
+      id: 'guide-read-failure',
+      experienceIds: ['exp-read-failure'],
+      signal: 'avoid',
+      text: 'Sensitive stored guidance must not cross the semantic event seam.',
+      status: 'active',
+      confidence: 0.9,
+      reviewedAt: new Date().toISOString(),
+    }))
+    const missing = join(project, 'missing.txt')
+    writeFileSync(script, JSON.stringify([
+      { toolUses: [{ id: 'read-1', name: 'Read', input: { file_path: missing } }], stopReason: 'tool_use' },
+      { toolUses: [{ id: 'read-2', name: 'Read', input: { file_path: missing } }], stopReason: 'tool_use' },
+      { text: 'done' },
+    ]))
+
+    const result = run(['exec', 'Inspect a missing file safely.', '--output', 'jsonl'])
+    expect(result.status, result.stderr).toBe(0)
+    const lines = result.stdout.trim().split('\n').map((line) => JSON.parse(line))
+    const qualified = lines.find(
+      (line) => line.event.type === 'interaction-event'
+        && line.event.envelope.kind === 'guidance-qualified',
+    )
+    expect(qualified?.event.envelope.payload).toEqual({
+      guidanceId: 'guide-read-failure',
+      experienceIds: ['exp-read-failure'],
+      signal: 'avoid',
+      confidence: 0.9,
+    })
+    expect(result.stdout).not.toContain('Sensitive stored guidance')
   })
 })

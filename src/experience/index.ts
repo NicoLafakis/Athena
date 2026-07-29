@@ -1,0 +1,6 @@
+export { ExperienceRecordSchema, GuidanceRecordSchema } from './schemas.js'
+export type { ExperienceRecord, GuidanceRecord, GuidanceMatch, GuidanceQuery } from './types.js'
+export { ExperienceStore, type ExperienceStoreOptions } from './store.js'
+export { retrieveGuidance } from './retrieval.js'
+export { compileExperienceFromTrace, deriveProvisionalGuidance } from './compiler.js'
+export { captureExperienceBestEffort, type CapturedExperience } from './capture.js'

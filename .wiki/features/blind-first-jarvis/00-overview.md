@@ -146,3 +146,12 @@ gate invalidation after successful mutations, one-time 75%/90% budget advisories
 coalesced child/background activity. Background start, completion, failure, awaited
 retrieval, and shutdown abort are authoritative events; detectors retain bounded
 metadata or hashes and never grant/deny tools or create verified outcomes.
+
+Phase 5's canonical Experiential Layer is now implemented in `src/experience/` and wired
+through the same semantic plane. Verified redacted traces compile into bounded local
+experience plus provisional guidance; only explicitly reviewed, fresh, project-relevant
+guidance qualifies during repeated unchanged failure. The semantic seam carries
+metadata rather than retrieved prose, and cross-system tests prove irrelevant, stale,
+or contradictory experience remains quiet and cannot replace current runtime truth.
+Visible experience-management commands remain behind the existing frontend approval
+gate.

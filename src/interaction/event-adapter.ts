@@ -1,5 +1,6 @@
 import type { EngineEventBus } from '../engine/events.js'
 import type { EngineEvent, RunResult } from '../engine/types.js'
+import type { GuidanceMatch } from '../experience/index.js'
 import { plainBounded } from './format.js'
 import { RepeatedFailureDetector } from './detectors/repeated-failure.js'
 import { VerificationInvalidationDetector } from './detectors/verification.js'
@@ -18,6 +19,10 @@ export interface InteractionEventAdapterOptions {
   runId: string
   onEnvelope: (event: InteractionEventEnvelope) => void
   now?: () => string
+  guidanceForRepeatedFailure?: (context: {
+    runId: string
+    toolName: string
+  }) => readonly GuidanceMatch[]
 }
 
 function boundedPlain(value: string, max: number): string {
@@ -103,6 +108,12 @@ export class InteractionEventAdapter {
               action: boundedPlain(repeatedFailure.action, 1_024),
             },
           }, event.id)
+          for (const match of this.guidanceForRepeatedFailure(
+            this.options.runId,
+            repeatedFailure.toolName,
+          )) {
+            this.recordQualifiedGuidance(match, this.options.runId, event.id)
+          }
         }
         if (invalidatedVerification) {
           this.emit(this.options.runId, 'runtime', 'attention-added', {
@@ -273,12 +284,25 @@ export class InteractionEventAdapter {
           }, event.id)
         }
         this.emitDetectorAdvisory(event.runId, repeated, event.id)
+        if (repeated) {
+          for (const match of this.guidanceForRepeatedFailure(event.runId, repeated.toolName)) {
+            this.recordQualifiedGuidance(match, event.runId, event.id)
+          }
+        }
         this.emitDetectorAdvisory(event.runId, invalidated, event.id)
         this.emit(event.runId, 'runtime', 'phase-changed', { phase: 'thinking' }, event.id)
         return
       }
       default:
         return
+    }
+  }
+
+  private guidanceForRepeatedFailure(runId: string, toolName: string): readonly GuidanceMatch[] {
+    try {
+      return this.options.guidanceForRepeatedFailure?.({ runId, toolName }) ?? []
+    } catch {
+      return []
     }
   }
 
@@ -295,6 +319,36 @@ export class InteractionEventAdapter {
         action: 'Inspect the redacted trace for details.',
       },
     }, event.fatal ? 'fatal-error' : 'runtime-error')
+  }
+
+  recordQualifiedGuidance(match: GuidanceMatch, runId = this.options.runId, sourceRef?: string): boolean {
+    const guidance = match.guidance
+    if (guidance.status !== 'active' || guidance.confidence < 0.5) return false
+    const experienceIds = [...new Set(match.experienceIds)].slice(0, 64)
+    if (experienceIds.length === 0) return false
+    const reference = sourceRef ?? `guidance:${guidance.id}`
+    this.emit(runId, 'runtime', 'guidance-qualified', {
+      guidanceId: boundedPlain(guidance.id, 256),
+      experienceIds: experienceIds.map((id) => boundedPlain(id, 256)),
+      signal: guidance.signal,
+      confidence: guidance.confidence,
+    }, reference)
+    const summaries: Record<typeof guidance.signal, string> = {
+      consider: 'Prior experience suggests considering a recorded approach.',
+      avoid: 'Prior experience suggests avoiding a recorded approach.',
+      'stop-if': 'Prior experience identifies a condition where work should stop.',
+      'switch-if': 'Prior experience identifies a condition where the approach should change.',
+    }
+    this.emit(runId, 'runtime', 'attention-added', {
+      attention: {
+        id: boundedPlain(`guidance:${guidance.id}`, 256),
+        category: 'advisory',
+        priority: guidance.signal === 'consider' ? 'polite' : 'assertive',
+        summary: summaries[guidance.signal],
+        action: `Inspect guidance ${boundedPlain(guidance.id, 256)} and its evidence before acting.`,
+      },
+    }, reference)
+    return true
   }
 
   private repeatedFailureDetector(runId: string): RepeatedFailureDetector {

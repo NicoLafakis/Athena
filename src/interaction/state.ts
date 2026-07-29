@@ -134,6 +134,10 @@ export function applyInteractionEnvelope(
     case 'next-expected-set':
       next = { ...next, nextExpected: replaceByPrecedence(snapshot.nextExpected, event.payload.nextExpected, provenance) }
       break
+    case 'guidance-qualified':
+      // Metadata-only evidence seam. Presentation policy receives the paired generic
+      // advisory attention event; retrieved prose remains in the experience store.
+      break
   }
 
   return { accepted: true, snapshot: next }

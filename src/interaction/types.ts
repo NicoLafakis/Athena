@@ -23,6 +23,7 @@ export type InteractionEventKind =
   | 'attention-resolved'
   | 'outcome-recorded'
   | 'next-expected-set'
+  | 'guidance-qualified'
 
 export interface Provenance {
   source: InteractionSource
@@ -68,6 +69,12 @@ export interface InteractionEventPayloadMap {
   'attention-resolved': { attentionId: string }
   'outcome-recorded': { outcome: Outcome }
   'next-expected-set': { nextExpected: string | null }
+  'guidance-qualified': {
+    guidanceId: string
+    experienceIds: string[]
+    signal: 'consider' | 'avoid' | 'stop-if' | 'switch-if'
+    confidence: number
+  }
 }
 
 export type InteractionEventPayload<K extends InteractionEventKind = InteractionEventKind> =

@@ -143,17 +143,17 @@ editing under the active Global Rule.
 
 ## Phase 5 - Experiential Layer
 
-- [ ] **5.1 Implement the canonical Experiential Layer component** - follow
+- [x] **5.1 Implement the canonical Experiential Layer component** - follow
   [experience.md](experience.md); keep its store outside `src/interaction/` - done when
   deterministic capture/retrieval, provenance, approval, no-hit, privacy, and context
   budgets pass.
-- [ ] **5.2 Define advisory event seam** - add metadata-only experience/guidance IDs,
+- [x] **5.2 Define advisory event seam** - add metadata-only experience/guidance IDs,
   confidence, and signal kind to interaction events - done when retrieved prose is not
   duplicated in trace metadata and remains labeled advisory.
-- [ ] **5.3 Map qualifying guidance to attention** - only active guidance and thresholded
+- [x] **5.3 Map qualifying guidance to attention** - only active guidance and thresholded
   midstream signals - done when it can recommend, avoid, stop-if, or switch-if but cannot
   deny/approve tools or override runtime facts.
-- [ ] **5.4 Cross-system evaluation** - replay irrelevant, contradictory, stale, and
+- [x] **5.4 Cross-system evaluation** - replay irrelevant, contradictory, stale, and
   helpful experiences - done when unrelated turns remain quiet and current runtime
   evidence wins every conflict.
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { EngineEventBus } from '../../src/engine/events.js'
 import { InteractionEventAdapter } from '../../src/interaction/event-adapter.js'
 import type { InteractionEventEnvelope } from '../../src/interaction/types.js'
+import type { GuidanceMatch } from '../../src/experience/index.js'
 
 describe('InteractionEventAdapter', () => {
   it('maps runtime evidence with stable per-run sequencing and ignores streamed prose', () => {
@@ -421,5 +422,85 @@ describe('InteractionEventAdapter', () => {
     expect(JSON.stringify(advisory)).not.toContain('private.txt')
     expect(JSON.stringify(advisory)).not.toContain('private failure output')
     expect(seen.some((event) => event.runId === 'root-run' && event.kind === 'attention-added')).toBe(false)
+  })
+
+  it('emits metadata-only qualified guidance plus generic advisory attention', () => {
+    const bus = new EngineEventBus()
+    const seen: InteractionEventEnvelope[] = []
+    const match: GuidanceMatch = {
+      guidance: {
+        schemaVersion: 1,
+        id: 'guide-1',
+        experienceIds: ['exp-1'],
+        signal: 'avoid',
+        text: 'Sensitive retrieved prose must stay in the experience store.',
+        status: 'active',
+        confidence: 0.8,
+        reviewedAt: '2026-07-29T12:00:00.000Z',
+      },
+      experienceIds: ['exp-1'],
+      score: 10.8,
+    }
+    const adapter = new InteractionEventAdapter({
+      runId: 'root-run',
+      now: () => '2026-07-29T12:00:00.000Z',
+      onEnvelope: (event) => seen.push(event),
+      guidanceForRepeatedFailure: () => [match],
+    })
+    adapter.attach(bus)
+
+    for (const id of ['one', 'two']) {
+      bus.emit({ type: 'tool-request', id, name: 'Write', input: { file_path: 'same.txt' } })
+      bus.emit({ type: 'tool-result', id, name: 'Write', output: 'failed', isError: true })
+    }
+
+    const qualified = seen.find((event) => event.kind === 'guidance-qualified')
+    expect(qualified).toMatchObject({
+      source: 'runtime',
+      kind: 'guidance-qualified',
+      payload: {
+        guidanceId: 'guide-1',
+        experienceIds: ['exp-1'],
+        signal: 'avoid',
+        confidence: 0.8,
+      },
+    })
+    const attention = seen.find(
+      (event) => event.kind === 'attention-added' && event.payload.attention.id === 'guidance:guide-1',
+    )
+    expect(attention).toMatchObject({
+      payload: {
+        attention: {
+          category: 'advisory',
+          priority: 'assertive',
+          summary: 'Prior experience suggests avoiding a recorded approach.',
+        },
+      },
+    })
+    expect(JSON.stringify([qualified, attention])).not.toContain('Sensitive retrieved prose')
+    expect(JSON.stringify([qualified, attention])).not.toContain('same.txt')
+  })
+
+  it('keeps a failed optional guidance lookup from affecting engine events', () => {
+    const bus = new EngineEventBus()
+    const seen: InteractionEventEnvelope[] = []
+    const adapter = new InteractionEventAdapter({
+      runId: 'root-run',
+      onEnvelope: (event) => seen.push(event),
+      guidanceForRepeatedFailure: () => { throw new Error('optional index unavailable') },
+    })
+    adapter.attach(bus)
+
+    expect(() => {
+      for (const id of ['one', 'two']) {
+        bus.emit({ type: 'tool-request', id, name: 'Read', input: { file_path: 'same.txt' } })
+        bus.emit({ type: 'tool-result', id, name: 'Read', output: 'failed', isError: true })
+      }
+    }).not.toThrow()
+    expect(seen.some((event) => event.kind === 'guidance-qualified')).toBe(false)
+    expect(seen.some(
+      (event) => event.kind === 'attention-added'
+        && event.payload.attention.category === 'advisory',
+    )).toBe(true)
   })
 })

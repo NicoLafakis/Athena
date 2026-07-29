@@ -163,4 +163,29 @@ describe('interaction state reducer', () => {
     expect(store.get('run-1')?.phase.value).toBe('thinking')
     expect(store.get('run-2')?.phase.value).toBe('acting')
   })
+
+  it('treats qualified experience guidance as metadata that cannot override runtime truth', () => {
+    let snapshot = createInteractionSnapshot('run-1', timestamp)
+    snapshot = applyInteractionEnvelope(snapshot, envelope(1, 'runtime', 'outcome-recorded', {
+      outcome: {
+        status: 'succeeded',
+        summary: 'Current verification passed.',
+        verified: true,
+        operation: 'Bash',
+      },
+    })).snapshot
+    const beforeGuidance = snapshot.lastVerifiedOutcome
+    const result = applyInteractionEnvelope(snapshot, envelope(2, 'runtime', 'guidance-qualified', {
+      guidanceId: 'guide-avoid-prior-approach',
+      experienceIds: ['exp-prior-failure'],
+      signal: 'avoid',
+      confidence: 0.9,
+    }))
+
+    expect(result.accepted).toBe(true)
+    expect(result.snapshot.lastVerifiedOutcome).toEqual(beforeGuidance)
+    expect(result.snapshot.phase).toEqual(snapshot.phase)
+    expect(result.snapshot.objective).toEqual(snapshot.objective)
+    expect(result.snapshot.lastSequence).toBe(2)
+  })
 })

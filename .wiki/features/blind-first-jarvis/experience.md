@@ -100,3 +100,25 @@ Tests cover deterministic compilation, schema rejection, stable ranking, project
 privacy/redaction, active/provisional filtering, bounded context, no-hit behavior,
 repeated-failure reset/coalescing, corrupt-index recovery, and proof that advisories do
 not affect permission decisions.
+
+## Implementation status (2026-07-29)
+
+The canonical implementation now lives in `src/experience/`; there is no parallel
+experience implementation under `src/interaction/`, `src/learning/`, or the voice plan.
+Completed verified run traces are hash-chain verified, redacted, and deterministically
+compiled after shutdown into bounded atomic JSONL records. Each run also derives one
+provisional guidance candidate. Capture is best-effort: invalid traces, unreadable
+indexes, and capacity limits leave the completed run unchanged.
+
+Retrieval is deterministic and project-scoped. It filters to reviewed `active` records,
+applies confidence and freshness thresholds, ranks by explicit tag/text overlap with
+stable tie-breaking, and enforces count and character budgets. Repeated unchanged tool
+failure is the first live consumer. Only guidance ID, experience IDs, signal, and
+confidence cross the semantic event seam; retrieved prose stays in the experience
+store. The reducer treats this event as metadata and cannot let it mutate objectives,
+phases, verified outcomes, or permission decisions.
+
+User-facing search, provenance, review, retirement, and rebuild commands remain a
+presentation task. Their visible command/menu surfaces are intentionally not changed
+until Nico approves those specific frontend elements; the validated store operations
+and safe rebuild recovery contract are the backend seam they will call.

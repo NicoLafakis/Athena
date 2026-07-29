@@ -51,6 +51,7 @@ import {
   ProjectTrustStore,
   capabilityDigest,
   canonicalProjectPath,
+  projectId,
   type ProjectCapability,
 } from './harness/trust.js'
 import { HookRunner } from './harness/hooks.js'
@@ -69,6 +70,11 @@ import {
   InteractionService,
   type InteractionEventEnvelope,
 } from './interaction/index.js'
+import {
+  captureExperienceBestEffort,
+  ExperienceStore,
+  retrieveGuidance,
+} from './experience/index.js'
 import { ContextManager } from './engine/context.js'
 import { assembleSystemPrompt, findProjectContextFiles } from './engine/prompt.js'
 import type { BrainPaths } from './brain/paths.js'
@@ -1315,8 +1321,26 @@ async function main(): Promise<void> {
     tracePath: () => trace.file,
     onDiagnostic: (diagnostic) => trace.append('interaction-diagnostic', diagnostic),
   })
+  const experienceStore = new ExperienceStore(join(paths.brainDir, 'experience'))
   const interaction = new InteractionEventAdapter({
     runId: trace.runId,
+    guidanceForRepeatedFailure: ({ runId, toolName }) => {
+      const objective = interactionService.snapshot(runId)?.objective.value
+        ?? interactionService.snapshot(trace.runId)?.objective.value
+        ?? ''
+      if (!objective) return []
+      return retrieveGuidance(
+        experienceStore.listExperiences(),
+        experienceStore.listGuidance(),
+        {
+          projectScope: projectId(cwd),
+          objective,
+          tags: [toolName.toLowerCase()],
+          limit: 3,
+          charBudget: 2_048,
+        },
+      )
+    },
     onEnvelope: (event) => {
       const result = interactionService.accept(event)
       if (!result.accepted) return
@@ -1618,6 +1642,7 @@ async function main(): Promise<void> {
     else if (result.status === 'error') exitCode = CLI_EXIT.provider
 
     await trace.close(result)
+    await captureExperienceBestEffort(trace.file, experienceStore)
     const envelope = {
       schemaVersion: 1,
       runId: trace.runId,
@@ -1722,6 +1747,7 @@ async function main(): Promise<void> {
     await endSession('interactive-exit')
     await mcp.closeAll()
     await trace.close(engine.getRunResult())
+    await captureExperienceBestEffort(trace.file, experienceStore)
   }
 }
 
