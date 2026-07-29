@@ -37,6 +37,8 @@ Trust boundaries:
 | Detector secret retention | Repeated failure keeps raw tool arguments to compare retries | Run-local bounded canonical digests only; no tool input/output in detector state or advisory |
 | Double speech | Athena TTS and screen reader both announce | Direct speech default off; explicit exclusive/supplemental ownership |
 | Accessibility downgrade | Standard fallback silently restores inaccessible fullscreen | Plain warning names fallback and user command; never silent mode change |
+| Watch-scope escape | Symlink or absolute path reaches outside the approved workspace | Resolve through `ResourcePolicy` before persistence; only existing files/directories are accepted |
+| Watch event mistaken for authority | A filesystem notification is treated as proof of success or a safety decision | Observations are advisory change facts only; they cannot authorize, block, or verify work |
 
 ## Security invariants
 
@@ -49,6 +51,8 @@ Trust boundaries:
 - No announcement requires disclosure of raw secret-bearing values.
 - Proactive detectors can emit advisory attention only; they cannot approve, deny, or
   mark an outcome verified.
+- A non-voice watch exists only after an explicit user request, watches one resolved
+  in-workspace resource, and owns no process after its foreground invocation exits.
 
 ## Review gates
 

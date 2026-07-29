@@ -71,6 +71,11 @@ retention or create a second persisted transcript.
 - 75%/90% budget crossings and child/background aggregate transitions;
 - watcher events/failures once enabled.
 
+The watcher foundation exposes only backend name, availability, probe time, watch ID,
+lifecycle, and the generic `changed` observation. Resource paths remain in the local
+definition store and do not cross observation/announcement metadata; backend error text
+is replaced with a bounded recovery route.
+
 Counters remain local and are exposed through diagnostics or trace evaluation. No new
 telemetry SaaS or network export is introduced.
 

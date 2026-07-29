@@ -167,3 +167,9 @@ It provides shared lifecycle/permission contracts, stable accessible permission 
 serialized line input, and byte-tested plain output with queued announcements instead of
 prompt rewriting. Selection, engine handoff, and the existing Ink bridge remain pending
 behind the frontend approval boundary.
+
+The Phase 6 watcher foundation is now implemented without starting anything from normal
+Athena boot. Explicit user-created definitions are resource-policy scoped and atomically
+stored; a real sentinel probe proves backend availability; foreground observation is
+bounded, path-free, abortable, and nonfatal under corrupt state, backend failure, or
+shutdown races. The visible foreground command and cross-platform dogfood remain open.

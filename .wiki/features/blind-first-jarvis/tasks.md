@@ -163,18 +163,18 @@ editing under the active Global Rule.
 
 ## Phase 6 - foreground monitoring
 
-- [ ] **6.1 Confirm watcher resources** - update decision ledger and threat model - done
+- [x] **6.1 Confirm watcher resources** - update decision ledger and threat model - done
   when the approved resources, consequence of missed events, and stop model are explicit.
-- [ ] **6.2 Add watch contracts/store** - create `src/harness/watchers/` with Zod,
+- [x] **6.2 Add watch contracts/store** - create `src/harness/watchers/` with Zod,
   atomic writes, stable IDs, resource-policy scope, and recoverable disable - done when no
   watch exists without explicit user action.
 - [ ] **6.3 Implement foreground `athena watch`** - modify CLI and reuse semantic policy -
   done when the process stays foreground, announces material events, and has a documented
   stop/recovery command.
-- [ ] **6.4 Add real capability probes** - platform-gated integration tests must actually
+- [x] **6.4 Add real capability probes** - platform-gated integration tests must actually
   exercise the backend - done when `doctor` never reports availability from a hard-coded
   literal or executable/platform inference.
-- [ ] **6.5 Prove nonfatal failure** - fault-inject unavailable backend, corrupt optional
+- [x] **6.5 Prove nonfatal failure** - fault-inject unavailable backend, corrupt optional
   state, and shutdown race - done when normal Athena boot/use continues and each warning
   names artifact, backend, and recovery command.
 - [ ] **6.6 Cross-platform dogfood** - Windows/macOS/Linux foreground runs - done when

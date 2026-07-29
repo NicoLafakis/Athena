@@ -387,6 +387,21 @@ Only after in-session semantics pass validation:
 6. Design an always-on service only after foreground dogfood establishes demand and
    acceptable privacy/resource behavior.
 
+Implemented watcher foundation: `src/harness/watchers/` defines strict versioned records
+for one existing file or direct directory, resolved through `ResourcePolicy` and keyed by
+canonical project scope. `WatchStore` creates no definitions by construction; its create
+API requires the literal `requestedBy: 'user'`, persists under global `watches.json`,
+verifies a candidate by reading and parsing it before atomic replacement, and preserves a
+corrupt index unchanged. Enabled, disabled, and unavailable lifecycle states are
+recoverable rather than destructive.
+
+The `node-fs-watch` capability probe creates a temporary sentinel, observes its actual
+change, and reports unavailable on timeout/error without throwing. The foreground runner
+emits bounded path-free observations, coalesces bursts, closes on `AbortSignal`, and
+suppresses queued callbacks after shutdown. Backend failure warnings name the watch,
+backend, and `athena watch --status` recovery route. The visible `athena watch` command
+and semantic-announcement composition remain pending.
+
 ## Voice seam
 
 The canonical [voice component](voice.md) defines an opt-in `athena voice` daemon, wake

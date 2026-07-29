@@ -87,6 +87,12 @@ asserts every chunk is newline-terminated, rejects terminal control bytes, and e
 announcement/input serialization. This proves adapter mechanics, not behavior in NVDA,
 Narrator, VoiceOver, Orca, or Braille hardware; those manual rows remain open.
 
+Watcher integration tests use the real Node filesystem backend to round-trip a temporary
+sentinel and observe a known file; executable/platform presence is not accepted as
+evidence. Separate fault tests inject probe/startup failure, a corrupt optional index,
+and an event racing with shutdown. They assert bounded recovery warnings, unchanged
+persisted state, and no post-abort observation.
+
 ### Existing TUI regression gates
 
 Any visual TUI change must use current fullscreen budget primitives. Capture every frame

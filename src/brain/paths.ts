@@ -20,6 +20,7 @@ export interface BrainPaths {
   hooksDir: string
   sessionsDir: string
   journalDir: string
+  watchesFile: string
   runsDir: string
   learningDir: string
   learningCandidatesDir: string
@@ -51,6 +52,7 @@ export function resolveBrainPaths(opts: { cwd: string; homeOverride?: string }):
     hooksDir: join(brainDir, 'hooks'),
     sessionsDir: join(brainDir, 'sessions'),
     journalDir: join(brainDir, 'journal'),
+    watchesFile: join(brainDir, 'watches.json'),
     runsDir: join(brainDir, 'runs'),
     learningDir: join(brainDir, 'learning'),
     learningCandidatesDir: join(brainDir, 'learning', 'candidates'),

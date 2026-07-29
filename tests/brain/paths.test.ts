@@ -31,6 +31,7 @@ describe('resolveBrainPaths', () => {
     expect(paths.hooksDir).toBe(join(brain, 'hooks'))
     expect(paths.sessionsDir).toBe(join(brain, 'sessions'))
     expect(paths.journalDir).toBe(join(brain, 'journal'))
+    expect(paths.watchesFile).toBe(join(brain, 'watches.json'))
   })
 
   it('projectBrainDir is null when <cwd>/.athena does not exist', () => {

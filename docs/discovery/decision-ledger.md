@@ -32,6 +32,7 @@ turning an unanswered choice into an invisible requirement.
 | D-017 | Which Realtime model is pinned in the implementation plan? | assumed-default | Do not freeze the older draft's `gpt-realtime-2` choice now. Resolve and explicitly configure a supported current model during the voice spike; official docs currently list `gpt-realtime-2.1` and `gpt-realtime-2.1-mini`, both with audio and function calling. | agent-default from official OpenAI model docs checked 2026-07-29. | Immediately before the voice spike or when OpenAI model availability changes. |
 | D-018 | Which upgrade plan survives the remote sync? | answered | The blind-first Jarvis package is the only source of truth. Fold useful voice and experiential decisions into component pages here, remove their standalone artifacts, and update every inbound reference. | Nico: "make sure that YOUR version of this upgrade is the only one that survives" (2026-07-29). | Resolves competing roadmaps and authorizes documentation reconciliation. | Nico explicitly designates another canonical plan. |
 | D-019 | Which implementation sequence is active? | default-applied | Build the semantic truth plane first, while keeping voice as a later opt-in adapter over that authority. | active user objective: "complete the blind-first-jarvis upgrade" plus the Q-001 recommended default (2026-07-29). | Lets implementation proceed without making voice or an external audio dependency foundational. | Nico explicitly directs voice to lead or the semantic seam proves insufficient. |
+| D-020 | What may the first foreground watcher observe? | default-applied | One explicitly named existing file or direct directory inside the current resource-policy workspace. V1 is non-recursive, notification-only, and stops on Ctrl-C/process exit; missed events never authorize, block, or verify work. | R-009, threat model, and foreground-first D-009. | Dogfood establishes a concrete recursive, external-resource, or persistent-service need. |
 
 ## Priority-ranked open questions
 
@@ -80,3 +81,7 @@ turning an unanswered choice into an invisible requirement.
   They deliberately do not close Q-002, Q-003, recruitment, or blind-user validation.
   Helpful and quiet detector replays now close the engineering half of the Phase 4
   attention-quality gate without claiming human preference evidence.
+- D-020 fixes the first watcher boundary: explicit user request, one existing in-workspace
+  filesystem resource, foreground lifetime, non-recursive observation, and advisory-only
+  consequences. The backend must pass a real sentinel round trip before availability is
+  claimed.
