@@ -8,6 +8,7 @@ links here for depth, this wiki explains it.
 
 ## Architecture
 
+- [Blind-first Jarvis upgrade](features/blind-first-jarvis/00-overview.md) - Tier 3 research and implementation package for turning Athena's renderer-oriented event stream into evidence-backed semantic state, calm priority-aware announcements, an append-only screen-reader presentation, governed proactivity, and later opt-in watchers/voice. Includes product decisions, PRD, ADRs, test matrix, rollout, threat model, risk register, and ordered tasks.
 - [TUI fullscreen row budget](architecture/tui-fullscreen-row-budget.md) - The load-bearing layout invariant behind `src/tui/App.tsx`: only the Transcript box clips, every other sibling is unclipped and must be explicitly budgeted or Ink/Yoga corrupts the frame. Precedence order, the popup reserve-exactly-what-you-render rule, and transcript scrolling.
 - [Credential storage and the OS vault](architecture/credential-storage.md) - Resolution order (env, file, vault), plaintext vs. vault-backed states and how the user is told which, the cross-machine story, Windows interpreter selection, and the standing rule that optional hardening must never be a fatal boot precondition.
 - [Athena's self-reflection journal](architecture/self-reflection-journal.md) - Append-only operational journal grounded in evidence: auto-captured trace entries plus a model-authored channel for predictions scored against outcomes. Entry taxonomy, the mechanical guard against subjective self-narration being retrieved as fact, storage and rotation, and a phased build order.

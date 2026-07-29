@@ -1,0 +1,122 @@
+# Blind-first Jarvis upgrade - research basis
+
+> [Objective overview](00-overview.md)
+
+## Conclusions
+
+1. **Accessibility is semantic before it is auditory.** Screen readers transform
+   programmatically available text and state into speech or Braille. Voice synthesis is
+   optional and can conflict with a user's existing assistive technology.
+2. **Keyboard completeness is non-negotiable.** WCAG 2.2 requires keyboard-operable
+   functionality and no keyboard trap. Although Athena is not a web page, these are useful
+   product invariants for every interactive workflow.
+3. **Dynamic status must be programmatically and predictably available.** WCAG's status
+   message principle and live-region techniques distinguish ordinary updates from alerts
+   that deserve interruption. Athena needs the equivalent in its own semantic event
+   contract rather than relying on terminal position or color.
+4. **Animation and alternate-screen rendering are presentation choices, not state.** Ink
+   documents alternate-screen rendering as a separate buffer. Athena's current
+   fullscreen mode also performs frequent animated and incremental redraws. A stable
+   append-only adapter is the safer initial screen-reader contract.
+5. **Automation cannot establish usability.** W3C recommends involving users with
+   disabilities and warns against generalizing from one participant. Microsoft recommends
+   accessibility checks as release gates plus manual keyboard and screen-reader tests.
+6. **WCAG mapping is guidance, not a terminal conformance claim.** WCAG is written for
+   web content and markup. The plan maps its durable principles while requiring
+   technology-specific tests and real users.
+
+## Current Athena findings
+
+### Reusable foundations
+
+- `EngineEvent` already types assistant text, tool lifecycle, todos, run limits, child
+  status, compaction, errors, and status patches (`src/engine/types.ts`).
+- `EngineEventBus` provides one live subscription seam (`src/engine/events.ts`).
+- `RunTraceWriter` subscribes to the bus, redacts payloads, and writes a hash-chained
+  evidence trail (`src/harness/traces.ts`).
+- The engine has explicit permission, hook, abort, run-budget, and lifecycle seams
+  (`src/engine/loop.ts`).
+- Headless JSONL already exposes the engine stream (`src/cli.ts`).
+- Sessions, child agents, and background shell tasks already preserve bounded state.
+- Classic TUI mode has normal scrollback; fullscreen mode explicitly uses an alternate
+  screen and a fixed-height Ink layout.
+
+### Missing contracts
+
+- Events are renderer-oriented, not an explicit user-attention or semantic-state model.
+- Permission requests are bridged into React state and are not first-class semantic
+  events with a common adapter contract.
+- Busy state is represented visually by a 120 ms animated spinner.
+- The transcript reducer prints most child and tool transitions without an interruption
+  or deduplication policy.
+- No screen-reader presentation, accessibility preference, `/status`, `/repeat`, or
+  announcement history exists.
+- No supported assistive-technology matrix or manual accessibility release gate exists.
+- Background tasks live only within the current process; there is no consented persistent
+  watcher lifecycle.
+
+### Overlap with planned systems
+
+The untracked `docs/Athena Experiential Layer v1 - Implementation Plan.pdf` (the actual
+filename uses an em dash) proposes deterministic trace compilation, bounded retrieval,
+active-versus-provisional guidance, midstream repeated-failure advice, and internal
+hooks. This upgrade treats that system as the source of relevant prior experience.
+
+The existing self-reflection-journal and memory-hygiene wiki plans remain separate:
+
+- The journal records evidence-grounded predictions and outcomes.
+- Memory hygiene verifies and governs free-text facts.
+- The Experiential Layer retrieves past situations and advisory guidance.
+- The interaction layer decides what Athena is doing now and what the user must know.
+
+They may share event identifiers and trace references, but not stores or authority.
+
+The tracked remote branch is one commit ahead locally with commit `3bc1ce6`, which adds
+`docs/voice/athena-voice-mode-plan-2026-07-28.md`. That document establishes an opt-in
+voice daemon, local wake word, OpenAI Realtime conductor, engine-session router, voice
+permissions, and a later control channel. This package does not replace it. The semantic
+state and announcement plane becomes the source of trustworthy milestone digests and
+permission context for that conductor.
+
+The voice document's named `gpt-realtime-2` model is time-sensitive. Official OpenAI
+documentation checked 2026-07-29 lists `gpt-realtime-2.1` as an updated reasoning voice
+model with tool use and `gpt-realtime-2.1-mini` as a lower-cost variant. The implementation
+spike must resolve current supported models and API contracts again rather than copying a
+stale planning string.
+
+## Primary sources
+
+- [WCAG 2.2](https://www.w3.org/TR/WCAG22/) - keyboard operation, no keyboard trap,
+  non-color semantics, name/role/value, and status-message principles.
+- [W3C ARIA19 live-region technique](https://www.w3.org/WAI/WCAG22/Techniques/aria/ARIA19)
+  - errors and assertive updates can be announced without moving focus; used here as a
+  priority-model analogy, not as terminal markup.
+- [W3C: Involving Users in Evaluating Web Accessibility](https://www.w3.org/WAI/test-evaluate/involving-users/)
+  - include users with disabilities, match participant expertise to the product, and do
+  not generalize from one participant.
+- [Microsoft accessibility overview](https://learn.microsoft.com/en-us/windows/apps/design/accessibility/accessibility-overview)
+  - screen readers consume programmatic information and produce speech or Braille; good
+  keyboard and screen-reader support benefits multiple assistive technologies.
+- [Microsoft accessibility testing](https://learn.microsoft.com/en-us/windows/apps/design/accessibility/accessibility-testing)
+  - accessibility as a release gate, logical keyboard navigation, and manual Narrator
+  validation where human judgment is required.
+- [Ink releases](https://github.com/vadimdemedes/ink/releases) - confirms alternate-screen
+  rendering is a distinct buffer and documents input distinctions that vary by terminal.
+- [OpenAI GPT-Realtime-2.1 model page](https://developers.openai.com/api/docs/models/gpt-realtime-2.1)
+  - current official evidence for audio input/output, tool use/function calling, model
+  identifier, and API availability at the time of this research.
+- [OpenAI GPT-Realtime-2.1 mini model page](https://developers.openai.com/api/docs/models/gpt-realtime-2.1-mini)
+  - current official lower-cost voice-agent alternative; selection remains a voice-spike
+  decision, not a blind-first semantic-layer dependency.
+
+## Research still required during implementation
+
+- Moderated workflow studies with several experienced blind developers rather than one
+  proxy persona.
+- NVDA and Narrator behavior in Windows Terminal for append-only output, input echo,
+  progress lines, Ctrl+C/Escape, and permission prompts.
+- VoiceOver behavior in macOS Terminal and at least one common alternative terminal.
+- Orca behavior in a supported Linux terminal and over SSH.
+- Refreshable Braille review of verbosity, punctuation, code paths, and diff summaries.
+- Whether direct speech offers value beyond the user's screen reader without creating
+  duplicate output or focus conflicts.
