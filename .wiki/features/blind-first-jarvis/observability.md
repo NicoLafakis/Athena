@@ -55,6 +55,11 @@ without disclosure; existing trace events already hold redacted evidence. Source
 references join the two. Suppressed routine events create no announcement record; their
 accepted interaction metadata still records the policy input.
 
+The run trace intentionally stores metadata and payload digests. In contrast, explicit
+`athena exec --output jsonl` is a user-selected presentation/automation stream and emits
+the full validated, bounded, redacted semantic envelope. It does not change trace
+retention or create a second persisted transcript.
+
 ## Local counters
 
 - announcements by priority/category/disposition;

@@ -148,6 +148,14 @@ payloads. The engine's additive `turn-done.result` field is the authoritative te
 fact. Accepted envelopes are recorded through `RunTraceWriter.recordInteraction`, which
 uses the existing redaction and hash-chain path and records reducer version 1.
 
+In JSONL exec mode, accepted envelopes are also externalized as
+`{ schemaVersion: 1, event: { type: "interaction-event", envelope } }`. The composition
+root buffers envelopes produced synchronously by a source engine event, writes the
+existing source event first, then flushes its semantic facts. The explicitly recorded
+user objective is flushed before `turn-start`; terminal semantic facts are flushed before
+the existing `exec-result`. Other output modes are byte-compatible with the passive
+subscriber.
+
 ### `src/interaction/state.ts`
 
 A pure reducer with no I/O, clock, model, or renderer dependencies. The caller supplies

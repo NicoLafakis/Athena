@@ -73,10 +73,28 @@ describe('athena exec process contract', () => {
 
   it('reads a prompt from stdin and emits versioned JSONL events', () => {
     writeFileSync(script, JSON.stringify([{ text: 'from stdin' }]))
-    const result = run(['exec', '--output', 'jsonl'], 'piped prompt')
+    const result = run(
+      ['exec', '--output', 'jsonl'],
+      'piped prompt with sk-ant-api03-supersecretvalue1234',
+    )
     expect(result.status, result.stderr).toBe(0)
     const lines = result.stdout.trim().split('\n').map((line) => JSON.parse(line))
     expect(lines.every((line) => line.schemaVersion === 1)).toBe(true)
+    expect(result.stdout).not.toContain('supersecretvalue1234')
+    const semantic = lines.filter((line) => line.event.type === 'interaction-event')
+    expect(semantic.map((line) => line.event.envelope.kind)).toEqual([
+      'objective-set',
+      'phase-changed',
+      'phase-changed',
+      'outcome-recorded',
+    ])
+    const turnStart = lines.findIndex((line) => line.event.type === 'turn-start')
+    const thinking = lines.findIndex((line) =>
+      line.event.type === 'interaction-event' &&
+      line.event.envelope.kind === 'phase-changed' &&
+      line.event.envelope.payload.phase === 'thinking',
+    )
+    expect(turnStart).toBeLessThan(thinking)
     expect(lines.at(-1).event).toMatchObject({ type: 'exec-result', output: 'from stdin' })
   })
 

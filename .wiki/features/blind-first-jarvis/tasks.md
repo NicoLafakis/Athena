@@ -70,7 +70,7 @@ editing under the active Global Rule.
   handlers for `/status`, `/repeat`, `/details`, `/verbosity`; tests in `tests/tui/` and
   `tests/cli/` - done when commands use zero model calls and work outside fullscreen.
   **Frontend approval gate applies before modifying visible menus/components.**
-- [ ] **2.5 Add semantic JSONL events** - modify `src/cli.ts`; test schema and ordering -
+- [x] **2.5 Add semantic JSONL events** - modify `src/cli.ts`; test schema and ordering -
   done when additive envelopes are machine-readable and existing result events remain
   compatible.
 - [x] **2.6 Enforce performance/bounds** - add deterministic 20k-event replay benchmark

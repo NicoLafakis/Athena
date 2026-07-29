@@ -131,3 +131,8 @@ malformed optional accessibility object warns with its file and recovery action 
 falling back to standard presentation. Global concise/balanced/detailed verbosity already
 maps to the internal quiet/balanced/verbose announcement policy; no new presentation is
 selected until its adapter lands.
+
+`athena exec --output jsonl` now externalizes the same validated semantic envelopes as
+additive versioned `interaction-event` records. Source engine events remain compatible,
+semantic facts follow their source event in stream order, the redacted objective precedes
+the run, and terminal facts precede the unchanged final `exec-result` envelope.

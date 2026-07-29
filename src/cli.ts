@@ -64,7 +64,11 @@ import { AnthropicClient } from './engine/client.js'
 import type { ModelClient } from './engine/client.js'
 import { FixtureModelClient } from './engine/fixture-client.js'
 import { EngineEventBus } from './engine/events.js'
-import { InteractionEventAdapter, InteractionService } from './interaction/index.js'
+import {
+  InteractionEventAdapter,
+  InteractionService,
+  type InteractionEventEnvelope,
+} from './interaction/index.js'
 import { ContextManager } from './engine/context.js'
 import { assembleSystemPrompt, findProjectContextFiles } from './engine/prompt.js'
 import type { BrainPaths } from './brain/paths.js'
@@ -1291,6 +1295,16 @@ async function main(): Promise<void> {
     sandbox: settings.sandboxMode,
   })
   trace.attach(bus)
+  const pendingSemanticEvents: InteractionEventEnvelope[] = []
+  const flushSemanticJsonl = () => {
+    if (cmd.command !== 'exec' || cmd.options.output !== 'jsonl') return
+    for (const event of pendingSemanticEvents.splice(0)) {
+      process.stdout.write(JSON.stringify({
+        schemaVersion: 1,
+        event: { type: 'interaction-event', envelope: event },
+      }) + '\n')
+    }
+  }
   const interactionService = new InteractionService({
     verbosity: settings.accessibility.verbosity === 'concise'
       ? 'quiet'
@@ -1306,6 +1320,9 @@ async function main(): Promise<void> {
       const result = interactionService.accept(event)
       if (!result.accepted) return
       trace.recordInteraction(event)
+      if (cmd.command === 'exec' && cmd.options.output === 'jsonl') {
+        pendingSemanticEvents.push(event)
+      }
       if (result.announcement) {
         trace.recordAnnouncement(result.announcement, {
           coalesced: result.coalesced ?? false,
@@ -1560,6 +1577,7 @@ async function main(): Promise<void> {
       }
       if (cmd.options.output === 'jsonl') {
         process.stdout.write(JSON.stringify({ schemaVersion: 1, event }) + '\n')
+        flushSemanticJsonl()
       } else if (cmd.options.output === 'text') {
         if (event.type === 'assistant-text') {
           wroteText = true
@@ -1571,6 +1589,7 @@ async function main(): Promise<void> {
     })
     trace.recordPrompt(execPrompt!)
     interaction.recordUserObjective(execPrompt!, 'prompt:exec')
+    flushSemanticJsonl()
     let result
     try {
       result = await engine.runTurn(execPrompt!)
