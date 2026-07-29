@@ -4,7 +4,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { resolveBrainPaths } from '../../src/brain/paths.js'
 import { loadCredentials } from '../../src/brain/credentials.js'
-import { runAuthWizard, escFilter, type EscState, type WizardIO } from '../../src/auth/wizard.js'
+import {
+  runAuthWizard,
+  escFilter,
+  terminalIO,
+  type EscState,
+  type PromptSecretOptions,
+  type WizardIO,
+} from '../../src/auth/wizard.js'
 import type { ProviderId } from '../../src/brain/models.js'
 
 let home: string
@@ -150,5 +157,35 @@ describe('escFilter (masked-input ANSI escape filtering)', () => {
 
   it('plain text passes through untouched', () => {
     expect(survivors('sk-ant-abc123')).toBe('sk-ant-abc123')
+  })
+})
+
+describe('terminal auth presentation', () => {
+  it('keeps screen-reader secret entry silent instead of emitting one star per character', async () => {
+    const calls: Array<{ question: string; options?: PromptSecretOptions }> = []
+    const io = terminalIO({
+      screenReader: true,
+      readSecret: async (question, options) => {
+        calls.push({ question, options })
+        return 'secret'
+      },
+    })
+    await expect(io.readKey('anthropic')).resolves.toBe('secret')
+    expect(calls).toEqual([{
+      question: 'Anthropic API key (input hidden): ',
+      options: { echoMask: false },
+    }])
+  })
+
+  it('retains visual masking in standard terminal mode', async () => {
+    const masks: boolean[] = []
+    const io = terminalIO({
+      readSecret: async (_question, options) => {
+        masks.push(options?.echoMask ?? true)
+        return 'secret'
+      },
+    })
+    await io.readKey('kimi')
+    expect(masks).toEqual([true])
   })
 })

@@ -16,6 +16,12 @@ export interface WizardIO {
   readKey(provider: ProviderId): Promise<string>
 }
 
+export interface TerminalWizardIOOptions {
+  screenReader?: boolean
+  ask?: (question: string) => Promise<string>
+  readSecret?: (question: string, options?: PromptSecretOptions) => Promise<string>
+}
+
 /** null = key accepted; otherwise the provider's error message. */
 export type ValidateFn = (provider: ProviderId, key: string) => Promise<string | null>
 
@@ -113,8 +119,16 @@ export function escFilter(state: EscState, ch: string): { state: EscState; consu
   return { state: 'none', consume: false }
 }
 
-/** Masked input: raw mode, echo '*' per char, handle backspace/Ctrl-C/Enter manually. */
-export function promptMasked(question: string): Promise<string> {
+export interface PromptSecretOptions {
+  /** Screen readers must not announce one mask character per keypress. */
+  echoMask?: boolean
+}
+
+/** Hidden input: raw mode, optional visual mask, handle backspace/Ctrl-C/Enter manually. */
+export function promptMasked(
+  question: string,
+  options: PromptSecretOptions = {},
+): Promise<string> {
   return new Promise((resolve, reject) => {
     if (!process.stdin.isTTY) {
       reject(new Error('Masked input requires an interactive terminal - run athena from a real console.'))
@@ -127,6 +141,7 @@ export function promptMasked(question: string): Promise<string> {
     stdin.resume()
     let value = ''
     let esc: EscState = 'none'
+    const echoMask = options.echoMask ?? true
     const finish = (): void => {
       stdin.off('data', onData)
       stdin.setRawMode(wasRaw)
@@ -154,7 +169,7 @@ export function promptMasked(question: string): Promise<string> {
         if (ch === '\u007f' || ch === '\b') {
           if (value.length > 0) {
             value = value.slice(0, -1)
-            process.stdout.write('\b \b')
+            if (echoMask) process.stdout.write('\b \b')
           }
           continue
         }
@@ -165,21 +180,24 @@ export function promptMasked(question: string): Promise<string> {
         if (step.consume) continue
         if (ch < ' ' || ch === '\u007f') continue // other control chars: never into the key
         value += ch
-        process.stdout.write('*')
+        if (echoMask) process.stdout.write('*')
       }
     }
     stdin.on('data', onData)
   })
 }
 
-function terminalIO(): WizardIO {
+/** Terminal wizard factory. Screen-reader mode keeps secrets fully silent while typed. */
+export function terminalIO(options: TerminalWizardIOOptions = {}): WizardIO {
+  const askInput = options.ask ?? ask
+  const readSecret = options.readSecret ?? promptMasked
   return {
     say: (m) => console.log(m),
     pickProvider: async () => {
       for (;;) {
         console.log('Pick a provider:')
         PROVIDER_IDS.forEach((p, i) => console.log(`  ${i + 1}. ${PROVIDERS[p].label}`))
-        const answer = (await ask('> ')).trim()
+        const answer = (await askInput('> ')).trim()
         const byIndex = PROVIDER_IDS[Number(answer) - 1]
         const byName = PROVIDER_IDS.find((p) => p === answer.toLowerCase())
         const picked = byName ?? byIndex
@@ -187,6 +205,9 @@ function terminalIO(): WizardIO {
         console.log(`Unrecognized: ${answer}`)
       }
     },
-    readKey: (p) => promptMasked(`${PROVIDERS[p].label} API key (input hidden): `),
+    readKey: (p) => readSecret(
+      `${PROVIDERS[p].label} API key (input hidden): `,
+      { echoMask: !options.screenReader },
+    ),
   }
 }

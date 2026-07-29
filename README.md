@@ -63,6 +63,28 @@ The standard Ink TUI remains the default. Set global
 for serialized append-only input/output that preserves native terminal scrollback and
 does not mount Ink.
 
+## Optional Athena voice
+
+Windows voice mode listens through the local `System.Speech` recognizer. An utterance is
+ignored unless the locally recognized text begins with **Athena**, so ambient microphone
+audio is not sent to OpenAI. The post-wake command goes to the OpenAI Realtime conductor,
+which returns 24 kHz spoken audio. Coding work is proposed through `delegate`, requires a
+separate `Athena confirm`, and then runs through Athena's existing engine and permission
+policy. `Athena cancel` discards a pending delegation.
+
+```sh
+athena voice auth       # hidden key entry; validates and saves to the OS vault
+athena voice probe      # speaks a sentinel, asks for “Athena probe”, checks Realtime
+athena voice            # microphone input; say “Athena” followed by a command
+athena voice --keyboard # stable text/Braille equivalent; type confirm/cancel/exit
+```
+
+The default is the lower-cost `gpt-realtime-2.1-mini`; select the quality model with
+`--model gpt-realtime-2.1`. `OPENAI_API_KEY` is the zero-file alternative to
+`athena voice auth`. No raw recordings or voiceprints are retained; per-response usage
+objects are appended to `~/.athena/voice-usage.jsonl`. Ordinary `athena` and
+`athena exec` dynamically avoid loading or probing the optional voice stack.
+
 Full keyboard shortcuts for editing, popups, and transcript scrolling are listed in
 [`.wiki/reference/tui-keybindings.md`](.wiki/reference/tui-keybindings.md).
 

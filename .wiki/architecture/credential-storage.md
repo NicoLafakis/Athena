@@ -33,6 +33,13 @@ resolves as "no key from the vault" plus a warning string the caller can surface
 than propagating an exception or silently falling through to the auth wizard with no
 explanation.
 
+The optional OpenAI Realtime voice credential is deliberately outside the coding-model
+provider schema. `resolveVoiceKey` checks `OPENAI_API_KEY` first and then the fixed
+`voice/openai` OS-vault reference. `athena voice auth` validates a Realtime session before
+writing, verifies the new vault value by readback, and attempts to restore the prior
+working value if replacement verification fails. It never falls back to a plaintext
+voice key: when the vault is unavailable, `OPENAI_API_KEY` is the recovery path.
+
 ## Plaintext vs. vault, and how the user is told which
 
 A key can be in one of two states, and the user-facing status output
@@ -119,6 +126,9 @@ silently.
 
 ## Source map
 
+- `src/voice/credentials.ts` - env/vault resolution and verified replacement for the
+  optional `voice/openai` reference; no plaintext fallback.
+
 - `src/brain/credentials.ts` — load/save, `resolveApiKey`, `setProviderKey`,
   `migrateCredentialsToVault`, `formatAuthStatus`.
 - `src/brain/credential-vault.ts` — per-platform `CredentialVault` implementations
@@ -130,4 +140,4 @@ silently.
   the probed `vaultStatus.available` rather than trusting an unconditional claim.
 - `.gitignore` — hardened credential-path ignores.
 - Tests: `tests/brain/credential-vault.test.ts`, `tests/brain/credential-vault-timeout.test.ts`,
-  `tests/cli/provider-vault-warn.test.ts`.
+  `tests/cli/provider-vault-warn.test.ts`, `tests/voice/credentials.test.ts`.

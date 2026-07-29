@@ -135,8 +135,9 @@ falling back to standard presentation. `--accessibility screen-reader|standard` 
 the global choice for one invocation. The screen-reader composition never mounts Ink,
 uses serialized append-only line input/output, supports the shared local state commands,
 and presents stable permission identity, change counts, choices, and detail routes. The
-standard TUI remains the default. Secure non-chattery first-run auth, full interrupt-state
-tests, and human assistive-technology validation remain open.
+standard TUI remains the default. Screen-reader first-run auth uses fully silent hidden
+entry, cancellation/resume and command parity are fixture-backed, and only human
+assistive-technology validation remains open for Phase 3.
 
 `athena exec --output jsonl` now externalizes the same validated semantic envelopes as
 additive versioned `interaction-event` records. Source engine events remain compatible,
@@ -169,8 +170,8 @@ The append-only presentation is implemented under `src/presentation/` and compos
 `src/cli.ts`. It provides shared lifecycle/permission contracts, stable accessible
 permission wording and IDs, serialized line input, byte-tested plain output, queued
 announcements instead of prompt rewriting, and a line-oriented session selector. The
-existing Ink queue remains behavior-compatible. Secure non-chattery first-run auth and
-the human assistive-technology gates remain open.
+existing Ink queue remains behavior-compatible. Screen-reader auth is non-chattery; the
+human assistive-technology gates remain open.
 
 The Phase 6 watcher foundation is now implemented without starting anything from normal
 Athena boot. Explicit user-created definitions are resource-policy scoped and atomically
@@ -178,9 +179,10 @@ stored; a real sentinel probe proves backend availability; foreground observatio
 bounded, path-free, abortable, and nonfatal under corrupt state, backend failure, or
 shutdown races. The visible foreground command and cross-platform dogfood remain open.
 
-The provider-neutral Phase 7 voice core is also implemented as a removable adapter over
-semantic state: bounded spoken context, deterministic session disambiguation,
-announcement-only speech ownership, normal prompt/command translation, and a local
-two-step confirmation gate that the conductor cannot self-satisfy. Current Realtime and
-audio capability research remains open pending activation of the newly installed
-official Docs connector and real device/backend probes.
+Phase 7 now composes that provider-neutral core into an opt-in Windows voice process.
+Local `System.Speech` gates confidence-thresholded commands on “Athena”; the current
+OpenAI Realtime WebSocket conductor provides PCM speech and bounded `delegate`/`status`
+tools; a separate local confirmation runs the existing engine in a durable resumable
+session. Keyboard input, vault/env auth, usage-only records, fake-server protocol tests,
+and an interactive device/account probe are present. Nico's live probe, latency/cost and
+false-positive measurements, retention review, and manual AT/voice validation remain.

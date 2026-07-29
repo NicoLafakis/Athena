@@ -60,7 +60,7 @@ sessions default to scoped permissions, never implicit trust.
 
 ## Capability and privacy contract
 
-`athena voice --probe` must round-trip sentinels through the selected microphone,
+`athena voice probe` must round-trip sentinels through the selected microphone,
 playback path, wake-word detector, Realtime connection, and any platform routing backend.
 Executable or platform presence is not proof. Cache successful verdicts with enough
 identity to invalidate them when the device/backend changes. Every failure names the
@@ -116,6 +116,37 @@ calls are strict and ID-bound. Approve, deny, and cancel can never execute direc
 a conductor call: they create a bounded local confirmation request, and only a separate
 exact `confirm` for its opaque ID releases the action.
 
+### Working Windows composition
+
+`athena voice` now dynamically loads the optional stack; ordinary `athena` and
+`athena exec` do not load `ws`, probe speech, open the microphone, or contact OpenAI.
+Windows `System.Speech` performs dictation locally. Only confidence-thresholded text that
+begins with `Athena` crosses the Realtime boundary, so ambient pre-wake audio stays on the
+machine. `athena voice --keyboard` drives the identical conductor and confirmation state
+machine without a microphone.
+
+The default `gpt-realtime-2.1-mini` session uses an authenticated server-side WebSocket,
+text input, function calls, and 24 kHz PCM output. PCM is wrapped in a temporary
+owner-only WAV for synchronous `System.Media.SoundPlayer` playback and deleted
+immediately afterward; raw input audio, raw output audio, and voiceprints are not
+persisted. The only voice-specific persistent telemetry is the provider's usage object,
+model, and timestamp in `~/.athena/voice-usage.jsonl`.
+
+The conductor exposes only `delegate` and `status`. `delegate` records a bounded proposal
+and cannot run it. A later local `Athena confirm` invokes `athena exec` through the
+existing engine with `acceptEdits`: file writes remain scoped to the workspace, while
+shell and other consequential tools are not implicitly trusted. `Athena cancel` drops
+the proposal. The first confirmed delegation creates a durable child session and later
+delegations resume that same session. The bounded/redacted engine envelope is returned to
+Realtime for a concise spoken summary; the model cannot manufacture the engine status.
+
+`athena voice auth` accepts the OpenAI key with no character echo, validates a Realtime
+session, then stores it under `voice/openai` in the per-machine OS vault and verifies
+readback. `OPENAI_API_KEY` remains the zero-file override. A failed replacement attempts
+to restore the prior working vault entry. `athena voice probe` audibly asks the user to
+repeat `Athena probe`, verifies the local microphone/wake path, and then opens a Realtime
+session. Every failure names the recovery command and leaves core Athena untouched.
+
 ### Official Realtime contract resolved by the documentation spike
 
 Official documentation checked on 2026-07-29 establishes two current candidates. The
@@ -142,17 +173,21 @@ push-to-talk interruption uses `response.cancel` plus playback stop and
 `conversation.item.truncate`. Realtime sessions have a documented 60-minute maximum.
 Athena therefore starts with push-to-talk, not always-listening or full-duplex behavior.
 
-This resolves model and wire-schema selection only. No paid/live call was made, and
-documentation is not a capability probe. The following release gates remain open:
+The transport and local backend now exist, but no paid/live call was made in automated
+development because this machine has no `OPENAI_API_KEY`. Documentation and fakes are not
+a capability probe. The shipped Windows subprocess probe did run on Nico's machine and
+found one installed recognizer and two installed voices; its encoded-argument transport
+also round-tripped a sentinel through Windows PowerShell 5.1. That establishes component
+availability, not microphone or speaker success. The following release gates remain open:
 
 - round-trip microphone and playback sentinels on each target machine;
 - measured first-audio and interruption latency plus actual token/cost records;
-- a selected local wake-word backend with an acceptable license, false-positive result,
-  supervision behavior, and synthetic-audio probe;
+- measured `System.Speech` false-positive behavior in Nico's normal environment;
 - an authoritative retention/data-control determination for the selected account and
   endpoint;
 - manual double-speech and focus testing with NVDA and Narrator enabled and disabled.
 
-Ordinary Athena boot still imports none of `src/voice/`. No Realtime package, daemon,
-audio backend, wake-word dependency, visible `athena voice` command, or credential prompt
-has been added.
+The Windows backend is intentionally first, not a cross-platform support claim.
+macOS/Linux audio backends, active-session control, foreground-window routing, duplex
+echo cancellation, barge-in, and always-on background service behavior remain outside
+this initial working path.

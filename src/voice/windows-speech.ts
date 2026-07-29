@@ -1,0 +1,206 @@
+import { execFile } from 'node:child_process'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+const POWERSHELL_TIMEOUT_MS = 45_000
+
+function encodedPowerShell(script: string): string {
+  return Buffer.from(script, 'utf16le').toString('base64')
+}
+
+export interface SpeechBackendProbe {
+  backend: 'windows-system-speech' | 'unavailable'
+  available: boolean
+  recognizers: number
+  voices: number
+  detail: string
+}
+
+export interface RecognizedPhrase {
+  text: string
+  confidence: number
+}
+
+export type PowerShellRunner = (
+  script: string,
+  args?: readonly string[],
+  timeoutMs?: number,
+) => Promise<string>
+
+export function runPowerShell(
+  script: string,
+  args: readonly string[] = [],
+  timeoutMs = POWERSHELL_TIMEOUT_MS,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const encodedArgs = Buffer.from(JSON.stringify(args), 'utf8').toString('base64')
+    const argumentPrelude = String.raw`
+$athenaVoiceArgsJson=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:ATHENA_VOICE_PS_ARGS))
+$args=[string[]]($athenaVoiceArgsJson|ConvertFrom-Json)
+`
+    execFile(
+      'powershell.exe',
+      [
+        '-NoLogo',
+        '-NoProfile',
+        '-NonInteractive',
+        '-EncodedCommand',
+        encodedPowerShell(`${argumentPrelude}\n${script}`),
+      ],
+      {
+        timeout: timeoutMs,
+        windowsHide: true,
+        maxBuffer: 1024 * 1024,
+        env: { ...process.env, ATHENA_VOICE_PS_ARGS: encodedArgs },
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          const detail = String(stderr || error.message).split(/\r?\n/, 1)[0]?.trim()
+          reject(Object.assign(
+            new Error(detail || 'Windows speech backend failed'),
+            { code: (error as NodeJS.ErrnoException & { code?: string | number }).code },
+          ))
+          return
+        }
+        resolve(stdout.trim())
+      },
+    )
+  })
+}
+
+const PROBE_SCRIPT = String.raw`
+$ErrorActionPreference='Stop'
+Add-Type -AssemblyName System.Speech
+$recognizers=[System.Speech.Recognition.SpeechRecognitionEngine]::InstalledRecognizers().Count
+$synth=New-Object System.Speech.Synthesis.SpeechSynthesizer
+try { $voices=$synth.GetInstalledVoices().Count } finally { $synth.Dispose() }
+[Console]::Out.Write((@{recognizers=$recognizers;voices=$voices}|ConvertTo-Json -Compress))
+`
+
+const RECOGNIZE_SCRIPT = String.raw`
+$ErrorActionPreference='Stop'
+Add-Type -AssemblyName System.Speech
+$recognizer=New-Object System.Speech.Recognition.SpeechRecognitionEngine
+try {
+  $recognizer.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar))
+  $recognizer.SetInputToDefaultAudioDevice()
+  $result=$recognizer.Recognize([TimeSpan]::FromSeconds(30))
+  if ($null -eq $result) { exit 2 }
+  [Console]::Out.Write((@{text=$result.Text;confidence=$result.Confidence}|ConvertTo-Json -Compress))
+} finally { $recognizer.Dispose() }
+`
+
+const SPEAK_TEXT_SCRIPT = String.raw`
+$ErrorActionPreference='Stop'
+Add-Type -AssemblyName System.Speech
+$synth=New-Object System.Speech.Synthesis.SpeechSynthesizer
+try { $synth.Speak($args[0]) } finally { $synth.Dispose() }
+`
+
+const PLAY_WAVE_SCRIPT = String.raw`
+$ErrorActionPreference='Stop'
+$player=New-Object System.Media.SoundPlayer $args[0]
+try { $player.PlaySync() } finally { $player.Dispose() }
+`
+
+export async function probeWindowsSpeech(
+  runner: PowerShellRunner = runPowerShell,
+  platform = process.platform,
+): Promise<SpeechBackendProbe> {
+  if (platform !== 'win32') {
+    return {
+      backend: 'unavailable',
+      available: false,
+      recognizers: 0,
+      voices: 0,
+      detail: 'The first voice backend supports Windows System.Speech only.',
+    }
+  }
+  try {
+    const raw = JSON.parse(await runner(PROBE_SCRIPT)) as { recognizers?: unknown; voices?: unknown }
+    const recognizers = Number(raw.recognizers ?? 0)
+    const voices = Number(raw.voices ?? 0)
+    const available = recognizers > 0 && voices > 0
+    return {
+      backend: available ? 'windows-system-speech' : 'unavailable',
+      available,
+      recognizers,
+      voices,
+      detail: available
+        ? `${recognizers} local recognizer(s), ${voices} local voice(s)`
+        : 'System.Speech loaded but no recognizer or voice is installed.',
+    }
+  } catch (error) {
+    return {
+      backend: 'unavailable',
+      available: false,
+      recognizers: 0,
+      voices: 0,
+      detail: (error as Error).message,
+    }
+  }
+}
+
+export async function recognizeWindowsPhrase(
+  runner: PowerShellRunner = runPowerShell,
+): Promise<RecognizedPhrase | null> {
+  try {
+    const raw = JSON.parse(await runner(RECOGNIZE_SCRIPT, [], 40_000)) as {
+      text?: unknown
+      confidence?: unknown
+    }
+    const text = typeof raw.text === 'string' ? raw.text.trim() : ''
+    if (!text) return null
+    return { text, confidence: Number(raw.confidence ?? 0) }
+  } catch (error) {
+    if ((error as { code?: unknown }).code === 2) return null
+    throw error
+  }
+}
+
+export function stripWakePhrase(text: string, wakePhrase = 'Athena'): string | null {
+  const escaped = wakePhrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = new RegExp(`^${escaped}(?:[,.!?;:]|\\s)+(.*)$`, 'i').exec(text.trim())
+  const command = match?.[1]?.trim()
+  return command ? command : null
+}
+
+export async function speakWindowsText(
+  text: string,
+  runner: PowerShellRunner = runPowerShell,
+): Promise<void> {
+  await runner(SPEAK_TEXT_SCRIPT, [text.slice(0, 4_096)])
+}
+
+function pcm16Wave(pcm: Buffer, sampleRate = 24_000): Buffer {
+  const header = Buffer.alloc(44)
+  header.write('RIFF', 0)
+  header.writeUInt32LE(36 + pcm.length, 4)
+  header.write('WAVEfmt ', 8)
+  header.writeUInt32LE(16, 16)
+  header.writeUInt16LE(1, 20)
+  header.writeUInt16LE(1, 22)
+  header.writeUInt32LE(sampleRate, 24)
+  header.writeUInt32LE(sampleRate * 2, 28)
+  header.writeUInt16LE(2, 32)
+  header.writeUInt16LE(16, 34)
+  header.write('data', 36)
+  header.writeUInt32LE(pcm.length, 40)
+  return Buffer.concat([header, pcm])
+}
+
+export async function playWindowsPcm(
+  pcm: Buffer,
+  runner: PowerShellRunner = runPowerShell,
+): Promise<void> {
+  if (pcm.length === 0) return
+  const directory = await mkdtemp(join(tmpdir(), 'athena-voice-'))
+  const waveFile = join(directory, 'response.wav')
+  try {
+    await writeFile(waveFile, pcm16Wave(pcm), { mode: 0o600 })
+    await runner(PLAY_WAVE_SCRIPT, [waveFile])
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+}

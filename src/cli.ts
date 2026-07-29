@@ -34,7 +34,7 @@ import {
   formatCredentialVaultStatus,
   type CredentialVault,
 } from './brain/credential-vault.js'
-import { runAuthWizard } from './auth/wizard.js'
+import { promptMasked, runAuthWizard, terminalIO } from './auth/wizard.js'
 import { ClientHolder } from './engine/client-holder.js'
 import { loadConstitution, loadMemoryIndex } from './brain/loader.js'
 import {
@@ -125,8 +125,11 @@ import { PromotionManager } from './learning/promotion.js'
 import { TraceWarehouse } from './learning/warehouse.js'
 import { collectDiagnostics, formatDiagnostics } from './harness/diagnostics.js'
 import { stalenessBootWarnings } from './harness/staleness.js'
-
 export type AccessibilityPresentation = 'standard' | 'screen-reader'
+export type VoiceModel = 'gpt-realtime-2.1-mini' | 'gpt-realtime-2.1'
+
+const VOICE_MODELS: readonly VoiceModel[] = ['gpt-realtime-2.1-mini', 'gpt-realtime-2.1']
+const DEFAULT_VOICE_MODEL: VoiceModel = 'gpt-realtime-2.1-mini'
 
 export type CliCommand =
   | { command: 'run'; provider?: ProviderId; accessibility?: AccessibilityPresentation }
@@ -136,7 +139,18 @@ export type CliCommand =
   | { command: 'exec-help' }
   | { command: 'version' }
   | { command: 'doctor'; json: boolean }
-  | { command: 'auth'; sub: 'wizard' | 'status'; provider?: ProviderId }
+  | {
+      command: 'auth'
+      sub: 'wizard' | 'status'
+      provider?: ProviderId
+      accessibility?: AccessibilityPresentation
+    }
+  | {
+      command: 'voice'
+      action: 'start' | 'probe' | 'auth'
+      model: VoiceModel
+      keyboard: boolean
+    }
   | { command: 'import'; sourceDir: string; force: boolean }
   | { command: 'trust'; revoke: boolean; capabilities: ProjectCapability[] }
   | { command: 'exec'; provider?: ProviderId; options: ExecOptions }
@@ -169,6 +183,13 @@ export type CliCommand =
       approved: boolean
     }
   | { command: 'error'; message: string }
+
+export function resolveAuthPresentation(
+  command: Extract<CliCommand, { command: 'run' | 'resume' | 'continue' }>,
+  persisted: AccessibilityPresentation,
+): AccessibilityPresentation {
+  return command.accessibility ?? persisted
+}
 
 export type ExecOutputMode = 'text' | 'json' | 'jsonl'
 
@@ -334,8 +355,38 @@ function parseExecArgs(argv: string[]): CliCommand {
   return { command: 'exec', provider, options }
 }
 
+const VOICE_USAGE =
+  'Usage: athena voice [probe|auth] [--model gpt-realtime-2.1-mini|gpt-realtime-2.1] [--keyboard]'
+
+function parseVoiceArgs(argv: string[]): CliCommand {
+  let action: 'start' | 'probe' | 'auth' = 'start'
+  let model: VoiceModel = DEFAULT_VOICE_MODEL
+  let keyboard = false
+  const rest = [...argv]
+  if (rest[0] === 'probe' || rest[0] === 'auth') action = rest.shift() as 'probe' | 'auth'
+  for (let index = 0; index < rest.length; index++) {
+    const arg = rest[index]!
+    if (arg === '--keyboard' && action === 'start') {
+      keyboard = true
+      continue
+    }
+    if (arg === '--model') {
+      const value = rest[index + 1]
+      if (!VOICE_MODELS.includes(value as VoiceModel)) {
+        return { command: 'error', message: VOICE_USAGE }
+      }
+      model = value as VoiceModel
+      index++
+      continue
+    }
+    return { command: 'error', message: VOICE_USAGE }
+  }
+  return { command: 'voice', action, model, keyboard }
+}
+
 export function parseArgs(argv: string[]): CliCommand {
   if (argv[0] === 'exec') return parseExecArgs(argv.slice(1))
+  if (argv[0] === 'voice') return parseVoiceArgs(argv.slice(1))
   if (argv[0] === 'doctor') {
     const unknown = argv.slice(1).find((arg) => arg !== '--json')
     return unknown
@@ -429,6 +480,7 @@ export function parseArgs(argv: string[]): CliCommand {
   if (argv[0] === 'auth') {
     let sub: 'wizard' | 'status' = 'wizard'
     let provider: ProviderId | undefined
+    let accessibility: AccessibilityPresentation | undefined
     const rest = argv.slice(1)
 
     // Check for 'status' subcommand
@@ -437,22 +489,39 @@ export function parseArgs(argv: string[]): CliCommand {
       rest.shift()
     }
 
-    // Check for --provider flag
-    if (rest.length > 0 && rest[0] === '--provider') {
-      // --provider is not allowed on status; only on wizard
-      if (sub === 'status') return { command: 'error', message: AUTH_USAGE }
-      const value = rest[1]
-      if (!value) return { command: 'error', message: AUTH_USAGE }
-      const p = normalizeProvider(value)
-      if (!p) return { command: 'error', message: `--provider needs one of: ${PROVIDER_IDS.join(', ')}` }
-      provider = p
-      rest.splice(0, 2)
+    for (let index = 0; index < rest.length;) {
+      const flag = rest[index]
+      const value = rest[index + 1]
+      if (flag === '--provider') {
+        if (sub === 'status' || !value) return { command: 'error', message: AUTH_USAGE }
+        const parsed = normalizeProvider(value)
+        if (!parsed) {
+          return { command: 'error', message: `--provider needs one of: ${PROVIDER_IDS.join(', ')}` }
+        }
+        provider = parsed
+        rest.splice(index, 2)
+        continue
+      }
+      if (flag === '--accessibility') {
+        if (sub === 'status' || (value !== 'screen-reader' && value !== 'standard')) {
+          return { command: 'error', message: AUTH_USAGE }
+        }
+        accessibility = value
+        rest.splice(index, 2)
+        continue
+      }
+      index++
     }
 
     // Check for unexpected remaining args
     if (rest.length > 0) return { command: 'error', message: AUTH_USAGE }
 
-    return { command: 'auth', sub, provider }
+    return {
+      command: 'auth',
+      sub,
+      ...(provider ? { provider } : {}),
+      ...(accessibility ? { accessibility } : {}),
+    }
   }
   const rest = [...argv]
   let provider: ProviderId | undefined
@@ -484,7 +553,9 @@ export function parseArgs(argv: string[]): CliCommand {
   return { command: 'run', provider, ...(accessibility ? { accessibility } : {}) }
 }
 
-const AUTH_USAGE = `Usage: athena auth [status] [--provider <${PROVIDER_IDS.join('|')}>]`
+const AUTH_USAGE =
+  `Usage: athena auth [status] [--provider <${PROVIDER_IDS.join('|')}>] ` +
+  '[--accessibility screen-reader|standard]'
 
 const HELP_TEXT = `athena — standalone terminal coding agent
 
@@ -498,6 +569,10 @@ Usage:
   athena --accessibility <screen-reader|standard>  session-only presentation override
   athena auth            add/replace API keys, switch the default provider
   athena auth status     show configured providers and redacted keys
+  athena voice           listen locally for “Athena”, then use the OpenAI Realtime conductor
+  athena voice --keyboard  equivalent stable-text input for keyboard/Braille use
+  athena voice probe     round-trip local speech and verify the Realtime connection
+  athena voice auth      securely save the per-machine OpenAI voice key
   athena doctor          inspect credentials, trust, dependencies, sandbox, and update status
   athena import <path>   one-time import of an ares-style brain (--force to merge)
   athena trust           trust this canonical project path
@@ -1232,6 +1307,82 @@ async function main(): Promise<void> {
     return
   }
   const credentialVault = createCredentialVault(paths)
+  if (cmd.command === 'voice') {
+    const {
+      KeyboardVoiceCommandInput,
+      WindowsWakeCommandInput,
+      resolveVoiceKey,
+      runVoiceProbe,
+      runVoiceSession,
+      saveVoiceKey,
+      validateRealtimeKey,
+    } = await import('./voice/index.js')
+    if (process.env['ATHENA_VOICE_CHILD'] === '1') {
+      console.error('Nested Athena voice processes are not allowed.')
+      process.exitCode = CLI_EXIT.usage
+      return
+    }
+    if (cmd.action === 'auth') {
+      if (!process.stdin.isTTY || !process.stdout.isTTY) {
+        console.error('athena voice auth needs an interactive terminal.')
+        process.exitCode = CLI_EXIT.usage
+        return
+      }
+      try {
+        const key = (await promptMasked('OpenAI API key for Athena voice (input hidden): ', {
+          echoMask: false,
+        })).trim()
+        if (!key) throw new Error('No key entered; nothing was changed.')
+        console.log(`Validating OpenAI Realtime access with ${cmd.model}…`)
+        await validateRealtimeKey(key, { model: cmd.model })
+        saveVoiceKey(credentialVault, key)
+        console.log('OpenAI voice key saved to the OS credential vault and verified by readback.')
+      } catch (error) {
+        console.error((error as Error).message)
+        process.exitCode = CLI_EXIT.provider
+      }
+      return
+    }
+    const resolvedVoice = resolveVoiceKey(
+      process.env,
+      credentialVault,
+      (message) => console.error(message),
+    )
+    if (!resolvedVoice) {
+      console.error('No OpenAI voice key found. Run `athena voice auth` or set OPENAI_API_KEY.')
+      process.exitCode = CLI_EXIT.provider
+      return
+    }
+    try {
+      if (cmd.action === 'probe') {
+        for (const line of await runVoiceProbe(resolvedVoice.key, cmd.model)) console.log(line)
+        return
+      }
+      if (!process.stdout.isTTY || (cmd.keyboard && !process.stdin.isTTY)) {
+        console.error('athena voice needs an interactive terminal; use normal `athena exec` for redirection.')
+        process.exitCode = CLI_EXIT.usage
+        return
+      }
+      const usageFile = join(paths.brainDir, 'voice-usage.jsonl')
+      await runVoiceSession({
+        apiKey: resolvedVoice.key,
+        model: cmd.model,
+        input: cmd.keyboard ? new KeyboardVoiceCommandInput() : new WindowsWakeCommandInput(),
+        onUsage: (usage) => appendFileSync(
+          usageFile,
+          JSON.stringify({ schemaVersion: 1, timestamp: new Date().toISOString(), model: cmd.model, usage }) + '\n',
+          { encoding: 'utf8', mode: 0o600 },
+        ),
+      })
+    } catch (error) {
+      console.error(
+        `Athena voice stopped: ${(error as Error).message} ` +
+        'Run `athena voice probe` to test microphone, playback, and Realtime access.',
+      )
+      process.exitCode = CLI_EXIT.provider
+    }
+    return
+  }
   if (cmd.command === 'auth') {
     if (cmd.sub === 'status') {
       try {
@@ -1249,7 +1400,14 @@ async function main(): Promise<void> {
       process.exitCode = 1
       return
     }
-    await runAuthWizard({ paths, provider: cmd.provider, vault: credentialVault })
+    const authPresentation = cmd.accessibility
+      ?? loadSettings(paths, cmd.provider ?? 'anthropic').accessibility.presentation
+    await runAuthWizard({
+      paths,
+      provider: cmd.provider,
+      vault: credentialVault,
+      io: terminalIO({ screenReader: authPresentation === 'screen-reader' }),
+    })
     return
   }
 
@@ -1295,6 +1453,12 @@ async function main(): Promise<void> {
     return
   }
   let provider: ProviderId = cmd.provider ?? credentials.activeProvider
+  const authPresentation = isExec
+    ? 'standard'
+    : resolveAuthPresentation(
+        cmd,
+        loadSettings(paths, provider).accessibility.presentation,
+      )
   let resolved = resolveApiKey(provider, credentials, process.env, credentialVault, warnCredentials)
   if (!resolved && cmd.provider === undefined) {
     // The default provider has no key but another one does (e.g. no credentials file
@@ -1324,7 +1488,11 @@ async function main(): Promise<void> {
       // True cold start: no --provider flag and no key anywhere. Run the FULL wizard
       // (provider pick included) and adopt whatever the user chose.
       console.log(`No API key configured yet. Let's set one up.`)
-      const done = await runAuthWizard({ paths, vault: credentialVault })
+      const done = await runAuthWizard({
+        paths,
+        vault: credentialVault,
+        io: terminalIO({ screenReader: authPresentation === 'screen-reader' }),
+      })
       provider = done.provider
       resolved = { key: done.key, source: 'file' }
     } else {
@@ -1333,7 +1501,12 @@ async function main(): Promise<void> {
       console.log(
         `No API key found for ${PROVIDERS[provider].label} - let's set one up. (This provider becomes your default; athena auth switches it.)`,
       )
-      const done = await runAuthWizard({ paths, provider, vault: credentialVault })
+      const done = await runAuthWizard({
+        paths,
+        provider,
+        vault: credentialVault,
+        io: terminalIO({ screenReader: authPresentation === 'screen-reader' }),
+      })
       resolved = { key: done.key, source: 'file' }
     }
   }

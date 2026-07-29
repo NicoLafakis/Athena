@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { parseArgs } from '../../src/cli.js'
+import { parseArgs, resolveAuthPresentation } from '../../src/cli.js'
 import { PROVIDER_IDS } from '../../src/brain/models.js'
 
 // Derived exactly the way cli.ts derives it, so a new provider updates both in lockstep.
-const AUTH_USAGE = `Usage: athena auth [status] [--provider <${PROVIDER_IDS.join('|')}>]`
+const AUTH_USAGE =
+  `Usage: athena auth [status] [--provider <${PROVIDER_IDS.join('|')}>] ` +
+  '[--accessibility screen-reader|standard]'
 const PROVIDER_NEEDS = `--provider needs one of: ${PROVIDER_IDS.join(', ')}`
 
 describe('parseArgs — auth and --provider', () => {
@@ -20,7 +22,10 @@ describe('parseArgs — auth and --provider', () => {
   })
 
   it('auth usage names all three providers', () => {
-    expect(AUTH_USAGE).toBe('Usage: athena auth [status] [--provider <anthropic|kimi|kimi-code>]')
+    expect(AUTH_USAGE).toBe(
+      'Usage: athena auth [status] [--provider <anthropic|kimi|kimi-code>] ' +
+      '[--accessibility screen-reader|standard]',
+    )
   })
 
   it('parses auth with --provider flag (wizard only, not status)', () => {
@@ -47,6 +52,18 @@ describe('parseArgs — auth and --provider', () => {
 
   it('rejects auth --provider without a value', () => {
     expect(parseArgs(['auth', '--provider'])).toEqual({
+      command: 'error',
+      message: AUTH_USAGE,
+    })
+  })
+
+  it('selects silent screen-reader auth before the TUI exists', () => {
+    expect(parseArgs(['auth', '--accessibility', 'screen-reader'])).toEqual({
+      command: 'auth',
+      sub: 'wizard',
+      accessibility: 'screen-reader',
+    })
+    expect(parseArgs(['auth', 'status', '--accessibility', 'screen-reader'])).toEqual({
       command: 'error',
       message: AUTH_USAGE,
     })
@@ -82,6 +99,14 @@ describe('parseArgs — auth and --provider', () => {
       provider: undefined,
       accessibility: 'screen-reader',
     })
+  })
+
+  it('uses the persisted screen-reader presentation for cold-start auth unless overridden', () => {
+    const ordinary = parseArgs([])
+    const overridden = parseArgs(['--accessibility', 'standard'])
+    if (ordinary.command !== 'run' || overridden.command !== 'run') throw new Error('expected run')
+    expect(resolveAuthPresentation(ordinary, 'screen-reader')).toBe('screen-reader')
+    expect(resolveAuthPresentation(overridden, 'screen-reader')).toBe('standard')
   })
 
   it('rejects a missing or unknown accessibility presentation', () => {
@@ -197,6 +222,24 @@ describe('parseArgs — auth and --provider', () => {
       command: 'error',
       message: '--max-turns requires a positive number',
     })
+  })
+})
+
+describe('parseArgs — voice', () => {
+  it('parses microphone, keyboard, probe, auth, and quality model paths', () => {
+    expect(parseArgs(['voice'])).toEqual({
+      command: 'voice', action: 'start', model: 'gpt-realtime-2.1-mini', keyboard: false,
+    })
+    expect(parseArgs(['voice', '--keyboard'])).toMatchObject({ command: 'voice', keyboard: true })
+    expect(parseArgs(['voice', 'probe', '--model', 'gpt-realtime-2.1'])).toEqual({
+      command: 'voice', action: 'probe', model: 'gpt-realtime-2.1', keyboard: false,
+    })
+    expect(parseArgs(['voice', 'auth'])).toMatchObject({ command: 'voice', action: 'auth' })
+  })
+
+  it('rejects unknown voice models and flags', () => {
+    expect(parseArgs(['voice', '--model', 'old-model'])).toMatchObject({ command: 'error' })
+    expect(parseArgs(['voice', 'probe', '--keyboard'])).toMatchObject({ command: 'error' })
   })
 })
 

@@ -105,9 +105,12 @@ persisted state, and no post-abort observation.
 Voice golden tests prove context comes only from bounded redacted semantic state,
 session ambiguity produces clarification, screen-reader ownership suppresses duplicate
 routine direct speech, recognition failure is a no-op, and consequential calls require a
-separate opaque local confirmation. They do not prove microphone, playback, Realtime,
-wake-word, latency, cost, or assistive-technology behavior; those spike/manual gates
-remain open.
+separate local confirmation. A fake WebSocket exercises session configuration, audio,
+tool-call output, continuation, errors, and usage. Subprocess seams prove a probed local
+recognizer/voice rather than platform inference, wake gating, temporary PCM playback,
+vault readback/rollback, and keyboard-equivalent confirmation. They do not prove the
+actual microphone, playback device, paid Realtime account, latency, false-positive rate,
+or assistive-technology behavior; `athena voice probe` and manual gates remain open.
 
 ### Existing TUI regression gates
 

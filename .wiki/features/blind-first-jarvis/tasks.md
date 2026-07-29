@@ -97,16 +97,17 @@ editing under the active Global Rule.
   `src/presentation/line-input.ts`; integration tests capture raw bytes - done when output
   is append-only, contains no prohibited escape sequences, and prompt/announcement lines
   never corrupt each other.
-- [ ] **3.4 Cover pre-TUI authentication and session selection** - reuse the existing
+- [x] **3.4 Cover pre-TUI authentication and session selection** - reuse the existing
   `WizardIO` seam in `src/auth/wizard.ts`; add a line-oriented session selector beside
   `SessionPicker` and select it from `src/cli.ts` - done when first-run provider/key
   setup, `--resume`, no-session, cancel, and invalid-choice flows work without Ink,
   animated selection, or per-character `*` output that floods speech; secrets remain
   hidden and are never announced.
-  The append-only numbered `--resume` selector is now composed before Ink mounts and
-  handles fresh/cancel/invalid-number paths. Auth still uses its existing masked raw-mode
-  input and per-character `*` output, so this task remains open until a secure non-chattery
-  `WizardIO` is implemented and manually checked.
+  The append-only numbered `--resume` selector is composed before Ink mounts and handles
+  fresh/cancel/invalid-number paths. `terminalIO` now selects fully silent hidden entry
+  for an explicit or persisted screen-reader presentation, while standard terminals
+  retain visual masking. Tests assert that screen-reader entry never requests per-key
+  mask output and secrets never enter announcements.
 - [x] **3.5 Implement accessible permission presentation** - create
   `src/presentation/permission-format.ts`; reuse existing diff logic through a
   presentation-neutral helper; tests for queue/order/detail/deny - done when all choices,
@@ -198,31 +199,37 @@ editing under the active Global Rule.
 
 ## Phase 7 - optional voice component
 
-- [ ] **7.1 Implement the canonical voice component** - follow [voice.md](voice.md) and
+- [x] **7.1 Implement the canonical voice component** - follow [voice.md](voice.md) and
   consume `InteractionSnapshot`/`Announcement` instead of inventing a second digest truth
   model - done when code and docs have one voice architecture and one state authority.
   The provider-neutral context, function, routing, speech-ownership, and confirmation
-  core is complete; daemon/audio/Realtime composition remains open.
+  core is composed with an opt-in daemon, dynamically loaded Realtime transport, one
+  resumable child Athena session, local wake gate, and usage-only record. The conductor
+  never owns file tools or claims child results without the engine envelope.
 - [ ] **7.2 Run the plan's capability/cost spike and resolve current API contracts** - use
   only official OpenAI docs for the supported Realtime model and wire schema; do not pin
   the older draft's `gpt-realtime-2` without re-verification - done when audio, wake word,
   model, cost, privacy, latency, and licenses are proven or fail with a concrete report.
-  Official documentation now resolves the current candidates and wire direction:
+  Official documentation and fake-server protocol tests resolve the current candidates
+  and wire direction:
   `gpt-realtime-2.1` is the quality baseline, `gpt-realtime-2.1-mini` is the lower-cost
-  candidate, and a server-side CLI uses authenticated WebSocket events. Hardware audio,
-  wake-word licensing/quality, live latency and usage cost, and provider retention remain
-  unproven, so the task stays open rather than treating documentation as a capability
-  probe.
-- [ ] **7.3 Implement speech output adapter** - consume `Announcement`, not raw events -
+  candidate, and a server-side CLI uses authenticated WebSocket events. Windows
+  `System.Speech` is the selected OS-local wake/recognition backend and needs no bundled
+  third-party wake-word license. The interactive round-trip probe, live latency/cost,
+  false-positive measurement, and provider retention determination remain open.
+- [x] **7.3 Implement speech output adapter** - consume `Announcement`, not raw events -
   done when exclusive/supplemental ownership avoids duplicate routine speech and all
   controls retain keyboard/Braille parity.
-  Deterministic ownership and announcement-only output are complete; a proven audio
-  backend and end-to-end parity remain open.
-- [ ] **7.4 Implement optional speech input** - translate into normal prompts/commands -
+  Deterministic ownership and announcement-only output are complete. Realtime PCM is
+  wrapped in a temporary owner-only WAV, played synchronously by the OS, and deleted;
+  transcript fallback and `--keyboard` preserve stable-text/Braille reachability.
+- [x] **7.4 Implement optional speech input** - translate into normal prompts/commands -
   done when recognition failure loses no state and confirmation is required for
   consequential ambiguity.
-  The provider-neutral recognized-input and local confirmation adapters are complete;
-  microphone/recognizer integration remains open.
+  Windows speech recognition runs locally, requires a confidence-thresholded `Athena`
+  prefix, and sends only post-wake text to Realtime. Coding delegation requires a
+  separate confirm turn; cancel/recognition failure lose no engine state. The keyboard
+  input adapter exercises the same conductor and confirmation state machine.
 - [ ] **7.5 Manual AT/voice validation** - test with actual screen readers enabled and
   disabled - done when voice improves measured workflows and can be entirely removed
   without reducing capability.
