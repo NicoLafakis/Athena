@@ -47,7 +47,7 @@ export interface Activity {
 export interface AttentionItem {
   id: string
   category: 'permission' | 'error' | 'blocked' | 'decision' | 'limit'
-  priority: 'assertive' | 'blocking'
+  priority: 'polite' | 'assertive' | 'blocking'
   summary: string
   action?: string
   provenance: Provenance

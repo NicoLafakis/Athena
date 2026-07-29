@@ -19,21 +19,27 @@ Add metadata-only events to the existing hash-chained run trace:
 ```ts
 type InteractionTraceEvent =
   | {
-      type: 'interaction-transition'
+      type: 'interaction-event'
       reducerVersion: 1
-      from: RuntimePhase
-      to: RuntimePhase
+      interactionSchemaVersion: 1
+      interactionEventId: string
+      interactionRunId: string
       sourceSequence: number
+      source: InteractionSource
+      kind: InteractionEventKind
+      sourceRef?: string
+      payloadDigest: string
     }
   | {
-      type: 'announcement-decision'
-      announcementId?: string
+      type: 'interaction-announcement'
+      announcementId: string
       priority: AnnouncementPriority
-      disposition: 'emitted' | 'suppressed' | 'coalesced'
+      disposition: 'emitted' | 'coalesced'
       category: string
       dedupeKeyHash: string
       sourceSequences: number[]
       chars: number
+      occurrences: number
     }
   | {
       type: 'presentation-error'
@@ -43,9 +49,11 @@ type InteractionTraceEvent =
     }
 ```
 
-Do not duplicate announcement text, prompts, tool inputs, diffs, or secret values in these
-metadata records. Existing trace events already hold redacted evidence. Source sequence
-references join the two.
+The implemented records do not duplicate semantic payloads, announcement text, prompts,
+tool inputs, diffs, or secret values. Payload and dedupe hashes permit correlation
+without disclosure; existing trace events already hold redacted evidence. Source sequence
+references join the two. Suppressed routine events create no announcement record; their
+accepted interaction metadata still records the policy input.
 
 ## Local counters
 

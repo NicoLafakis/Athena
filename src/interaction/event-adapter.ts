@@ -1,6 +1,6 @@
 import type { EngineEventBus } from '../engine/events.js'
 import type { EngineEvent, RunResult } from '../engine/types.js'
-import { redactSessionValue } from '../harness/redaction.js'
+import { plainBounded } from './format.js'
 import {
   INTERACTION_SCHEMA_VERSION,
   type InteractionEventEnvelope,
@@ -17,10 +17,7 @@ export interface InteractionEventAdapterOptions {
 }
 
 function boundedPlain(value: string, max: number): string {
-  const redacted = redactSessionValue(value)
-  const safe = typeof redacted === 'string' ? redacted : 'Unknown'
-  const plain = safe.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\s+/g, ' ').trim()
-  return (plain || 'Unknown').slice(0, max)
+  return plainBounded(value, max) || 'Unknown'
 }
 
 export class InteractionEventAdapter {
@@ -78,7 +75,7 @@ export class InteractionEventAdapter {
             attention: {
               id: boundedPlain(`tool-error:${event.id}`, 256),
               category: 'error',
-              priority: 'assertive',
+              priority: 'polite',
               summary: `${toolName} failed.`,
               action: 'Inspect the redacted trace for details.',
             },

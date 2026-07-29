@@ -3,7 +3,7 @@ import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { RunResult } from '../engine/types.js'
 import type { EngineEventBus } from '../engine/events.js'
-import type { InteractionEventEnvelope } from '../interaction/types.js'
+import type { Announcement, InteractionEventEnvelope } from '../interaction/types.js'
 import { INTERACTION_REDUCER_VERSION } from '../interaction/types.js'
 import { projectId } from './trust.js'
 import { redactSessionValue } from './redaction.js'
@@ -96,7 +96,32 @@ export class RunTraceWriter {
   recordInteraction(event: InteractionEventEnvelope): void {
     this.append('interaction-event', {
       reducerVersion: INTERACTION_REDUCER_VERSION,
-      envelope: event,
+      interactionSchemaVersion: event.schemaVersion,
+      interactionEventId: event.id,
+      interactionRunId: event.runId,
+      sourceSequence: event.sequence,
+      timestamp: event.timestamp,
+      source: event.source,
+      kind: event.kind,
+      sourceRef: event.sourceRef,
+      payloadDigest: digest(redactSessionValue(event.payload)),
+    })
+  }
+
+  recordAnnouncement(
+    announcement: Announcement,
+    metadata: { coalesced: boolean; occurrences: number },
+  ): void {
+    this.append('interaction-announcement', {
+      reducerVersion: INTERACTION_REDUCER_VERSION,
+      announcementId: announcement.id,
+      priority: announcement.priority,
+      disposition: metadata.coalesced ? 'coalesced' : 'emitted',
+      category: announcement.category,
+      dedupeKeyHash: digest(announcement.dedupeKey),
+      sourceSequences: announcement.provenance.map((item) => item.sequence),
+      chars: announcement.text.length + (announcement.detail?.length ?? 0),
+      occurrences: metadata.occurrences,
     })
   }
 

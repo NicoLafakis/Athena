@@ -64,7 +64,7 @@ import { AnthropicClient } from './engine/client.js'
 import type { ModelClient } from './engine/client.js'
 import { FixtureModelClient } from './engine/fixture-client.js'
 import { EngineEventBus } from './engine/events.js'
-import { InteractionEventAdapter, InteractionStateStore } from './interaction/index.js'
+import { InteractionEventAdapter, InteractionService } from './interaction/index.js'
 import { ContextManager } from './engine/context.js'
 import { assembleSystemPrompt, findProjectContextFiles } from './engine/prompt.js'
 import type { BrainPaths } from './brain/paths.js'
@@ -1291,14 +1291,22 @@ async function main(): Promise<void> {
     sandbox: settings.sandboxMode,
   })
   trace.attach(bus)
-  const interactionState = new InteractionStateStore((diagnostic) => {
-    trace.append('interaction-diagnostic', diagnostic)
+  const interactionService = new InteractionService({
+    tracePath: () => trace.file,
+    onDiagnostic: (diagnostic) => trace.append('interaction-diagnostic', diagnostic),
   })
   const interaction = new InteractionEventAdapter({
     runId: trace.runId,
     onEnvelope: (event) => {
-      const reduction = interactionState.accept(event)
-      if (reduction.accepted) trace.recordInteraction(event)
+      const result = interactionService.accept(event)
+      if (!result.accepted) return
+      trace.recordInteraction(event)
+      if (result.announcement) {
+        trace.recordAnnouncement(result.announcement, {
+          coalesced: result.coalesced ?? false,
+          occurrences: result.occurrences ?? 1,
+        })
+      }
     },
   })
   interaction.attach(bus)

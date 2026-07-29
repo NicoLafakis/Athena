@@ -182,6 +182,14 @@ Coalescing keys include run, category, target, and condition. A changed target, 
 count, or required action creates a new announcement. Blocking announcements persist
 until acknowledged/resolved and cannot be evicted by ring-buffer limits.
 
+Implemented Phase 2 core: `InteractionService` applies policy after each accepted state
+transition and owns a bounded `AnnouncementStore`. Equivalent decisions inside the
+dedupe window increment an inspectable occurrence count and do not re-emit. Ordinary
+history obeys count and character limits; unresolved blockers exceed those soft limits
+rather than being lost. Matching `attention-resolved` IDs release only their own blocker.
+Quiet mode retains blockers, balanced mode suppresses routine thinking/acting and
+successful tool activity, and verbose mode may narrate those phase changes.
+
 ### `src/presentation/types.ts`
 
 Adapter-neutral interaction contract:
@@ -224,6 +232,11 @@ flush them before the next prompt rather than rewriting the active line.
 `/status`, `/repeat`, and `/details` read local state and never invoke the model. Slash
 and CLI output must share formatter functions so tests cover exact semantics. A model
 tool may later expose the same snapshot, but the user controls cannot depend on it.
+
+The shared local service methods are implemented and covered independently of the TUI:
+`status`, `repeat`, `details`, and `setVerbosity`. Visible slash/menu registration remains
+behind the frontend approval gate; the backend contract is ready for both line and Ink
+presentations.
 
 ## Settings
 

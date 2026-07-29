@@ -56,13 +56,13 @@ editing under the active Global Rule.
 
 ## Phase 2 - attention and announcement policy
 
-- [ ] **2.1 Implement priority mapping** - create
+- [x] **2.1 Implement priority mapping** - create
   `src/interaction/announcements.ts`; tests from the category table - done when routine
   events are silent and blocking/error/complete cases map deterministically.
-- [ ] **2.2 Implement coalescing and acknowledgement** - create
+- [x] **2.2 Implement coalescing and acknowledgement** - create
   `src/interaction/announcement-store.ts`; test changed target/count/severity/action -
   done when unresolved blocking items cannot be evicted or hidden by routine events.
-- [ ] **2.3 Add redacted formatters** - create `src/interaction/format.ts`; reuse
+- [x] **2.3 Add redacted formatters** - create `src/interaction/format.ts`; reuse
   `redactSessionValue` through an extracted shared safe primitive if necessary; test
   secret-shaped strings and control sequences - done when messages are bounded, plain,
   and no untrusted ANSI control survives.
@@ -73,7 +73,7 @@ editing under the active Global Rule.
 - [ ] **2.5 Add semantic JSONL events** - modify `src/cli.ts`; test schema and ordering -
   done when additive envelopes are machine-readable and existing result events remain
   compatible.
-- [ ] **2.6 Enforce performance/bounds** - add deterministic 20k-event replay benchmark
+- [x] **2.6 Enforce performance/bounds** - add deterministic 20k-event replay benchmark
   and character/count caps - done when the budgets in `nfr-budgets.md` pass or a measured
   exception is documented.
 

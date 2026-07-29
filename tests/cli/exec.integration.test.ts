@@ -63,7 +63,7 @@ describe('athena exec process contract', () => {
       .split('\n')
       .map((line) => JSON.parse(line) as { type: string; payload: unknown })
     const semantic = traceLines.filter((line) => line.type === 'interaction-event')
-    expect(semantic.map((line) => (line.payload as { envelope: { kind: string } }).envelope.kind)).toEqual([
+    expect(semantic.map((line) => (line.payload as { kind: string }).kind)).toEqual([
       'objective-set',
       'phase-changed',
       'phase-changed',

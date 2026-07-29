@@ -2,7 +2,7 @@
 
 **Tier:** 3 - major / high-risk
 **Date:** 2026-07-29
-**Status:** implementation in progress (semantic truth plane)
+**Status:** implementation in progress (semantic truth and attention plane)
 **Product contract:** [build specification](../../../docs/discovery/build-spec.md)
 **Decision ledger:** [decision ledger](../../../docs/discovery/decision-ledger.md)
 
@@ -115,6 +115,12 @@ failure, and abort state never need to be inferred from assistant prose.
 
 Implemented and covered by deterministic tests: contracts and schemas, per-run/root-child
 sequencing, the pure reducer and source-precedence rules, malformed/cross-run/order
-rejection, trace metadata, and real `athena exec` composition. Permission lifecycle
-events remain the outstanding Phase 1 seam because wiring the current Ink bridge requires
-the explicit frontend approval gate before editing `src/tui/App.tsx`.
+rejection, trace metadata, deterministic announcement priority, coalescing, durable
+blocking history, redacted plain-text status/detail formatters, and real `athena exec`
+composition. The service exposes local status, repeat, detail, verbosity, acknowledgement,
+and unresolved-blocker APIs without a model call or presentation output. A 20,000-event
+regression fixture enforces the reducer-plus-policy p95 budget.
+
+Permission lifecycle events and visible slash command/menu wiring remain outstanding
+because those changes cross the explicit frontend approval gate before editing
+`src/tui/App.tsx` or its visible command surfaces.

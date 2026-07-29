@@ -40,7 +40,7 @@ export const ActivitySchema = z.object({
 const AttentionInputSchema = z.object({
   id: IdSchema,
   category: z.enum(['permission', 'error', 'blocked', 'decision', 'limit']),
-  priority: z.enum(['assertive', 'blocking']),
+  priority: z.enum(['polite', 'assertive', 'blocking']),
   summary: z.string().min(1).max(SUMMARY_MAX),
   action: z.string().min(1).max(SUMMARY_MAX).optional(),
 }).strict()

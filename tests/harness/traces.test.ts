@@ -157,9 +157,70 @@ describe('RunTraceWriter', () => {
 
     const events = await readRunTrace(writer.file)
     const semantic = events.find((event) => event.type === 'interaction-event')
-    expect(semantic?.payload).toMatchObject({ reducerVersion: 1 })
+    expect(semantic?.payload).toMatchObject({
+      reducerVersion: 1,
+      kind: 'attention-added',
+      sourceSequence: 1,
+      payloadDigest: expect.any(String),
+    })
     expect(JSON.stringify(semantic)).not.toContain('supersecretvalue1234')
-    expect(JSON.stringify(semantic)).toContain('[REDACTED]')
+    expect(JSON.stringify(semantic)).not.toContain('Provider rejected')
+    expect(await verifyRunTrace(writer.file)).toMatchObject({ valid: true })
+  })
+
+  it('records announcement decisions without duplicating announcement text', async () => {
+    const writer = await RunTraceWriter.create(root, {
+      cwd: root,
+      provider: 'anthropic',
+      model: 'sonnet',
+      mode: 'normal',
+      sandbox: 'workspace-write',
+    })
+    writer.recordAnnouncement({
+      schemaVersion: 1,
+      id: 'announcement-1',
+      runId: writer.runId,
+      priority: 'blocking',
+      category: 'permission',
+      text: 'Permission: secret prose that must not be duplicated.',
+      detail: 'A detailed consequence summary.',
+      dedupeKey: 'permission:req-1',
+      requiresAcknowledgement: true,
+      provenance: [{
+        source: 'runtime',
+        runId: writer.runId,
+        sequence: 3,
+        sourceEventType: 'attention-added',
+        sourceEventId: 'req-1',
+      }],
+      createdAt: '2026-07-29T12:00:00.000Z',
+    }, { coalesced: false, occurrences: 1 })
+    await writer.close({
+      status: 'completed',
+      reason: 'completed',
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        costUsd: 0,
+        modelCalls: 0,
+        toolCalls: 0,
+        turns: 0,
+        durationMs: 0,
+      },
+    })
+
+    const record = (await readRunTrace(writer.file)).find((event) => event.type === 'interaction-announcement')
+    expect(record?.payload).toMatchObject({
+      priority: 'blocking',
+      disposition: 'emitted',
+      category: 'permission',
+      sourceSequences: [3],
+      chars: expect.any(Number),
+    })
+    expect(JSON.stringify(record)).not.toContain('secret prose')
+    expect(JSON.stringify(record)).not.toContain('detailed consequence')
     expect(await verifyRunTrace(writer.file)).toMatchObject({ valid: true })
   })
 })
