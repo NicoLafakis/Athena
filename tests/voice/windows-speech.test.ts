@@ -37,6 +37,18 @@ describe('Windows local speech backend', () => {
     })).resolves.toBeNull()
   })
 
+  it('bounds the requested recognition window and subprocess timeout', async () => {
+    let args: readonly string[] | undefined
+    let timeoutMs: number | undefined
+    await recognizeWindowsPhrase(async (_script, observedArgs, observedTimeoutMs) => {
+      args = observedArgs
+      timeoutMs = observedTimeoutMs
+      return '{"text":"Athena probe","confidence":0.91}'
+    }, 10)
+    expect(args).toEqual(['10'])
+    expect(timeoutMs).toBe(20_000)
+  })
+
   it('wraps Realtime PCM in a temporary WAV and removes it after synchronous playback', async () => {
     let header = ''
     let observedPath = ''

@@ -81,11 +81,18 @@ try { $voices=$synth.GetInstalledVoices().Count } finally { $synth.Dispose() }
 const RECOGNIZE_SCRIPT = String.raw`
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName System.Speech
+$listenSeconds=30
+if ($args.Count -gt 0) {
+  $parsedSeconds=0
+  if ([int]::TryParse($args[0],[ref]$parsedSeconds)) {
+    $listenSeconds=[Math]::Min(30,[Math]::Max(1,$parsedSeconds))
+  }
+}
 $recognizer=New-Object System.Speech.Recognition.SpeechRecognitionEngine
 try {
   $recognizer.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar))
   $recognizer.SetInputToDefaultAudioDevice()
-  $result=$recognizer.Recognize([TimeSpan]::FromSeconds(30))
+  $result=$recognizer.Recognize([TimeSpan]::FromSeconds($listenSeconds))
   if ($null -eq $result) { exit 2 }
   [Console]::Out.Write((@{text=$result.Text;confidence=$result.Confidence}|ConvertTo-Json -Compress))
 } finally { $recognizer.Dispose() }
@@ -144,9 +151,15 @@ export async function probeWindowsSpeech(
 
 export async function recognizeWindowsPhrase(
   runner: PowerShellRunner = runPowerShell,
+  listenSeconds = 30,
 ): Promise<RecognizedPhrase | null> {
+  const boundedSeconds = Math.min(30, Math.max(1, Math.round(listenSeconds)))
   try {
-    const raw = JSON.parse(await runner(RECOGNIZE_SCRIPT, [], 40_000)) as {
+    const raw = JSON.parse(await runner(
+      RECOGNIZE_SCRIPT,
+      [String(boundedSeconds)],
+      boundedSeconds * 1_000 + 10_000,
+    )) as {
       text?: unknown
       confidence?: unknown
     }

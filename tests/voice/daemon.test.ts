@@ -7,6 +7,7 @@ import {
   WindowsWakeCommandInput,
   athenaDelegateArgs,
   runVoiceSession,
+  waitForWakeProbe,
   type VoiceCommandInput,
   type VoiceRealtimeClient,
 } from '../../src/voice/daemon.js'
@@ -27,6 +28,24 @@ describe('voice conductor composition', () => {
     ]
     const input = new WindowsWakeCommandInput(0.6, async () => phrases.shift() ?? null)
     await expect(input.next()).resolves.toBe('status')
+  })
+
+  it('gives the wake probe bounded retries instead of failing on the first bad transcript', async () => {
+    const phrases = [
+      { text: 'The things that was', confidence: 0.92 },
+      { text: 'Athena probe', confidence: 0.2 },
+      { text: 'Athena probe', confidence: 0.95 },
+    ]
+    const retry = vi.fn(async () => {})
+    await expect(waitForWakeProbe(
+      async () => phrases.shift() ?? null,
+      retry,
+      3,
+    )).resolves.toEqual({
+      passed: true,
+      heard: ['The things that was', 'Athena probe', 'Athena probe'],
+    })
+    expect(retry).toHaveBeenCalledTimes(2)
   })
 
   it('starts one durable Athena session, then resumes it without relaxing shell permissions', () => {

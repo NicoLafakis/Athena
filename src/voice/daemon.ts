@@ -13,6 +13,7 @@ import {
   recognizeWindowsPhrase,
   speakWindowsText,
   stripWakePhrase,
+  type RecognizedPhrase,
 } from './windows-speech.js'
 
 export interface VoiceCommandInput {
@@ -46,6 +47,32 @@ export class KeyboardVoiceCommandInput implements VoiceCommandInput {
   close(): void {
     this.reader.close()
   }
+}
+
+export interface WakeProbeResult {
+  passed: boolean
+  heard: string[]
+}
+
+export async function waitForWakeProbe(
+  recognize: () => Promise<RecognizedPhrase | null> = () => recognizeWindowsPhrase(undefined, 10),
+  onRetry: () => Promise<void> = () => speakWindowsText(
+    'I did not hear Athena probe. Please say Athena probe now.',
+  ),
+  maxAttempts = 3,
+): Promise<WakeProbeResult> {
+  const heard: string[] = []
+  const attempts = Math.max(1, Math.round(maxAttempts))
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const phrase = await recognize()
+    if (phrase) heard.push(phrase.text)
+    const command = phrase && phrase.confidence >= 0.6
+      ? stripWakePhrase(phrase.text)
+      : null
+    if (command?.toLowerCase() === 'probe') return { passed: true, heard }
+    if (attempt + 1 < attempts) await onRetry()
+  }
+  return { passed: false, heard }
 }
 
 export interface DelegateResult {
@@ -226,10 +253,12 @@ export async function runVoiceProbe(apiKey: string, model: RealtimeVoiceModel): 
     return report
   }
   await speakWindowsText('Athena voice probe. Please say Athena probe now.')
-  const heard = await recognizeWindowsPhrase()
-  const command = heard ? stripWakePhrase(heard.text) : null
-  if (command?.toLowerCase() !== 'probe') {
-    report.push(`Microphone wake probe: failed${heard ? ` (heard: ${plainBounded(heard.text, 128)})` : ''}`)
+  const wake = await waitForWakeProbe()
+  if (!wake.passed) {
+    const heard = wake.heard.length > 0
+      ? ` (heard: ${plainBounded(wake.heard.join(' | '), 128)})`
+      : ''
+    report.push(`Microphone wake probe: failed${heard}`)
     report.push('Recovery: check the default microphone and Windows speech language, then rerun `athena voice probe`.')
     return report
   }

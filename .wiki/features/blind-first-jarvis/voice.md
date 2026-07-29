@@ -144,8 +144,10 @@ Realtime for a concise spoken summary; the model cannot manufacture the engine s
 session, then stores it under `voice/openai` in the per-machine OS vault and verifies
 readback. `OPENAI_API_KEY` remains the zero-file override. A failed replacement attempts
 to restore the prior working vault entry. `athena voice probe` audibly asks the user to
-repeat `Athena probe`, verifies the local microphone/wake path, and then opens a Realtime
-session. Every failure names the recovery command and leaves core Athena untouched.
+repeat `Athena probe`, allows three audible ten-second attempts while ignoring bad or
+low-confidence transcripts, verifies the local microphone/wake path, and then opens a
+Realtime session. Every failure names the recovery command and leaves core Athena
+untouched.
 
 ### Official Realtime contract resolved by the documentation spike
 
