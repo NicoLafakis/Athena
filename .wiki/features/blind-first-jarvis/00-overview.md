@@ -97,6 +97,8 @@ Package:
 - [Voice component](voice.md)
 - [ADR 001: semantic event plane](adr/0001-semantic-event-plane.md)
 - [ADR 002: append-only screen-reader adapter](adr/0002-append-only-screen-reader-adapter.md)
+- [ADR 003: Realtime is an audio adapter around Athena](adr/0003-realtime-as-audio-adapter.md)
+- [Direct-harness voice next upgrade](direct-harness-voice.md)
 - [Test strategy](test-strategy.md)
 - [NFR budgets](nfr-budgets.md)
 - [Observability](observability.md)
@@ -181,8 +183,11 @@ shutdown races. The visible foreground command and cross-platform dogfood remain
 
 Phase 7 now composes that provider-neutral core into an opt-in Windows voice process.
 Local `System.Speech` gates confidence-thresholded commands on “Athena”; the current
-OpenAI Realtime WebSocket conductor provides PCM speech and bounded `delegate`/`status`
-tools; a separate local confirmation runs the existing engine in a durable resumable
-session. Keyboard input, vault/env auth, usage-only records, fake-server protocol tests,
-and an interactive device/account probe are present. Nico's live probe, latency/cost and
-false-positive measurements, retention review, and manual AT/voice validation remain.
+OpenAI Realtime WebSocket conductor receives raw 24 kHz PCM and returns Marin speech. A
+separate local confirmation runs the existing engine in a durable resumable session.
+Keyboard input, vault/env auth, usage-only records, fake-server protocol tests, and an
+interactive device/account probe are present; the raw microphone -> Realtime -> Marin
+probe passed on Nico's laptop on 2026-07-29. The conductor is explicitly intermediate:
+the [next upgrade](direct-harness-voice.md) makes voice a direct adapter over one Athena
+harness session. Persistent wake behavior, latency/cost and false-positive measurements,
+retention review, and manual AT/voice validation remain.

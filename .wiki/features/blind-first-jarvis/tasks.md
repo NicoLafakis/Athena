@@ -215,8 +215,9 @@ editing under the active Global Rule.
   `gpt-realtime-2.1` is the quality baseline, `gpt-realtime-2.1-mini` is the lower-cost
   candidate, and a server-side CLI uses authenticated WebSocket events. Windows
   `System.Speech` is the selected OS-local wake/recognition backend and needs no bundled
-  third-party wake-word license. The interactive round-trip probe, live latency/cost,
-  false-positive measurement, and provider retention determination remain open.
+  third-party wake-word license. The interactive raw-audio round trip passed on Nico's
+  laptop on 2026-07-29. Live latency/cost, false-positive measurement, additional target
+  machines, and provider retention determination remain open.
 - [x] **7.3 Implement speech output adapter** - consume `Announcement`, not raw events -
   done when exclusive/supplemental ownership avoids duplicate routine speech and all
   controls retain keyboard/Braille parity.
@@ -227,12 +228,17 @@ editing under the active Global Rule.
   done when recognition failure loses no state and confirmation is required for
   consequential ambiguity.
   Windows speech recognition runs locally, requires a confidence-thresholded `Athena`
-  prefix, and sends only post-wake text to Realtime. Coding delegation requires a
+  prefix, and sends only post-wake raw PCM to Realtime. Coding delegation requires a
   separate confirm turn; cancel/recognition failure lose no engine state. The keyboard
   input adapter exercises the same conductor and confirmation state machine.
 - [ ] **7.5 Manual AT/voice validation** - test with actual screen readers enabled and
   disabled - done when voice improves measured workflows and can be entirely removed
   without reducing capability.
+- [ ] **7.6 Replace the intermediate conductor with direct-harness voice** - execute the
+  [next-upgrade specification](direct-harness-voice.md) and
+  [ADR 0003](adr/0003-realtime-as-audio-adapter.md) - done when one persistent wake
+  listener feeds ordinary turns into one Athena-owned harness session, Marin speaks only
+  authoritative harness results, and the hands-free acceptance script passes.
 
 ## Documentation and release closure for every phase
 

@@ -110,7 +110,9 @@ tool-call output, continuation, errors, and usage. Subprocess seams prove a prob
 recognizer/voice rather than platform inference, wake gating, temporary PCM playback,
 vault readback/rollback, and keyboard-equivalent confirmation. They do not prove the
 actual microphone, playback device, paid Realtime account, latency, false-positive rate,
-or assistive-technology behavior; `athena voice probe` and manual gates remain open.
+or assistive-technology behavior. The raw microphone -> paid Realtime -> Marin playback
+probe passed on Nico's laptop on 2026-07-29; latency, additional machines, persistent
+wake behavior, direct-harness routing, and manual AT gates remain open.
 
 ### Existing TUI regression gates
 

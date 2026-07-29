@@ -40,8 +40,8 @@ Trust boundaries:
 | Watch-scope escape | Symlink or absolute path reaches outside the approved workspace | Resolve through `ResourcePolicy` before persistence; only existing files/directories are accepted |
 | Watch event mistaken for authority | A filesystem notification is treated as proof of success or a safety decision | Observations are advisory change facts only; they cannot authorize, block, or verify work |
 | Voice self-confirmation | Realtime tool call includes its own `confirmed: true` for approval | Conductor calls cannot carry confirmation; local bounded gate requires a separate exact confirmation tied to an opaque ID |
-| Ambient voice disclosure | Always-listening audio is streamed before a wake decision | Windows recognition and the confidence-thresholded `Athena` gate run locally; only post-wake text crosses the Realtime boundary |
-| Voice bypasses coding permissions | Conductor calls file or shell tools directly | Realtime exposes only `delegate`/`status`; a separate local confirmation starts the existing engine in workspace-scoped `acceptEdits`, never `trusted` |
+| Ambient voice disclosure | Always-listening audio is streamed before a wake decision | The confidence-thresholded `Athena` gate runs locally; only the recognized post-wake utterance's raw PCM crosses the Realtime boundary |
+| Voice bypasses coding permissions | Realtime calls file or shell tools directly | Current Realtime tools are bounded conductor controls; the next direct-harness phase exposes only validated turn/control input and keeps the existing harness permission engine authoritative |
 
 ## Security invariants
 

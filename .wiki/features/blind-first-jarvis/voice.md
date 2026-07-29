@@ -1,7 +1,13 @@
 # Blind-first Jarvis upgrade - optional voice component
 
 > [Objective overview](00-overview.md) | [Technical design](design.md) |
-> [Implementation tasks](tasks.md)
+> [Implementation tasks](tasks.md) |
+> [Next upgrade: direct-harness voice](direct-harness-voice.md)
+
+> **Next-phase authority:** The paid audio path below is proven, but the current
+> conductor/delegation composition is an intermediate implementation. The
+> [direct-harness voice specification](direct-harness-voice.md) defines the next upgrade:
+> Realtime becomes an audio/intent adapter around one real Athena harness session.
 
 ## Role and authority
 
@@ -194,8 +200,8 @@ depend on a developer API key. Documentation and fakes are not a capability prob
 testing on Nico's machine found one installed recognizer and two voices; previous probe
 runs captured speech from the default microphone and played local prompts. The constrained
 wake grammar also loaded against the real default microphone and timed out cleanly on
-silence. The new raw-audio provider round trip still requires the manual probe below.
-The following release gates remain open:
+silence. The raw microphone -> Realtime understanding -> Marin playback probe passed on
+Nico's laptop on 2026-07-29. The following release gates remain open:
 
 - round-trip the new wake-gated raw-audio probe on each target machine;
 - measured first-audio and interruption latency plus actual token/cost records;
