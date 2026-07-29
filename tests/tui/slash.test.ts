@@ -18,6 +18,13 @@ describe('parseSlash', () => {
     ['/memory', { kind: 'memory' }],
     ['/skills', { kind: 'skills' }],
     ['/agents', { kind: 'agents' }],
+    ['/status', { kind: 'status' }],
+    ['/repeat', { kind: 'repeat' }],
+    ['/details', { kind: 'details', value: '' }],
+    ['/details permission permission:tu_1', { kind: 'details', value: 'permission permission:tu_1' }],
+    ['/verbosity concise', { kind: 'verbosity', value: 'concise' }],
+    ['/verbosity balanced', { kind: 'verbosity', value: 'balanced' }],
+    ['/verbosity detailed', { kind: 'verbosity', value: 'detailed' }],
     ['/quit', { kind: 'quit' }],
     ['not a command', null],
     ['/mode yolo', { kind: 'error', value: 'Unknown mode: yolo' }],
@@ -42,6 +49,17 @@ describe('parseSlash', () => {
 
   it('errors on /mode with no argument', () => {
     expect(parseSlash('/mode')).toEqual({ kind: 'error', value: 'Unknown mode: (none)' })
+  })
+
+  it('rejects an absent or unknown verbosity value', () => {
+    expect(parseSlash('/verbosity')).toEqual({
+      kind: 'error',
+      value: 'Usage: /verbosity <concise|balanced|detailed>',
+    })
+    expect(parseSlash('/verbosity noisy')).toEqual({
+      kind: 'error',
+      value: 'Usage: /verbosity <concise|balanced|detailed>',
+    })
   })
 })
 

@@ -209,6 +209,29 @@ describe('Engine.runTurn', () => {
     expect(result.output).toContain('denied by user')
   })
 
+  it('passes the stable permission request ID to the presentation callback', async () => {
+    const askGate: PermissionGate = {
+      check: () => ({ decision: 'ask', reason: 'needs approval' }),
+      grantSession: () => {},
+    }
+    const requests: Array<{ id: string }> = []
+    const { engine } = makeEngine(
+      [
+        { blocks: [toolUseBlock('tu_permission_id', 'Echo', { value: 'x' })], stopReason: 'tool_use' },
+        { blocks: [textBlock('done')], stopReason: 'end_turn' },
+      ],
+      {
+        gate: askGate,
+        askUser: async (request) => {
+          requests.push(request)
+          return 'deny'
+        },
+      },
+    )
+    await engine.runTurn('write')
+    expect(requests).toEqual([expect.objectContaining({ id: 'permission:tu_permission_id' })])
+  })
+
   it('emits paired permission lifecycle events without exposing tool input', async () => {
     const askGate: PermissionGate = {
       check: () => ({

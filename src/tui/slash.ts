@@ -21,6 +21,10 @@ export type SlashCommand =
   | { kind: 'memory' }
   | { kind: 'skills' }
   | { kind: 'agents' }
+  | { kind: 'status' }
+  | { kind: 'repeat' }
+  | { kind: 'details'; value: string }
+  | { kind: 'verbosity'; value: 'concise' | 'balanced' | 'detailed' }
   | { kind: 'quit' }
   | { kind: 'model'; value: string }
   | { kind: 'provider'; value: string }
@@ -39,7 +43,9 @@ export type TuiMode = 'classic' | 'fullscreen'
 const MODES = new Set(['normal', 'acceptEdits', 'plan', 'trusted'])
 const EFFORT_SET = new Set<string>(EFFORTS)
 const TUI_MODES = new Set(['classic', 'fullscreen'])
-const BARE = new Set(['help', 'clear', 'resume', 'compact', 'memory', 'skills', 'agents', 'quit'])
+const BARE = new Set([
+  'help', 'clear', 'resume', 'compact', 'memory', 'skills', 'agents', 'status', 'repeat', 'quit',
+])
 
 /** Substitutes $0, $1, ... (positional args) and $ARGUMENTS (the full argument string,
  *  space-joined) into a custom command's template body. */
@@ -77,6 +83,13 @@ export function parseSlash(
   if (cmd === 'tui') {
     if (!TUI_MODES.has(arg)) return { kind: 'error', value: `Usage: /tui <fullscreen|classic>` }
     return { kind: 'tui', value: arg as TuiMode }
+  }
+  if (cmd === 'details') return { kind: 'details', value: arg }
+  if (cmd === 'verbosity') {
+    if (!['concise', 'balanced', 'detailed'].includes(arg)) {
+      return { kind: 'error', value: 'Usage: /verbosity <concise|balanced|detailed>' }
+    }
+    return { kind: 'verbosity', value: arg as 'concise' | 'balanced' | 'detailed' }
   }
   const custom = commands?.get(cmd)
   if (custom) {

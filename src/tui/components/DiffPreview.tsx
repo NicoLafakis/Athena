@@ -1,6 +1,7 @@
 // src/tui/components/DiffPreview.tsx
 import { Box, Text } from 'ink'
 import { truncateWithNotice, wrappedRowCount } from '../viewport.js'
+import { diffLines as sharedDiffLines } from '../../presentation/diff-lines.js'
 
 export interface DiffLine {
   tag: '+' | '-' | ' '
@@ -94,7 +95,7 @@ export function DiffPreview({
    *  itself is sized against. */
   columns?: number
 }) {
-  const lines = diffLines(oldText, newText)
+  const lines = sharedDiffLines(oldText, newText)
   const { shown, hiddenCount } = truncateWithNotice(lines, maxLines)
   return (
     <Box flexDirection="column">

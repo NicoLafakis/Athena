@@ -1,7 +1,8 @@
 # AGENTS.md
 
 Repo-specific rules for any AI agent working in this repository, regardless of harness.
-This file is the single source of truth; `CLAUDE.md` only points here. Depth lives in
+This file is the single source of truth; `CLAUDE.md` only points here. Use
+[`ARCHITECTURE.md`](ARCHITECTURE.md) for the structural codebase map. Depth lives in
 `.wiki/` (start at [`.wiki/INDEX.md`](.wiki/INDEX.md)); this page is the short imperative
 distillation, not a second copy.
 

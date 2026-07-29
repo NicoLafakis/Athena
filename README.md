@@ -35,6 +35,7 @@ athena doctor
 athena                         # new interactive session
 athena --continue              # latest session in this project
 athena --resume                # pick a saved session
+athena --accessibility screen-reader  # append-only line presentation for this invocation
 athena exec "fix the tests"    # bounded non-interactive run
 echo "review this repo" | athena exec --output json
 athena exec "return JSON" \
@@ -52,9 +53,15 @@ optional durable sessions/resume; output-schema validation; permission and
 sandbox selection; and explicit model-call, tool-call, concurrency, token, cost,
 and wall-clock limits. It uses stable exit codes and the same Engine as the TUI.
 
-In-session commands include `/help`, `/clear`, `/resume`, `/compact`, `/model`,
-`/effort`, `/provider`, `/mode`, `/tui`, `/memory`, `/skills`, `/agents`, and
-`/quit`. Esc cancels an active turn.
+In-session commands include `/help`, `/status`, `/repeat`, `/details`, `/verbosity`,
+`/clear`, `/resume`, `/compact`, `/model`, `/effort`, `/provider`, `/mode`, `/tui`,
+`/memory`, `/skills`, `/agents`, and `/quit`. Esc cancels an active Ink turn; SIGINT
+cancels an active screen-reader turn with an explicit acknowledgement.
+
+The standard Ink TUI remains the default. Set global
+`accessibility.presentation` to `screen-reader`, or use the invocation override above,
+for serialized append-only input/output that preserves native terminal scrollback and
+does not mount Ink.
 
 Full keyboard shortcuts for editing, popups, and transcript scrolling are listed in
 [`.wiki/reference/tui-keybindings.md`](.wiki/reference/tui-keybindings.md).

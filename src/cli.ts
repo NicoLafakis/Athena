@@ -70,6 +70,7 @@ import {
   InteractionService,
   type InteractionEventEnvelope,
 } from './interaction/index.js'
+import { createInteractionSnapshot } from './interaction/state.js'
 import {
   captureExperienceBestEffort,
   ExperienceStore,
@@ -106,7 +107,15 @@ import { makeSkillTool } from './tools/skill.js'
 import { makeAgentTool } from './tools/agent.js'
 import { App, PermissionBridge } from './tui/App.js'
 import { SessionPicker } from './tui/components/SessionPicker.js'
-import type { SlashCommand } from './tui/slash.js'
+import { parseSlash, type SlashCommand } from './tui/slash.js'
+import {
+  ReadlineLineInput,
+  ScreenReaderPresentation,
+  createAccessiblePermissionRequest,
+  formatPermissionDiffDetail,
+  permissionDiff,
+  permissionDiffStats,
+} from './presentation/index.js'
 import { getVersion } from './version.js'
 import { admitCandidate, CandidateStore, reflectTraces } from './learning/candidates.js'
 import { LearningEvaluator } from './learning/evaluation.js'
@@ -116,10 +125,12 @@ import { TraceWarehouse } from './learning/warehouse.js'
 import { collectDiagnostics, formatDiagnostics } from './harness/diagnostics.js'
 import { stalenessBootWarnings } from './harness/staleness.js'
 
+export type AccessibilityPresentation = 'standard' | 'screen-reader'
+
 export type CliCommand =
-  | { command: 'run'; provider?: ProviderId }
-  | { command: 'resume'; provider?: ProviderId }
-  | { command: 'continue'; provider?: ProviderId }
+  | { command: 'run'; provider?: ProviderId; accessibility?: AccessibilityPresentation }
+  | { command: 'resume'; provider?: ProviderId; accessibility?: AccessibilityPresentation }
+  | { command: 'continue'; provider?: ProviderId; accessibility?: AccessibilityPresentation }
   | { command: 'help' }
   | { command: 'exec-help' }
   | { command: 'version' }
@@ -444,6 +455,7 @@ export function parseArgs(argv: string[]): CliCommand {
   }
   const rest = [...argv]
   let provider: ProviderId | undefined
+  let accessibility: AccessibilityPresentation | undefined
   const pi = rest.indexOf('--provider')
   if (pi !== -1) {
     const value = rest[pi + 1]
@@ -452,14 +464,23 @@ export function parseArgs(argv: string[]): CliCommand {
     provider = p
     rest.splice(pi, 2)
   }
+  const ai = rest.indexOf('--accessibility')
+  if (ai !== -1) {
+    const value = rest[ai + 1]
+    if (value !== 'screen-reader' && value !== 'standard') {
+      return { command: 'error', message: '--accessibility needs screen-reader or standard' }
+    }
+    accessibility = value
+    rest.splice(ai, 2)
+  }
   const known = new Set(['--help', '-h', '--version', '-v', '--resume', '--continue'])
   const unknown = rest.find((a) => !known.has(a))
   if (unknown) return { command: 'error', message: `Unknown argument: ${unknown} (try --help)` }
   if (rest.includes('--help') || rest.includes('-h')) return { command: 'help' }
   if (rest.includes('--version') || rest.includes('-v')) return { command: 'version' }
-  if (rest.includes('--resume')) return { command: 'resume', provider }
-  if (rest.includes('--continue')) return { command: 'continue', provider }
-  return { command: 'run', provider }
+  if (rest.includes('--resume')) return { command: 'resume', provider, ...(accessibility ? { accessibility } : {}) }
+  if (rest.includes('--continue')) return { command: 'continue', provider, ...(accessibility ? { accessibility } : {}) }
+  return { command: 'run', provider, ...(accessibility ? { accessibility } : {}) }
 }
 
 const AUTH_USAGE = `Usage: athena auth [status] [--provider <${PROVIDER_IDS.join('|')}>]`
@@ -473,6 +494,7 @@ Usage:
   athena --continue      resume the most recent session here
   athena --resume        pick a past session
   athena --provider <${PROVIDER_IDS.join('|')}>  session-only provider override (first-time key setup adopts it as your default)
+  athena --accessibility <screen-reader|standard>  session-only presentation override
   athena auth            add/replace API keys, switch the default provider
   athena auth status     show configured providers and redacted keys
   athena doctor          inspect credentials, trust, dependencies, sandbox, and update status
@@ -487,7 +509,7 @@ Usage:
   athena --help          this help
   athena --version       print the installed version
 
-In-session: /help /clear /resume /compact /model /effort /provider /mode /tui /memory /skills /agents /quit. Esc interrupts a turn.
+In-session: /help /status /repeat /details /verbosity /clear /resume /compact /model /effort /provider /mode /tui /memory /skills /agents /quit. Esc interrupts a turn.
 Custom commands: drop a .md file (with description/argument-hint frontmatter) into .athena/commands/ or ~/.athena/commands/ to add /<name>.
 Plugins: use \`athena plugin install <directory-or-git-url>\`; managed bundles can contribute namespaced skills, agents, commands, hooks, MCP, and app metadata.`
 
@@ -524,6 +546,26 @@ function pickSession(sessions: SessionInfo[]): Promise<SessionInfo | null> {
   })
 }
 
+/** Append-only equivalent of the Ink session picker. Empty input starts fresh. */
+async function pickSessionLine(
+  sessions: SessionInfo[],
+  input: ReadlineLineInput,
+): Promise<SessionInfo | null> {
+  if (sessions.length === 0) return null
+  const visible = sessions.slice(0, 20)
+  console.log('Status: Choose a session by number, or press Enter for a fresh session.')
+  visible.forEach((session, index) => {
+    console.log(`${index + 1}. ${session.updatedAt.toISOString()} ${session.title}`)
+  })
+  for (;;) {
+    const answer = (await input.readLine('Session: ')).trim()
+    if (answer === '' || answer.toLowerCase() === 'q') return null
+    const selected = visible[Number(answer) - 1]
+    if (selected) return selected
+    console.log(`Status: Enter a number from 1 to ${visible.length}, or press Enter for fresh.`)
+  }
+}
+
 interface SlashDeps {
   bus: EngineEventBus
   engine: Engine
@@ -534,6 +576,9 @@ interface SlashDeps {
   session: Session | null
   paths: BrainPaths
   credentialVault: CredentialVault
+  interactionService?: InteractionService
+  runId?: string
+  permissionDetails?: (id: string) => string | null
   commands?: ReadonlyMap<string, { description: string; argumentHint: string | null }>
 }
 
@@ -548,6 +593,9 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
     session,
     paths,
     credentialVault,
+    interactionService,
+    runId,
+    permissionDetails,
     commands,
   } = deps
   const info = (message: string) => bus.emit({ type: 'info', message })
@@ -562,12 +610,36 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
                 .join(', ')
             : ''
         info(
-          `Commands: /help /clear /resume /compact /model <${modelKeys(engine.getProvider()).join('|')}> /effort <low|medium|high|xhigh|max> /provider <${PROVIDER_IDS.join('|')}> /mode <normal|acceptEdits|plan|trusted> /tui <fullscreen|classic> /memory /skills /agents /quit\n` +
+          `Commands: /help /status /repeat /details /verbosity <concise|balanced|detailed> /clear /resume /compact /model <${modelKeys(engine.getProvider()).join('|')}> /effort <low|medium|high|xhigh|max> /provider <${PROVIDER_IDS.join('|')}> /mode <normal|acceptEdits|plan|trusted> /tui <fullscreen|classic> /memory /skills /agents /quit\n` +
             '/clear clears the screen (transcript display only) — conversation context is unchanged; use /compact to shrink it.\n' +
             '/tui fullscreen switches to an alternate-screen buffer with a pinned input (like vim/htop); /tui classic returns to normal scrollback.\n' +
             '/model /provider /effort /mode /tui run with no argument open a picker to choose a value instead of requiring you to type one.' +
             customList,
         )
+        break
+      }
+      case 'status':
+        info(interactionService && runId
+          ? interactionService.status(runId)
+          : 'Status: semantic state is unavailable.')
+        break
+      case 'repeat':
+        info(interactionService && runId
+          ? interactionService.repeat(runId)
+          : 'No material announcement is available. Use /status.')
+        break
+      case 'details': {
+        const permissionMatch = /^permission\s+(.+)$/.exec(cmd.value)
+        const permission = permissionMatch ? permissionDetails?.(permissionMatch[1]!) : null
+        info(permission ?? (interactionService && runId
+          ? interactionService.details(runId)
+          : 'No material detail is available. Use /status.'))
+        break
+      }
+      case 'verbosity': {
+        const verbosity = cmd.value === 'concise' ? 'quiet' : cmd.value === 'detailed' ? 'verbose' : 'balanced'
+        interactionService?.setVerbosity(verbosity)
+        info(`Status: Announcement verbosity is ${cmd.value} for this session.`)
         break
       }
       case 'mode':
@@ -1142,9 +1214,12 @@ async function main(): Promise<void> {
   }
 
   const isExec = cmd.command === 'exec'
+  const explicitlyLineOriented = !isExec && 'accessibility' in cmd
+    && cmd.accessibility === 'screen-reader'
   // Interactive commands need a real terminal; `exec` is the intentional
-  // non-TTY surface and therefore bypasses this guard.
-  if (!isExec && (!process.stdin.isTTY || !process.stdout.isTTY)) {
+  // non-TTY surface. Explicit screen-reader mode is also line-oriented and can
+  // safely consume redirected lines without mounting Ink.
+  if (!isExec && !explicitlyLineOriented && (!process.stdin.isTTY || !process.stdout.isTTY)) {
     console.log(HELP_TEXT)
     console.log('\n(interactive session skipped: not a TTY)')
     return
@@ -1249,6 +1324,18 @@ async function main(): Promise<void> {
       settings.model = selected
     }
   }
+  const presentationMode: AccessibilityPresentation = !isExec && 'accessibility' in cmd
+    ? (cmd.accessibility ?? settings.accessibility.presentation)
+    : settings.accessibility.presentation
+  const screenInput = presentationMode === 'screen-reader' && !isExec
+    ? new ReadlineLineInput()
+    : null
+  const screenPresentation = screenInput
+    ? new ScreenReaderPresentation({
+        input: screenInput,
+        write: (chunk) => process.stdout.write(chunk),
+      })
+    : null
   let execPrompt: string | null = null
   let outputSchema: unknown = null
   if (isExec) {
@@ -1319,6 +1406,11 @@ async function main(): Promise<void> {
         ? 'verbose'
         : 'balanced',
     tracePath: () => trace.file,
+    onAnnouncement: (announcement) => {
+      // The richer permission prompt immediately follows its semantic blocker; reading
+      // both aloud would announce one decision twice.
+      if (announcement.category !== 'permission') screenPresentation?.announce(announcement)
+    },
     onDiagnostic: (diagnostic) => trace.append('interaction-diagnostic', diagnostic),
   })
   const experienceStore = new ExperienceStore(join(paths.brainDir, 'experience'))
@@ -1456,7 +1548,9 @@ async function main(): Promise<void> {
       session = store.create()
     }
   } else if (cmd.command === 'resume') {
-    const picked = await pickSession(store.list())
+    const picked = screenInput
+      ? await pickSessionLine(store.list(), screenInput)
+      : await pickSession(store.list())
     if (picked) {
       history = store.resume(picked.id)
       session = new Session(picked.id, picked.file, history.length)
@@ -1481,6 +1575,7 @@ async function main(): Promise<void> {
   })
 
   const bridge = new PermissionBridge()
+  const permissionDetails = new Map<string, string>()
   const activeCapabilities = modelCapabilities(provider, settings.model)
   const contextManager = new ContextManager({
     modelWindowTokens: activeCapabilities.contextWindowTokens,
@@ -1522,7 +1617,20 @@ async function main(): Promise<void> {
           maxDurationMs: 4 * 60 * 60_000,
           maxConcurrency: 4,
         },
-    askUser: isExec ? undefined : (req) => bridge.ask(req),
+    askUser: isExec
+      ? undefined
+      : async (req) => {
+          if (!screenPresentation) return bridge.ask(req)
+          const diff = permissionDiff(req, cwd)
+          if (diff) {
+            permissionDetails.set(req.id, formatPermissionDiffDetail(diff))
+            if (permissionDetails.size > 100) permissionDetails.delete(permissionDetails.keys().next().value!)
+          }
+          return screenPresentation.requestPermission(createAccessiblePermissionRequest({
+            ...req,
+            ...(diff ? { diff: permissionDiffStats(diff) } : {}),
+          }))
+        },
     onMessagesChanged: (messages) => {
       // A full disk / locked file must not kill the TUI mid-turn.
       try {
@@ -1698,6 +1806,101 @@ async function main(): Promise<void> {
   process.on('unhandledRejection', crashHandler)
   process.on('uncaughtException', crashHandler)
 
+  if (screenPresentation && screenInput) {
+    const slashHandler = makeSlashHandler({
+      bus,
+      engine,
+      gate,
+      contextManager,
+      client,
+      store,
+      session,
+      paths,
+      credentialVault,
+      interactionService,
+      runId: trace.runId,
+      permissionDetails: (id) => permissionDetails.get(id) ?? null,
+      commands,
+    })
+    const unsubscribeScreen = bus.on((event) => {
+      if (event.type === 'info') {
+        screenPresentation.showDetails({ id: `info:${Date.now()}`, text: event.message })
+      }
+    })
+    let activeTurn = false
+    let exitRequested = false
+    const onSigint = () => {
+      if (activeTurn) {
+        engine.abort()
+        screenPresentation.cancelPendingInput()
+        screenPresentation.acknowledgeCancellation(true)
+      } else {
+        exitRequested = true
+        screenInput.close()
+      }
+    }
+    process.on('SIGINT', onSigint)
+    await screenPresentation.start(
+      interactionService.snapshot(trace.runId)
+        ?? createInteractionSnapshot(trace.runId, new Date().toISOString()),
+    )
+    try {
+      while (!exitRequested) {
+        let text: string
+        try {
+          text = (await screenPresentation.prompt({ id: `prompt:${Date.now()}`, label: 'You' })).trim()
+        } catch {
+          break
+        }
+        if (!text) continue
+        const slash = parseSlash(text, commands)
+        if (slash?.kind === 'quit') break
+        if (slash?.kind === 'clear') {
+          bus.emit({
+            type: 'info',
+            message: 'Append-only screen-reader mode keeps native scrollback; nothing was cleared.',
+          })
+          continue
+        }
+        if (slash?.kind === 'tui') {
+          bus.emit({
+            type: 'info',
+            message: `Presentation changes take effect at startup. Restart with --accessibility ${slash.value === 'fullscreen' ? 'standard' : 'screen-reader'}.`,
+          })
+          continue
+        }
+        if (slash && slash.kind !== 'custom') {
+          slashHandler(slash)
+          continue
+        }
+        const prompt = slash?.kind === 'custom' ? slash.expandedPrompt : text
+        trace.recordPrompt(prompt)
+        interaction.recordUserObjective(prompt, `prompt:${Date.now()}`)
+        activeTurn = true
+        try {
+          await engine.runTurn(prompt)
+          const output = finalAssistantText(engine.getMessages())
+          if (output) screenPresentation.writeAssistantText(output)
+        } catch (error) {
+          bus.emit({ type: 'error', message: `Turn crashed: ${(error as Error).message}`, fatal: true })
+        } finally {
+          activeTurn = false
+        }
+      }
+    } finally {
+      process.off('SIGINT', onSigint)
+      unsubscribeScreen()
+      await screenPresentation.close(engine.getRunResult())
+      shutdownBackgroundTasks(trace.runId)
+      interaction.detach()
+      await endSession('interactive-exit')
+      await mcp.closeAll()
+      await trace.close(engine.getRunResult())
+      await captureExperienceBestEffort(trace.file, experienceStore)
+    }
+    return
+  }
+
   const instance = render(
     React.createElement(App, {
       bus,
@@ -1731,6 +1934,9 @@ async function main(): Promise<void> {
         session,
         paths,
         credentialVault,
+        interactionService,
+        runId: trace.runId,
+        permissionDetails: (id) => permissionDetails.get(id) ?? null,
         commands,
       }),
     }),

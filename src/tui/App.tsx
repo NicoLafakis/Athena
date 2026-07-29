@@ -122,6 +122,8 @@ const SCROLL_OVERLAP_ROWS = 1
 export type PermissionAnswer = 'allow-once' | 'allow-always' | 'deny'
 
 export interface PendingPermission {
+  /** Engine requests carry a stable ID; optional for legacy/test callers of the Ink bridge. */
+  id?: string
   toolName: string
   input: unknown
   summary: string
@@ -141,7 +143,7 @@ export class PermissionBridge {
   }
 
   /** Passed to Engine as askUser. */
-  ask(req: { toolName: string; input: unknown; summary: string; reason: string }): Promise<PermissionAnswer> {
+  ask(req: { id?: string; toolName: string; input: unknown; summary: string; reason: string }): Promise<PermissionAnswer> {
     return new Promise((resolve) => {
       if (!this.setter) {
         resolve('deny') // headless: fail safe

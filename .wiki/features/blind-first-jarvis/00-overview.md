@@ -124,16 +124,19 @@ regression fixture enforces the reducer-plus-policy p95 budget.
 Adapter-neutral permission lifecycle events are now emitted around every engine `ask`
 decision with stable pairing, fail-closed headless resolution, credential redaction, and
 no raw tool input. They drive exact blocking attention and semantic phase restoration
-outside React. Migrating the existing interactive permission queue and wiring visible
-slash command/menu surfaces remain outstanding because those changes cross the explicit
-frontend approval gate before editing `src/tui/App.tsx` or its visible command surfaces.
+outside React. The approved composition now carries the stable request into the existing
+behavior-compatible Ink queue or the append-only accessible permission flow. Shared
+diffs provide change counts and bounded redacted on-demand detail.
 
-The Phase 3 settings foundation is also active: global accessibility preferences receive
+Phase 3 is now active end to end: global accessibility preferences receive
 deep safe defaults, project `.athena/settings.json` values cannot override them, and a
 malformed optional accessibility object warns with its file and recovery action while
-falling back to standard presentation. Global concise/balanced/detailed verbosity already
-maps to the internal quiet/balanced/verbose announcement policy; no new presentation is
-selected until its adapter lands.
+falling back to standard presentation. `--accessibility screen-reader|standard` overrides
+the global choice for one invocation. The screen-reader composition never mounts Ink,
+uses serialized append-only line input/output, supports the shared local state commands,
+and presents stable permission identity, change counts, choices, and detail routes. The
+standard TUI remains the default. Secure non-chattery first-run auth, full interrupt-state
+tests, and human assistive-technology validation remain open.
 
 `athena exec --output jsonl` now externalizes the same validated semantic envelopes as
 additive versioned `interaction-event` records. Source engine events remain compatible,
@@ -162,11 +165,12 @@ vocabulary contract freezes the seven semantic labels, and every deterministic d
 has exact helpful and quiet replay evidence through the production adapter. These remain
 explicitly distinct from the open blind-participant and assistive-technology gates.
 
-The append-only presentation-neutral core is also implemented under `src/presentation/`.
-It provides shared lifecycle/permission contracts, stable accessible permission wording,
-serialized line input, and byte-tested plain output with queued announcements instead of
-prompt rewriting. Selection, engine handoff, and the existing Ink bridge remain pending
-behind the frontend approval boundary.
+The append-only presentation is implemented under `src/presentation/` and composed from
+`src/cli.ts`. It provides shared lifecycle/permission contracts, stable accessible
+permission wording and IDs, serialized line input, byte-tested plain output, queued
+announcements instead of prompt rewriting, and a line-oriented session selector. The
+existing Ink queue remains behavior-compatible. Secure non-chattery first-run auth and
+the human assistive-technology gates remain open.
 
 The Phase 6 watcher foundation is now implemented without starting anything from normal
 Athena boot. Explicit user-created definitions are resource-policy scoped and atomically

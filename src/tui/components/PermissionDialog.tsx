@@ -1,11 +1,10 @@
 // src/tui/components/PermissionDialog.tsx
-import { existsSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { useMemo } from 'react'
 import { Box, Text, useInput } from 'ink'
 import type { PendingPermission } from '../App.js'
 import { DiffPreview } from './DiffPreview.js'
 import { truncateTextToRows } from '../viewport.js'
+import { permissionDiff } from '../../presentation/permission-diff.js'
 
 // Exported (rather than inlined literals in the JSX below) so App.tsx's fullscreen row
 // budgeting can measure their ACTUAL wrapped row count at the current terminal width
@@ -39,23 +38,7 @@ export function pendingDiff(
   pending: Pick<PendingPermission, 'toolName' | 'input'>,
   cwd: string,
 ): { oldText: string; newText: string } | null {
-  if (typeof pending.input !== 'object' || pending.input === null) return null
-  const input = pending.input as Record<string, unknown>
-  if (pending.toolName === 'Edit') {
-    return { oldText: String(input['old_string'] ?? ''), newText: String(input['new_string'] ?? '') }
-  }
-  if (pending.toolName === 'Write') {
-    if (typeof input['file_path'] !== 'string') return null
-    let oldText = ''
-    try {
-      const abs = resolve(cwd, input['file_path'])
-      if (existsSync(abs)) oldText = readFileSync(abs, 'utf8')
-    } catch {
-      /* unreadable current content: fall back to an all-additions diff */
-    }
-    return { oldText, newText: String(input['content'] ?? '') }
-  }
-  return null
+  return permissionDiff(pending, cwd)
 }
 
 export function PermissionDialog({

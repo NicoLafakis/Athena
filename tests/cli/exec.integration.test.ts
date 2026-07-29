@@ -49,6 +49,48 @@ function run(args: string[], stdin?: string) {
 }
 
 describe('athena exec process contract', () => {
+  it('runs the append-only screen-reader composition without Ink control sequences', () => {
+    writeFileSync(script, JSON.stringify([{ text: 'ordinary assistant output' }]))
+    const result = run(['--accessibility', 'screen-reader'], 'do work\n/quit\n')
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain('Status: Athena screen-reader mode is ready.')
+    expect(result.stdout).toContain('ordinary assistant output\n')
+    expect(result.stdout.match(/ordinary assistant output/g)).toHaveLength(1)
+    expect(result.stdout.match(/Completed: Work completed\./g)).toHaveLength(1)
+    expect(result.stdout).toContain('You: ')
+    expect(result.stdout).not.toMatch(/\u001b\[|\u001b\]|\u009b/)
+  })
+
+  it('answers accessible permission prompts with stable detail routes and diff counts', () => {
+    writeFileSync(script, JSON.stringify([
+      {
+        toolUses: [{
+          id: 'write-accessible',
+          name: 'Write',
+          input: { file_path: 'x.txt', content: 'secret-content-must-not-be-announced' },
+        }],
+        stopReason: 'tool_use',
+      },
+      { text: 'write complete' },
+    ]))
+    const result = run(['--accessibility', 'screen-reader'], 'write x\ny\n/quit\n')
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain('Permission: Write requires a decision.')
+    expect(result.stdout.match(/Permission: Write requires a decision\./g)).toHaveLength(1)
+    expect(result.stdout).toContain('Target: x.txt')
+    expect(result.stdout).toContain('Changes: 1 added line, 0 removed lines.')
+    expect(result.stdout).toContain('/details permission permission:write-accessible')
+    expect(result.stdout).not.toContain('secret-content-must-not-be-announced')
+  })
+
+  it('serves local status without spending a fixture-model call', () => {
+    writeFileSync(script, '[]')
+    const result = run(['--accessibility', 'screen-reader'], '/status\n/quit\n')
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain('Status: no semantic state is available for this run.')
+    expect(result.stderr).not.toContain('Fixture model script exhausted')
+  })
+
   it('runs from an argument and emits one stable JSON envelope', () => {
     writeFileSync(script, JSON.stringify([{ text: 'done' }]))
     const result = run(['exec', 'do work', '--output', 'json'])

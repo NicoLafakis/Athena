@@ -222,13 +222,10 @@ interface InteractivePresentation {
 }
 ```
 
-The existing `PermissionBridge` becomes an Ink implementation of this contract or is
-wrapped by one. Headless execution continues to deny when no interactive presentation is
-present.
-
-Implemented presentation-neutral boundary: `src/presentation/types.ts` defines the
-shared lifecycle and request contracts. The existing Ink bridge is intentionally not yet
-modified; migrating it remains behind the explicit frontend approval gate.
+The existing `PermissionBridge` remains the behavior-compatible Ink FIFO implementation,
+while CLI composition wraps the engine request in the shared accessible contract for the
+line presentation. Headless execution continues to deny when no interactive presentation
+is present. Stable engine request IDs now reach both paths.
 
 ### `src/presentation/screen-reader.ts`
 
@@ -248,13 +245,16 @@ Node `readline` cannot safely support concurrent announcements and editable inpu
 tested terminals, use a serialized prompt loop: queue nonblocking announcements and
 flush them before the next prompt rather than rewriting the active line.
 
-Implemented adapter core: `ScreenReaderPresentation` writes bounded newline-terminated
+Implemented composition: `ScreenReaderPresentation` writes bounded newline-terminated
 plain text only, never emits terminal control sequences, and serializes prompts and
 permission requests. Announcements arriving during input are queued and flushed when the
 line completes, before the next queued prompt. `ReadlineLineInput` runs with terminal
 editing disabled. Byte-level tests cover append-only output, cancellation acknowledgement,
 queued announcements, invalid permission choices, FIFO request order, and idempotent
-plain completion output. CLI selection and engine composition remain pending.
+plain completion output. `--accessibility screen-reader` and the protected global setting
+select it without mounting Ink; a real-process fixture proves ordinary assistant output,
+single completion, local commands, and permission decisions contain no terminal-control
+bytes. Explicit line mode also accepts redirected lines for deterministic automation.
 
 ### `src/interaction/status-tool.ts` or direct slash handlers
 
@@ -262,10 +262,9 @@ plain completion output. CLI selection and engine composition remain pending.
 and CLI output must share formatter functions so tests cover exact semantics. A model
 tool may later expose the same snapshot, but the user controls cannot depend on it.
 
-The shared local service methods are implemented and covered independently of the TUI:
-`status`, `repeat`, `details`, and `setVerbosity`. Visible slash/menu registration remains
-behind the frontend approval gate; the backend contract is ready for both line and Ink
-presentations.
+The shared local service methods and visible parser/menu routes are implemented for
+`/status`, `/repeat`, `/details`, and `/verbosity`. Both Ink and line composition call the
+same handler, and process coverage proves the controls do not call the model.
 
 ## Settings
 
@@ -324,13 +323,12 @@ The accessible summary contains tool, normalized target, consequence, reason, an
 For Write/Edit it includes bounded diff statistics and `/details permission <id>` for the
 full bounded diff. It never substitutes a summary for the existing permission engine.
 
-Current implementation boundary: the engine lifecycle/semantic events described above
-are complete. The richer presentation-neutral formatter now provides bounded tool,
-target, consequence, reason, line-change statistics, choices, and detail route without
-copying command/content secrets. The line adapter serializes concurrent decisions. The
-existing Ink diff calculation has not yet been extracted or wired into this contract,
-and the public event summary remains deliberately minimal until the approved composition
-work lands.
+Current implementation: the engine lifecycle/semantic events and presentation flow are
+complete. A shared diff helper drives the existing Ink preview and accessible change
+statistics. The richer formatter provides bounded tool, target, consequence, reason,
+choices, and a redacted on-demand detail route without unsolicited command/content
+secrets. The line adapter serializes concurrent decisions; public semantic events remain
+deliberately minimal.
 
 ## Proactive attention
 

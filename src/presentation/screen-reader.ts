@@ -2,6 +2,7 @@ import type { PermissionAnswer, RunResult } from '../engine/types.js'
 import { plainBounded } from '../interaction/format.js'
 import type { Announcement, InteractionSnapshot } from '../interaction/types.js'
 import type { LineInput } from './line-input.js'
+import { LineInputCancelledError } from './line-input.js'
 import { formatAccessiblePermission } from './permission-format.js'
 import type {
   AccessiblePermissionRequest,
@@ -20,6 +21,7 @@ export class ScreenReaderPresentation implements InteractivePresentation {
   private inputActive = false
   private readonly pendingAnnouncements: string[] = []
   private closed = false
+  private announcedResult: RunResult['status'] | null = null
 
   constructor(private readonly options: ScreenReaderPresentationOptions) {}
 
@@ -30,6 +32,10 @@ export class ScreenReaderPresentation implements InteractivePresentation {
   announce(item: Announcement): void {
     const line = plainBounded(item.text, 1_024)
     if (!line) return
+    if (line === 'Completed: Work completed.') this.announcedResult = 'completed'
+    else if (line === 'Failed: Work failed.') this.announcedResult = 'error'
+    else if (line === 'Attention: Run limit reached.') this.announcedResult = 'limit'
+    else if (line === 'Attention: Work was canceled.') this.announcedResult = 'aborted'
     if (this.inputActive) this.pendingAnnouncements.push(line)
     else this.writeLine(line)
   }
@@ -43,19 +49,40 @@ export class ScreenReaderPresentation implements InteractivePresentation {
   requestPermission(request: AccessiblePermissionRequest): Promise<PermissionAnswer> {
     return this.withInput(async () => {
       this.writeBlock(formatAccessiblePermission(request))
-      for (;;) {
-        const answer = (await this.options.input.readLine('Permission choice: ')).trim().toLowerCase()
-        if (answer === 'y') return 'allow-once'
-        if (answer === 'a') return 'allow-always'
-        if (answer === 'n') return 'deny'
-        this.writeLine('Permission: Enter y, a, or n.')
+      try {
+        for (;;) {
+          const answer = (await this.options.input.readLine('Permission choice: ')).trim().toLowerCase()
+          if (answer === 'y') return 'allow-once'
+          if (answer === 'a') return 'allow-always'
+          if (answer === 'n') return 'deny'
+          this.writeLine('Permission: Enter y, a, or n.')
+        }
+      } catch (error) {
+        if (!(error instanceof LineInputCancelledError)) throw error
+        this.writeLine('Permission: Denied because cancellation was requested.')
+        return 'deny'
       }
     })
   }
 
+  cancelPendingInput(): boolean {
+    return this.options.input.cancelRead?.() ?? false
+  }
+
   showDetails(request: DetailRequest): void {
     const line = plainBounded(request.text, 4_096)
-    if (line) this.writeLine(`Status: ${line}`)
+    if (!line) return
+    this.writeLine(/^(Status|Attention|Permission|Advisory|Completed|Failed):/.test(line)
+      ? line
+      : `Status: ${line}`)
+  }
+
+  /** Assistant final text remains ordinary output, separate from semantic status. */
+  writeAssistantText(value: string): void {
+    for (const line of value.split('\n')) {
+      const safe = plainBounded(line, 4_096)
+      if (safe) this.options.write(`${safe}\n`)
+    }
   }
 
   acknowledgeCancellation(accepted: boolean): void {
@@ -74,7 +101,7 @@ export class ScreenReaderPresentation implements InteractivePresentation {
         : result.status === 'limit'
           ? 'Attention: Run limit reached.'
           : 'Attention: Work was canceled.'
-    this.writeLine(line)
+    if (this.announcedResult !== result.status) this.writeLine(line)
     this.options.input.close()
   }
 

@@ -38,6 +38,7 @@ import type {
 } from './types.js'
 
 export type AskUserFn = (req: {
+  id: string
   toolName: string
   input: unknown
   summary: string
@@ -652,6 +653,7 @@ export class Engine {
       })
       const answer = this.opts.askUser
         ? await this.opts.askUser({
+            id: requestId,
             toolName: block.name,
             input: parsed.data,
             summary: summarize(effectiveBlock),

@@ -82,9 +82,11 @@ In screen-reader mode:
 - JSONL remains valid and schema-versioned.
 
 The presentation-neutral adapter enforces these byte-level invariants in
-`tests/presentation/screen-reader.test.ts`. The suite captures the exact written chunks,
-asserts every chunk is newline-terminated, rejects terminal control bytes, and exercises
-announcement/input serialization. This proves adapter mechanics, not behavior in NVDA,
+`tests/presentation/screen-reader.test.ts`; `tests/cli/exec.integration.test.ts` also runs
+the real CLI composition with a deterministic model, permissions, commands, and redirected
+line input. The suites assert single assistant/completion/permission output, reject
+terminal control bytes, and exercise announcement/input serialization. This proves
+adapter and composition mechanics, not behavior in NVDA,
 Narrator, VoiceOver, Orca, or Braille hardware; those manual rows remain open.
 
 Watcher integration tests use the real Node filesystem backend to round-trip a temporary

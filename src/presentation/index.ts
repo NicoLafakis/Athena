@@ -1,4 +1,6 @@
 export * from './types.js'
 export * from './line-input.js'
 export * from './permission-format.js'
+export * from './permission-diff.js'
+export * from './diff-lines.js'
 export * from './screen-reader.js'

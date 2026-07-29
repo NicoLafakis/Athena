@@ -36,15 +36,16 @@ editing under the active Global Rule.
   `src/interaction/event-adapter.ts`; test duplicates, ordering, parent/child isolation -
   done when each accepted runtime event has a stable run ID, monotonic sequence, source,
   timestamp, and source reference.
-- [ ] **1.3 Make permission lifecycle adapter-neutral** - create
+- [x] **1.3 Make permission lifecycle adapter-neutral** - create
   `src/presentation/types.ts`; modify `src/engine/loop.ts`, `src/tui/App.tsx`, and
   composition in `src/cli.ts`; tests in `tests/engine/` and `tests/tui/` - done when the
   current Ink queue still behaves identically and request/resolution events are observable
-  outside React. The engine/event-adapter half is complete: paired, stable, redacted
+  outside React. Paired, stable, redacted
   `permission-requested`/`permission-resolved` events now drive exact blocking attention
   outside React, including headless default-deny. The adapter-neutral presentation
-  contract is also complete; existing Ink queue migration remains pending. **Frontend approval gate applies before editing
-  `App.tsx`.**
+  contract now carries the same stable request ID into both presentations. The existing
+  Ink FIFO queue remains behavior-compatible while screen-reader permission decisions
+  run through the adapter-neutral request contract.
 - [x] **1.4 Implement pure reducer** - create `src/interaction/state.ts`; test every
   fixture after every event - done when snapshots are deterministic and runtime/user
   precedence over agent assertions is mechanically enforced.
@@ -72,10 +73,11 @@ editing under the active Global Rule.
   `redactSessionValue` through an extracted shared safe primitive if necessary; test
   secret-shaped strings and control sequences - done when messages are bounded, plain,
   and no untrusted ANSI control survives.
-- [ ] **2.4 Add local state controls** - extend `src/tui/slash.ts`, slash menu, and shared
+- [x] **2.4 Add local state controls** - extend `src/tui/slash.ts`, slash menu, and shared
   handlers for `/status`, `/repeat`, `/details`, `/verbosity`; tests in `tests/tui/` and
   `tests/cli/` - done when commands use zero model calls and work outside fullscreen.
-  **Frontend approval gate applies before modifying visible menus/components.**
+  The four commands are registered in the shared parser/menu and handler; process-level
+  coverage proves `/status` spends no fixture-model call outside fullscreen.
 - [x] **2.5 Add semantic JSONL events** - modify `src/cli.ts`; test schema and ordering -
   done when additive envelopes are machine-readable and existing result events remain
   compatible.
@@ -88,7 +90,7 @@ editing under the active Global Rule.
 - [x] **3.1 Add global accessibility settings** - modify `src/brain/settings.ts` with
   deep defaults and project-override rejection; tests in `tests/brain/settings.test.ts` -
   done when legacy settings parse and partial objects cannot erase defaults.
-- [ ] **3.2 Add CLI selection** - modify argument parsing/help in `src/cli.ts`; tests in
+- [x] **3.2 Add CLI selection** - modify argument parsing/help in `src/cli.ts`; tests in
   `tests/cli/args.test.ts` - done when `--accessibility screen-reader|standard` overrides
   global settings for one invocation and invalid values fail clearly.
 - [x] **3.3 Implement line adapter** - create `src/presentation/screen-reader.ts` and
@@ -101,15 +103,23 @@ editing under the active Global Rule.
   setup, `--resume`, no-session, cancel, and invalid-choice flows work without Ink,
   animated selection, or per-character `*` output that floods speech; secrets remain
   hidden and are never announced.
-- [ ] **3.5 Implement accessible permission presentation** - create
+  The append-only numbered `--resume` selector is now composed before Ink mounts and
+  handles fresh/cancel/invalid-number paths. Auth still uses its existing masked raw-mode
+  input and per-character `*` output, so this task remains open until a secure non-chattery
+  `WizardIO` is implemented and manually checked.
+- [x] **3.5 Implement accessible permission presentation** - create
   `src/presentation/permission-format.ts`; reuse existing diff logic through a
   presentation-neutral helper; tests for queue/order/detail/deny - done when all choices,
   target, consequence, reason, and detail route are available without sight.
-  The formatter and serialized line-adapter flow are complete; extracting the existing
-  TUI diff helper and wiring both presentations remain approval-gated.
+  Both presentations now consume presentation-neutral diff calculation. The line flow
+  names the stable request, target, consequence, reason, choices, change counts, and a
+  bounded redacted `/details permission <id>` route; FIFO and real-process tests cover it.
 - [ ] **3.6 Add accessible cancellation/resume** - modify adapter-neutral input and engine
   handoff; tests for busy, waiting-permission, idle, and aborted states - done when every
   interrupt gets explicit acknowledgement and no dead prompt remains.
+  Screen-reader composition now turns SIGINT during a run into `engine.abort()` plus an
+  explicit acknowledgement and uses the line selector for resume. Waiting-permission,
+  idle-signal, and dead-prompt process tests remain before this task can close.
 - [ ] **3.7 Add feature-parity matrix** - create
   `tests/fixtures/interaction/presentation-parity.json`; test handlers rather than visual
   frames - done when every interactive command is reachable by key or slash/CLI path in

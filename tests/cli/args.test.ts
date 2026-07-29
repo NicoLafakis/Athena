@@ -66,6 +66,35 @@ describe('parseArgs — auth and --provider', () => {
     })
   })
 
+  it('parses a per-invocation accessibility presentation override', () => {
+    expect(parseArgs(['--accessibility', 'screen-reader'])).toEqual({
+      command: 'run',
+      provider: undefined,
+      accessibility: 'screen-reader',
+    })
+    expect(parseArgs(['--continue', '--accessibility', 'standard'])).toEqual({
+      command: 'continue',
+      provider: undefined,
+      accessibility: 'standard',
+    })
+    expect(parseArgs(['--accessibility', 'screen-reader', '--resume'])).toEqual({
+      command: 'resume',
+      provider: undefined,
+      accessibility: 'screen-reader',
+    })
+  })
+
+  it('rejects a missing or unknown accessibility presentation', () => {
+    expect(parseArgs(['--accessibility'])).toEqual({
+      command: 'error',
+      message: '--accessibility needs screen-reader or standard',
+    })
+    expect(parseArgs(['--accessibility', 'visual'])).toEqual({
+      command: 'error',
+      message: '--accessibility needs screen-reader or standard',
+    })
+  })
+
   it('rejects a missing or unknown --provider value', () => {
     expect(parseArgs(['--provider'])).toEqual({
       command: 'error',
