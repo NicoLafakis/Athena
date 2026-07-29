@@ -22,6 +22,8 @@ export interface SpeechBackendProbe {
 export interface RecognizedPhrase {
   text: string
   confidence: number
+  /** 24 kHz, mono, signed 16-bit little-endian PCM for OpenAI Realtime. */
+  audio: Buffer
 }
 
 export type PowerShellRunner = (
@@ -104,11 +106,30 @@ if ($args.Count -gt 0) {
 }
 $recognizer=New-Object System.Speech.Recognition.SpeechRecognitionEngine
 try {
-  $recognizer.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar))
+  # This engine is only the private, on-device wake gate. Constraining the grammar
+  # prevents legacy Windows dictation guesses from deciding what the user asked.
+  $wakeOnly=New-Object System.Speech.Recognition.GrammarBuilder
+  $wakeOnly.Culture=$recognizer.RecognizerInfo.Culture
+  $wakeOnly.Append('Athena')
+  $recognizer.LoadGrammar((New-Object System.Speech.Recognition.Grammar -ArgumentList $wakeOnly))
+  $wakeCommand=New-Object System.Speech.Recognition.GrammarBuilder
+  $wakeCommand.Culture=$recognizer.RecognizerInfo.Culture
+  $wakeCommand.Append('Athena')
+  $wakeCommand.AppendDictation()
+  $recognizer.LoadGrammar((New-Object System.Speech.Recognition.Grammar -ArgumentList $wakeCommand))
   $recognizer.SetInputToDefaultAudioDevice()
   $result=$recognizer.Recognize([TimeSpan]::FromSeconds($listenSeconds))
   if ($null -eq $result) { exit 2 }
-  [Console]::Out.Write((@{text=$result.Text;confidence=$result.Confidence}|ConvertTo-Json -Compress))
+  if ($null -eq $result.Audio) { exit 3 }
+  $audio=New-Object IO.MemoryStream
+  try {
+    $result.Audio.WriteToWaveStream($audio)
+    [Console]::Out.Write((@{
+      text=$result.Text
+      confidence=$result.Confidence
+      wave=[Convert]::ToBase64String($audio.ToArray())
+    }|ConvertTo-Json -Compress))
+  } finally { $audio.Dispose() }
 } finally { $recognizer.Dispose() }
 `
 
@@ -197,14 +218,72 @@ export async function recognizeWindowsPhrase(
     )) as {
       text?: unknown
       confidence?: unknown
+      wave?: unknown
     }
     const text = typeof raw.text === 'string' ? raw.text.trim() : ''
-    if (!text) return null
-    return { text, confidence: Number(raw.confidence ?? 0) }
+    const wave = typeof raw.wave === 'string' ? Buffer.from(raw.wave, 'base64') : Buffer.alloc(0)
+    if (!text || wave.length === 0) return null
+    return {
+      text,
+      confidence: Number(raw.confidence ?? 0),
+      audio: realtimePcmFromWave(wave),
+    }
   } catch (error) {
     if ((error as { code?: unknown }).code === 2) return null
     throw error
   }
+}
+
+/** Convert the PCM WAV emitted by System.Speech into Realtime's required 24 kHz mono PCM. */
+export function realtimePcmFromWave(wave: Buffer, targetRate = 24_000): Buffer {
+  if (wave.length < 44 || wave.toString('ascii', 0, 4) !== 'RIFF' ||
+      wave.toString('ascii', 8, 12) !== 'WAVE') {
+    throw new Error('Windows wake detector returned malformed audio.')
+  }
+  let offset = 12
+  let channels = 0
+  let sampleRate = 0
+  let bitsPerSample = 0
+  let pcmFormat = 0
+  let data: Buffer | null = null
+  while (offset + 8 <= wave.length) {
+    const id = wave.toString('ascii', offset, offset + 4)
+    const size = wave.readUInt32LE(offset + 4)
+    const start = offset + 8
+    const end = start + size
+    if (end > wave.length) throw new Error('Windows wake detector returned truncated audio.')
+    if (id === 'fmt ' && size >= 16) {
+      pcmFormat = wave.readUInt16LE(start)
+      channels = wave.readUInt16LE(start + 2)
+      sampleRate = wave.readUInt32LE(start + 4)
+      bitsPerSample = wave.readUInt16LE(start + 14)
+    } else if (id === 'data') {
+      data = wave.subarray(start, end)
+    }
+    offset = end + (size % 2)
+  }
+  if (pcmFormat !== 1 || bitsPerSample !== 16 || ![1, 2].includes(channels) ||
+      sampleRate <= 0 || !data || data.length < channels * 2) {
+    throw new Error('Windows wake detector returned an unsupported audio format.')
+  }
+  const frameCount = Math.floor(data.length / (channels * 2))
+  const mono = new Int16Array(frameCount)
+  for (let frame = 0; frame < frameCount; frame++) {
+    const left = data.readInt16LE(frame * channels * 2)
+    const right = channels === 2 ? data.readInt16LE(frame * channels * 2 + 2) : left
+    mono[frame] = Math.round((left + right) / 2)
+  }
+  const outputFrames = Math.max(1, Math.round(frameCount * targetRate / sampleRate))
+  const output = Buffer.alloc(outputFrames * 2)
+  for (let frame = 0; frame < outputFrames; frame++) {
+    const source = frame * sampleRate / targetRate
+    const before = Math.min(frameCount - 1, Math.floor(source))
+    const after = Math.min(frameCount - 1, before + 1)
+    const fraction = source - before
+    const sample = Math.round(mono[before]! + (mono[after]! - mono[before]!) * fraction)
+    output.writeInt16LE(Math.max(-32_768, Math.min(32_767, sample)), frame * 2)
+  }
+  return output
 }
 
 export function stripWakePhrase(text: string, wakePhrase = 'Athena'): string | null {

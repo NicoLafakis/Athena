@@ -63,6 +63,24 @@ const VOICE_TOOLS = [
     description: 'Get the status of the last voice delegation.',
     parameters: { type: 'object', properties: {}, additionalProperties: false },
   },
+  {
+    type: 'function',
+    name: 'confirm',
+    description: 'Confirm the delegation proposed in an earlier user turn.',
+    parameters: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    type: 'function',
+    name: 'cancel',
+    description: 'Cancel the delegation proposed in an earlier user turn.',
+    parameters: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    type: 'function',
+    name: 'stop_listening',
+    description: 'End the Athena voice session when the user asks to quit or stop listening.',
+    parameters: { type: 'object', properties: {}, additionalProperties: false },
+  },
 ] as const
 
 const CONDUCTOR_INSTRUCTIONS = [
@@ -70,6 +88,9 @@ const CONDUCTOR_INSTRUCTIONS = [
   'Never claim that work was executed unless a function result proves it.',
   'Use delegate for coding or repository work and status for the latest delegation state.',
   'A delegate result may require a separate local confirmation; explain that clearly.',
+  'The word Athena at the beginning of user audio is a wake word, not part of the request.',
+  'Use confirm or cancel only when the user clearly answers a proposal from an earlier turn.',
+  'Use stop_listening when the user asks Athena to quit or stop listening.',
   'Keep spoken responses brief and do not read code, paths, tokens, or secrets aloud.',
 ].join(' ')
 
@@ -116,6 +137,11 @@ export class RealtimeVoiceClient {
           model: this.model,
           output_modalities: ['audio'],
           audio: {
+            input: {
+              format: { type: 'audio/pcm', rate: 24_000 },
+              noise_reduction: { type: 'far_field' },
+              turn_detection: null,
+            },
             output: { format: { type: 'audio/pcm', rate: 24_000 }, voice: 'marin' },
           },
           instructions: CONDUCTOR_INSTRUCTIONS,
@@ -149,25 +175,48 @@ export class RealtimeVoiceClient {
   }
 
   async ask(text: string, handler: RealtimeToolHandler): Promise<RealtimeTurnResult> {
-    await this.connect()
-    if (this.pending) throw new Error('A Realtime response is already active.')
     const bounded = text.trim().slice(0, 8_192)
     if (!bounded) throw new Error('Voice command is empty.')
+    return this.startTurn(handler, () => {
+      this.send({
+        type: 'conversation.item.create',
+        item: {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: bounded }],
+        },
+      })
+      this.send({ type: 'response.create' })
+    })
+  }
+
+  async askAudio(pcm: Buffer, handler: RealtimeToolHandler): Promise<RealtimeTurnResult> {
+    if (pcm.length < 4_800) throw new Error('Voice command audio is too short.')
+    return this.startTurn(handler, () => {
+      this.send({ type: 'input_audio_buffer.append', audio: pcm.toString('base64') })
+      this.send({ type: 'input_audio_buffer.commit' })
+      this.send({ type: 'response.create' })
+    })
+  }
+
+  private async startTurn(
+    handler: RealtimeToolHandler,
+    sendInput: () => void,
+  ): Promise<RealtimeTurnResult> {
+    await this.connect()
+    if (this.pending) throw new Error('A Realtime response is already active.')
     const result = new Promise<RealtimeTurnResult>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.fail(new Error('Realtime response timed out.'))
       }, this.responseTimeoutMs)
       this.pending = { handler, transcript: [], audio: [], usage: [], resolve, reject, timer }
     })
-    this.send({
-      type: 'conversation.item.create',
-      item: {
-        type: 'message',
-        role: 'user',
-        content: [{ type: 'input_text', text: bounded }],
-      },
-    })
-    this.send({ type: 'response.create' })
+    try {
+      sendInput()
+    } catch (error) {
+      this.fail(error as Error)
+      throw error
+    }
     return result
   }
 

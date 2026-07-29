@@ -120,20 +120,28 @@ exact `confirm` for its opaque ID releases the action.
 
 `athena voice` now dynamically loads the optional stack; ordinary `athena` and
 `athena exec` do not load `ws`, probe speech, open the microphone, or contact OpenAI.
-Windows `System.Speech` performs dictation locally. Only confidence-thresholded text that
-begins with `Athena` crosses the Realtime boundary, so ambient pre-wake audio stays on the
-machine. `athena voice --keyboard` drives the identical conductor and confirmation state
-machine without a microphone.
+Windows `System.Speech` is now only a private wake gate. It loads a constrained grammar
+for `Athena` and `Athena <dictation>` rather than using free-form Windows dictation to
+decide the command. Once that grammar recognizes the wake phrase, Athena extracts the
+associated microphone WAV, downmixes/resamples it in memory to 24 kHz mono PCM, and sends
+the raw utterance to OpenAI Realtime. Windows' guessed command text is diagnostic only;
+the Realtime audio model performs speech understanding. Ambient audio that does not pass
+the local `Athena` gate stays on the machine. `athena voice --keyboard` drives the same
+conductor and confirmation state machine with text input.
 
 The default `gpt-realtime-2.1-mini` session uses an authenticated server-side WebSocket,
-text input, function calls, and 24 kHz PCM output. PCM is wrapped in a temporary
+24 kHz PCM input, function calls, and 24 kHz PCM output. Laptop-array input enables the
+provider's `far_field` noise reduction and uses explicit buffer append/commit events.
+Output PCM is wrapped in a temporary
 owner-only WAV for synchronous `System.Media.SoundPlayer` playback and deleted
 immediately afterward; raw input audio, raw output audio, and voiceprints are not
 persisted. The only voice-specific persistent telemetry is the provider's usage object,
 model, and timestamp in `~/.athena/voice-usage.jsonl`.
 
-The conductor exposes only `delegate` and `status`. `delegate` records a bounded proposal
-and cannot run it. A later local `Athena confirm` invokes `athena exec` through the
+The conductor exposes `delegate`, `status`, `confirm`, `cancel`, and `stop_listening`.
+`delegate` records a bounded proposal and cannot run it. A model-produced confirmation
+is valid only when the proposal existed before the current turn, so one utterance cannot
+both propose and authorize work. A later `Athena confirm` invokes `athena exec` through the
 existing engine with `acceptEdits`: file writes remain scoped to the workspace, while
 shell and other consequential tools are not implicitly trusted. `Athena cancel` drops
 the proposal. The first confirmed delegation creates a durable child session and later
@@ -144,14 +152,14 @@ Realtime for a concise spoken summary; the model cannot manufacture the engine s
 session, then stores it under `voice/openai` in the per-machine OS vault and verifies
 readback. `OPENAI_API_KEY` remains the zero-file override. A failed replacement attempts
 to restore the prior working vault entry. `athena voice probe` audibly asks the user to
-repeat `Athena probe`, allows three audible ten-second attempts while ignoring bad or
-low-confidence transcripts, verifies the local microphone/wake path, and then opens a
-Realtime session. A recognized `Athena` proves the wake path even if the legacy Windows
-recognizer mishears `probe`; that mismatch is reported separately as a speech-quality
-warning. Diagnostics name the Windows default-input route, recognizer, and locally
-selected prompt voice. Local prompts prefer an installed female Windows voice and fall
-back to the system default. Every failure names the recovery command and leaves core
-Athena untouched.
+say `Athena voice probe`, allows three audible ten-second attempts, and verifies the
+constrained local wake gate. It then sends that captured raw utterance to Realtime and
+requires an actual spoken response and playback, proving microphone capture, format
+conversion, provider speech understanding, and speaker output along the production path.
+Diagnostics name the Windows default-input route, recognizer, and locally selected prompt
+voice. Local prompts prefer an installed female Windows voice and fall back to the system
+default; normal conversational output uses the Realtime `marin` voice. Every failure names
+the recovery command and leaves core Athena untouched.
 
 ### Official Realtime contract resolved by the documentation spike
 
@@ -174,21 +182,25 @@ explicitly permits a standard API key for server-side clients. The current
 uses `session.created`/`session.update`/`session.updated`; 24 kHz PCM is a documented
 input option; streamed input uses `input_audio_buffer.append`, then `commit` and
 `response.create` when VAD is disabled; audio arrives through
-`response.output_audio.delta`; function tools are declared on `session.tools`; and
+`response.output_audio.delta`; input can enable `far_field` noise reduction; function
+tools are declared on `session.tools`; and
 push-to-talk interruption uses `response.cancel` plus playback stop and
 `conversation.item.truncate`. Realtime sessions have a documented 60-minute maximum.
-Athena therefore starts with push-to-talk, not always-listening or full-duplex behavior.
+Athena therefore starts with wake-gated, half-duplex turns rather than continuously
+uploading room audio or attempting full-duplex echo cancellation.
 
-The transport and local backend now exist, but no paid/live call was made in automated
-development because this machine has no `OPENAI_API_KEY`. Documentation and fakes are not
-a capability probe. The shipped Windows subprocess probe did run on Nico's machine and
-found one installed recognizer and two installed voices; its encoded-argument transport
-also round-tripped a sentinel through Windows PowerShell 5.1. That establishes component
-availability, not microphone or speaker success. The following release gates remain open:
+The transport and local backend now exist, but automated tests do not make paid calls or
+depend on a developer API key. Documentation and fakes are not a capability probe. Live
+testing on Nico's machine found one installed recognizer and two voices; previous probe
+runs captured speech from the default microphone and played local prompts. The constrained
+wake grammar also loaded against the real default microphone and timed out cleanly on
+silence. The new raw-audio provider round trip still requires the manual probe below.
+The following release gates remain open:
 
-- round-trip microphone and playback sentinels on each target machine;
+- round-trip the new wake-gated raw-audio probe on each target machine;
 - measured first-audio and interruption latency plus actual token/cost records;
-- measured `System.Speech` false-positive behavior in Nico's normal environment;
+- measured constrained-wake false-positive and false-negative behavior in Nico's normal
+  environment, with a dedicated wake-word sidecar if the Windows grammar is insufficient;
 - an authoritative retention/data-control determination for the selected account and
   endpoint;
 - manual double-speech and focus testing with NVDA and Narrator enabled and disabled.

@@ -3,10 +3,31 @@ import { describe, expect, it } from 'vitest'
 import {
   playWindowsPcm,
   probeWindowsSpeech,
+  realtimePcmFromWave,
   recognizeWindowsPhrase,
   runPowerShell,
   stripWakePhrase,
 } from '../../src/voice/windows-speech.js'
+
+function pcmWave(sampleRate = 16_000, samples = [0, 1, -1, 2]): Buffer {
+  const pcm = Buffer.alloc(samples.length * 2)
+  samples.forEach((sample, index) => pcm.writeInt16LE(sample, index * 2))
+  const wave = Buffer.alloc(44 + pcm.length)
+  wave.write('RIFF', 0)
+  wave.writeUInt32LE(36 + pcm.length, 4)
+  wave.write('WAVEfmt ', 8)
+  wave.writeUInt32LE(16, 16)
+  wave.writeUInt16LE(1, 20)
+  wave.writeUInt16LE(1, 22)
+  wave.writeUInt32LE(sampleRate, 24)
+  wave.writeUInt32LE(sampleRate * 2, 28)
+  wave.writeUInt16LE(2, 32)
+  wave.writeUInt16LE(16, 34)
+  wave.write('data', 36)
+  wave.writeUInt32LE(pcm.length, 40)
+  pcm.copy(wave, 44)
+  return wave
+}
 
 describe('Windows local speech backend', () => {
   it.runIf(process.platform === 'win32')(
@@ -36,8 +57,10 @@ describe('Windows local speech backend', () => {
     expect(stripWakePhrase('Athena, run the tests')).toBe('run the tests')
     expect(stripWakePhrase('athena status')).toBe('status')
     expect(stripWakePhrase('run the tests')).toBeNull()
-    await expect(recognizeWindowsPhrase(async () => '{"text":"Athena status","confidence":0.91}'))
-      .resolves.toEqual({ text: 'Athena status', confidence: 0.91 })
+    const wave = pcmWave().toString('base64')
+    await expect(recognizeWindowsPhrase(async () => JSON.stringify({
+      text: 'Athena status', confidence: 0.91, wave,
+    }))).resolves.toMatchObject({ text: 'Athena status', confidence: 0.91 })
     await expect(recognizeWindowsPhrase(async () => {
       throw Object.assign(new Error('nothing heard'), { code: 2 })
     })).resolves.toBeNull()
@@ -49,10 +72,19 @@ describe('Windows local speech backend', () => {
     await recognizeWindowsPhrase(async (_script, observedArgs, observedTimeoutMs) => {
       args = observedArgs
       timeoutMs = observedTimeoutMs
-      return '{"text":"Athena probe","confidence":0.91}'
+      return JSON.stringify({
+        text: 'Athena probe', confidence: 0.91, wave: pcmWave().toString('base64'),
+      })
     }, 10)
     expect(args).toEqual(['10'])
     expect(timeoutMs).toBe(20_000)
+  })
+
+  it('downmixes and resamples captured Windows PCM for Realtime instead of trusting dictation text', () => {
+    const pcm = realtimePcmFromWave(pcmWave(16_000, Array.from({ length: 160 }, (_, i) => i)))
+    expect(pcm.length).toBe(480)
+    expect(pcm.readInt16LE(0)).toBe(0)
+    expect(() => realtimePcmFromWave(Buffer.from('not a wave'))).toThrow(/malformed audio/)
   })
 
   it('wraps Realtime PCM in a temporary WAV and removes it after synchronous playback', async () => {

@@ -66,6 +66,7 @@ export {
   type DelegateRunner,
   type WakeProbeResult,
   type VoiceCommandInput,
+  type VoiceCommand,
   type VoiceRealtimeClient,
   type VoiceSessionOptions,
 } from './daemon.js'

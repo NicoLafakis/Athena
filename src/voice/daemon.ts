@@ -16,23 +16,30 @@ import {
   type RecognizedPhrase,
 } from './windows-speech.js'
 
+const WINDOWS_WAKE_MINIMUM_CONFIDENCE = 0.5
+
 export interface VoiceCommandInput {
-  next(): Promise<string | null>
+  next(): Promise<VoiceCommand | null>
   close(): void
 }
 
+export type VoiceCommand =
+  | { kind: 'text'; text: string }
+  | { kind: 'audio'; pcm: Buffer; wakeTranscript: string }
+
 export class WindowsWakeCommandInput implements VoiceCommandInput {
   constructor(
-    private readonly minimumConfidence = 0.6,
+    private readonly minimumConfidence = WINDOWS_WAKE_MINIMUM_CONFIDENCE,
     private readonly recognize: typeof recognizeWindowsPhrase = recognizeWindowsPhrase,
   ) {}
-  async next(): Promise<string | null> {
+  async next(): Promise<VoiceCommand | null> {
     for (;;) {
       const phrase = await this.recognize()
       if (!phrase) return null
       if (phrase.confidence < this.minimumConfidence) continue
-      const command = stripWakePhrase(phrase.text)
-      if (command) return command
+      if (stripWakePhrase(phrase.text) || /^athena[,.!?;:]?$/i.test(phrase.text.trim())) {
+        return { kind: 'audio', pcm: phrase.audio, wakeTranscript: phrase.text }
+      }
     }
   }
   close(): void {}
@@ -40,9 +47,9 @@ export class WindowsWakeCommandInput implements VoiceCommandInput {
 
 export class KeyboardVoiceCommandInput implements VoiceCommandInput {
   private readonly reader = createInterface({ input: process.stdin, output: process.stdout })
-  async next(): Promise<string | null> {
+  async next(): Promise<VoiceCommand | null> {
     const answer = (await this.reader.question('Athena voice command: ')).trim()
-    return answer || null
+    return answer ? { kind: 'text', text: answer } : null
   }
   close(): void {
     this.reader.close()
@@ -53,12 +60,13 @@ export interface WakeProbeResult {
   passed: boolean
   heard: string[]
   command: string | null
+  audio: Buffer | null
 }
 
 export async function waitForWakeProbe(
   recognize: () => Promise<RecognizedPhrase | null> = () => recognizeWindowsPhrase(undefined, 10),
   onRetry: () => Promise<void> = () => speakWindowsText(
-    'I did not hear Athena probe. Please say Athena probe now.',
+    'I did not hear Athena. Please say Athena voice probe now.',
   ),
   maxAttempts = 3,
 ): Promise<WakeProbeResult> {
@@ -67,13 +75,13 @@ export async function waitForWakeProbe(
   for (let attempt = 0; attempt < attempts; attempt++) {
     const phrase = await recognize()
     if (phrase) heard.push(phrase.text)
-    const command = phrase && phrase.confidence >= 0.6
+    const command = phrase && phrase.confidence >= WINDOWS_WAKE_MINIMUM_CONFIDENCE
       ? stripWakePhrase(phrase.text)
       : null
-    if (command) return { passed: true, heard, command }
+    if (command) return { passed: true, heard, command, audio: phrase!.audio }
     if (attempt + 1 < attempts) await onRetry()
   }
-  return { passed: false, heard, command: null }
+  return { passed: false, heard, command: null, audio: null }
 }
 
 export interface DelegateResult {
@@ -165,6 +173,7 @@ export interface VoiceSessionOptions {
 export interface VoiceRealtimeClient {
   connect(): Promise<void>
   ask(text: string, handler: (call: RealtimeToolCall) => Promise<unknown>): Promise<RealtimeTurnResult>
+  askAudio(pcm: Buffer, handler: (call: RealtimeToolCall) => Promise<unknown>): Promise<RealtimeTurnResult>
   close(): void
 }
 
@@ -179,6 +188,7 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
   let pendingDelegate: string | null = null
   let lastDelegate: DelegateResult | null = null
   let commands = 0
+  let stopRequested = false
   const delegate = options.delegate
     ?? ((prompt: string) => runAthenaDelegate(prompt, process.cwd(), process.argv[1], lastDelegate?.sessionId))
 
@@ -189,11 +199,41 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
     if (turn.transcript) status(`Athena: ${turn.transcript}`)
   }
 
-  const handleTool = async (call: RealtimeToolCall): Promise<unknown> => {
+  const handleTool = async (
+    call: RealtimeToolCall,
+    pendingAtTurnStart: boolean,
+  ): Promise<unknown> => {
     if (call.name === 'status') {
       return lastDelegate ?? { status: 'idle', summary: 'No voice delegation has run yet.' }
     }
+    if (call.name === 'stop_listening') {
+      stopRequested = true
+      return { status: 'stopping', summary: 'Athena voice is stopping.' }
+    }
+    if (call.name === 'cancel') {
+      if (!pendingAtTurnStart || !pendingDelegate) {
+        return { error: 'There is no proposal from an earlier turn to cancel.' }
+      }
+      pendingDelegate = null
+      return { status: 'canceled', summary: 'The pending delegation was canceled.' }
+    }
+    if (call.name === 'confirm') {
+      if (!pendingAtTurnStart || !pendingDelegate) {
+        return { error: 'There is no proposal from an earlier turn to confirm.' }
+      }
+      const prompt = pendingDelegate
+      pendingDelegate = null
+      status('Athena: Confirmed. Delegating to the coding engine.')
+      lastDelegate = await delegate(prompt)
+      return {
+        status: lastDelegate.status,
+        summary: plainBounded(lastDelegate.summary, 8_192),
+      }
+    }
     if (call.name !== 'delegate') return { error: `Unsupported voice function: ${call.name}` }
+    if (pendingAtTurnStart) {
+      return { error: 'A proposal is already waiting; the user must confirm or cancel it.' }
+    }
     const args = call.arguments as { prompt?: unknown } | null
     const prompt = typeof args?.prompt === 'string' ? plainBounded(args.prompt, 4_096) : ''
     if (!prompt) return { error: 'Delegate prompt is missing.' }
@@ -211,15 +251,17 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
       const command = await options.input.next()
       if (command === null) continue
       commands++
-      const normalized = command.trim().toLowerCase()
-      if (normalized === 'quit' || normalized === 'exit') break
-      if (pendingDelegate && normalized === 'cancel') {
+      const pendingAtTurnStart = pendingDelegate !== null
+      const text = command.kind === 'text' ? command.text : null
+      const normalized = text?.trim().toLowerCase() ?? ''
+      if (text && (normalized === 'quit' || normalized === 'exit')) break
+      if (text && pendingDelegate && normalized === 'cancel') {
         pendingDelegate = null
         await speakFallback('Pending delegation canceled.')
         status('Athena: Pending delegation canceled.')
         continue
       }
-      if (pendingDelegate && normalized === 'confirm') {
+      if (text && pendingDelegate && normalized === 'confirm') {
         const prompt = pendingDelegate
         pendingDelegate = null
         status('Athena: Confirmed. Delegating to the coding engine.')
@@ -232,12 +274,17 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
         ))
         continue
       }
-      if (pendingDelegate) {
+      if (text && pendingDelegate) {
         await speakFallback('A delegation is waiting. Say Athena confirm or Athena cancel.')
         status('Athena: A delegation is waiting for confirm or cancel.')
         continue
       }
-      await present(await client.ask(command, handleTool))
+      const handler = (call: RealtimeToolCall) => handleTool(call, pendingAtTurnStart)
+      const turn = command.kind === 'audio'
+        ? await client.askAudio(command.pcm, handler)
+        : await client.ask(command.text, handler)
+      await present(turn)
+      if (stopRequested) break
     }
   } finally {
     options.input.close()
@@ -253,7 +300,7 @@ export async function runVoiceProbe(apiKey: string, model: RealtimeVoiceModel): 
     report.push('Recovery: install a Windows speech language and voice, then run `athena voice probe`.')
     return report
   }
-  await speakWindowsText('Athena voice probe. Please say Athena probe now.')
+  await speakWindowsText('Athena voice probe. Please say Athena voice probe now.')
   const wake = await waitForWakeProbe()
   if (!wake.passed) {
     const heard = wake.heard.length > 0
@@ -263,19 +310,29 @@ export async function runVoiceProbe(apiKey: string, model: RealtimeVoiceModel): 
     report.push('Recovery: check the default microphone and Windows speech language, then rerun `athena voice probe`.')
     return report
   }
-  if (wake.command?.toLowerCase() === 'probe') {
-    report.push('Microphone wake probe: passed (Athena probe).')
+  if (wake.command?.toLowerCase() === 'voice probe') {
+    report.push('Microphone wake probe: passed (Athena voice probe).')
   } else {
     report.push(
       `Microphone wake probe: passed (wake word Athena; heard command: ` +
       `${plainBounded(wake.command ?? 'unknown', 128)}).`,
     )
-    report.push('Speech recognition warning: expected “probe”; Windows may misrecognize command words.')
+    report.push('Wake diagnostic note: Windows only gates on Athena; OpenAI receives the raw audio.')
   }
   const client = new RealtimeVoiceClient({ apiKey, model })
   try {
     await client.connect()
     report.push(`OpenAI Realtime connection: passed (${model}).`)
+    if (!wake.audio) throw new Error('Wake detector returned no microphone audio.')
+    const turn = await client.askAudio(wake.audio, async () => ({
+      error: 'Tools are disabled during the voice probe.',
+    }))
+    if (turn.audio.length > 0) await playWindowsPcm(turn.audio)
+    else if (turn.transcript) await speakWindowsText(turn.transcript)
+    if (!turn.audio.length && !turn.transcript) {
+      throw new Error('OpenAI Realtime returned no spoken probe response.')
+    }
+    report.push('OpenAI speech understanding and playback: passed (raw microphone audio).')
   } finally {
     client.close()
   }

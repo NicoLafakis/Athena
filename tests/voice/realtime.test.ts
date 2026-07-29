@@ -39,6 +39,11 @@ describe('OpenAI Realtime voice transport', () => {
         model: 'gpt-realtime-2.1-mini',
         output_modalities: ['audio'],
         audio: {
+          input: {
+            format: { type: 'audio/pcm', rate: 24_000 },
+            noise_reduction: { type: 'far_field' },
+            turn_detection: null,
+          },
           output: { format: { type: 'audio/pcm', rate: 24_000 }, voice: 'marin' },
         },
       },
@@ -78,6 +83,27 @@ describe('OpenAI Realtime voice transport', () => {
       usage: [{ total_tokens: 3 }],
     })
     client.close()
+  })
+
+  it('sends raw microphone PCM through the documented audio buffer events', async () => {
+    const socket = new FakeSocket()
+    const client = new RealtimeVoiceClient({
+      apiKey: 'test',
+      webSocketFactory: () => socket as unknown as WebSocket,
+    })
+    socket.open()
+    socket.server({ type: 'session.updated' })
+    const pcm = Buffer.alloc(4_800, 1)
+    const turn = client.askAudio(pcm, async () => ({}))
+    await tick()
+    expect(socket.sent.slice(-3)).toEqual([
+      { type: 'input_audio_buffer.append', audio: pcm.toString('base64') },
+      { type: 'input_audio_buffer.commit' },
+      { type: 'response.create' },
+    ])
+    socket.server({ type: 'response.output_audio_transcript.delta', delta: 'I heard you.' })
+    socket.server({ type: 'response.done', response: { status: 'completed', output: [] } })
+    await expect(turn).resolves.toMatchObject({ transcript: 'I heard you.' })
   })
 
   it('fails loudly on a protocol error without echoing the API key', async () => {
