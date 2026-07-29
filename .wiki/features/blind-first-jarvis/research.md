@@ -120,3 +120,17 @@ stale planning string.
 - Refreshable Braille review of verbosity, punctuation, code paths, and diff summaries.
 - Whether direct speech offers value beyond the user's screen reader without creating
   duplicate output or focus conflicts.
+
+## Proxy baseline artifacts (2026-07-29)
+
+`tests/fixtures/interaction/core-journeys.json` records the canonical baseline journeys
+as stable user/runtime/Athena sequences. It was derived from the build specification and
+redacted run shapes, not from a blind participant, and therefore carries an explicit
+`proxy-baseline` status. `src/interaction/vocabulary.ts` similarly freezes seven candidate
+terms for distinction testing without putting them into production presentation.
+
+`tests/fixtures/interaction/attention-quality.json` records redacted detector event
+patterns, including the same repeated-failure sequence exercised by the real CLI
+hash-chained trace regression. Helpful and quiet cases are replayed through the production
+adapter. These artifacts reduce engineering ambiguity but do not satisfy recruitment,
+manual screen-reader testing, or blind-user release validation.

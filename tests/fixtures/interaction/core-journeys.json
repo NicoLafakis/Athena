@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "provenance": "Proxy baseline derived from the canonical build specification and redacted Athena run shapes; human assistive-technology validation remains open.",
+  "journeys": [
+    {
+      "id": "first-run-provider-recovery",
+      "title": "First-run authentication and provider failure recovery",
+      "researchStatus": "proxy-baseline",
+      "capabilities": ["auth", "failure"],
+      "steps": [
+        { "actor": "user", "action": "Start Athena without configured credentials.", "expectedSemantic": "Athena requests provider authentication without exposing the entered credential." },
+        { "actor": "runtime", "action": "Return a recoverable provider error on the first turn.", "expectedSemantic": "Athena reports Failed with a bounded recovery route and preserves the session." },
+        { "actor": "user", "action": "Correct authentication and retry.", "expectedSemantic": "Athena accepts the new turn without requiring a restart or sighted recovery." }
+      ]
+    },
+    {
+      "id": "broad-objective-orientation",
+      "title": "Broad objective, local orientation, interruption, and completion",
+      "researchStatus": "proxy-baseline",
+      "capabilities": ["broad-objective", "status", "interrupt", "resume", "completion"],
+      "steps": [
+        { "actor": "user", "action": "Ask Athena to get the release ready.", "expectedSemantic": "Status retains the user objective and distinguishes runtime facts from agent assertions." },
+        { "actor": "user", "action": "Request status and supporting detail.", "expectedSemantic": "Athena answers locally without a model call and names the next expected transition." },
+        { "actor": "user", "action": "Interrupt active work, then resume the durable session.", "expectedSemantic": "Cancellation is acknowledged and resumed work retains the objective and evidence." },
+        { "actor": "runtime", "action": "Finish the resumed run with verified gates.", "expectedSemantic": "Athena reports Completed once and preserves the verified outcome." }
+      ]
+    },
+    {
+      "id": "read-edit-permission",
+      "title": "Read-only inspection followed by an approved edit",
+      "researchStatus": "proxy-baseline",
+      "capabilities": ["tools", "permission"],
+      "steps": [
+        { "actor": "athena", "action": "Inspect several files using read-only tools.", "expectedSemantic": "Routine successful inspection stays quiet while current activity remains queryable." },
+        { "actor": "runtime", "action": "Request permission for a multi-file mutation.", "expectedSemantic": "Permission names the action, target, reason, choices, and detail route without losing context." },
+        { "actor": "user", "action": "Deny the first request and allow a revised bounded request.", "expectedSemantic": "Requests remain paired and FIFO; denial does not authorize the action." }
+      ]
+    },
+    {
+      "id": "delegated-work-failure",
+      "title": "Child and background work with one material failure",
+      "researchStatus": "proxy-baseline",
+      "capabilities": ["child", "background", "failure"],
+      "steps": [
+        { "actor": "athena", "action": "Start one child run and one foreground-owned background task.", "expectedSemantic": "Status reports one child and one background task without narrating every progress tick." },
+        { "actor": "runtime", "action": "Complete the child and fail the background task.", "expectedSemantic": "The aggregate updates, the failure remains material, and recovery points to trace evidence." },
+        { "actor": "user", "action": "Request the failed task detail.", "expectedSemantic": "Athena returns bounded detail without replaying raw tool output." }
+      ]
+    },
+    {
+      "id": "session-resume-final-outcome",
+      "title": "Session resume, compaction, and final verified outcome",
+      "researchStatus": "proxy-baseline",
+      "capabilities": ["resume", "completion"],
+      "steps": [
+        { "actor": "user", "action": "Resume a durable session after process exit.", "expectedSemantic": "Athena restores prior messages and starts a new isolated run identity." },
+        { "actor": "runtime", "action": "Compact model context while retaining trace evidence.", "expectedSemantic": "Compaction does not replace semantic truth or erase unresolved attention." },
+        { "actor": "runtime", "action": "Record the final verified run result.", "expectedSemantic": "Completed or Failed is derived from runtime evidence rather than assistant prose." }
+      ]
+    }
+  ]
+}

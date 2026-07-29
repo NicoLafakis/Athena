@@ -16,13 +16,15 @@ editing under the active Global Rule.
 - [ ] **0.2 Recruit representative evaluators** - non-code - done when several
   experienced blind developers across more than one screen reader are scheduled and the
   study scope avoids claiming statistical generality.
-- [ ] **0.3 Record baseline journeys** - new
+- [x] **0.3 Record baseline journeys** - new
   `tests/fixtures/interaction/core-journeys.json` plus research notes - done when auth,
   broad objective, status, tools, permission, child/background, failure, interrupt,
   resume, and completion sequences are represented.
 - [ ] **0.4 Freeze vocabulary** - new `src/interaction/vocabulary.ts` test fixture only,
   no production use yet - done when participants can distinguish Status, Attention,
-  Permission, Advisory, Completed, Failed, and Blocked without position or color.
+  Permission, Advisory, Completed, Failed, and Blocked without position or color. The
+  versioned research fixture and automated distinct/plain-language checks are complete;
+  participant validation remains open under 0.2.
 
 ## Phase 1 - semantic truth plane
 
@@ -137,7 +139,7 @@ editing under the active Global Rule.
 - [x] **4.5 Child/background aggregation** - create deterministic aggregation over child
   status and background task events - done when routine progress coalesces and
   failure/limit/awaited completion is never lost.
-- [ ] **4.6 Dogfood attention quality** - add positive and deliberate no-announcement
+- [x] **4.6 Dogfood attention quality** - add positive and deliberate no-announcement
   fixtures from real traces - done when each detector has evidence of usefulness and no
   loop/spam regression before default enablement.
 

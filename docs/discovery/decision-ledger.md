@@ -76,3 +76,7 @@ turning an unanswered choice into an invisible requirement.
 - The active completion objective applied the recommended semantic-first default (D-019).
   Phase 1 implementation began with contracts, runtime adaptation, deterministic state,
   and trace provenance; Q-002 and Q-003 remain open before their respective release gates.
+- A versioned proxy journey baseline and research-only semantic vocabulary were added.
+  They deliberately do not close Q-002, Q-003, recruitment, or blind-user validation.
+  Helpful and quiet detector replays now close the engineering half of the Phase 4
+  attention-quality gate without claiming human preference evidence.

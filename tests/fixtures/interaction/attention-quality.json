@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "provenance": "Redacted event patterns replayed through the production adapter, including the hash-chained CLI repeated-failure regression trace; no prompt, tool output, credential, or path is retained.",
+  "cases": [
+    {
+      "id": "repeated-failure-helpful",
+      "detector": "repeated-failure",
+      "intent": "helpful",
+      "events": [
+        { "type": "tool-request", "id": "read-1", "name": "Read", "input": { "file_path": "missing.txt" } },
+        { "type": "tool-result", "id": "read-1", "name": "Read", "output": "redacted", "isError": true },
+        { "type": "tool-request", "id": "read-2", "name": "Read", "input": { "file_path": "missing.txt" } },
+        { "type": "tool-result", "id": "read-2", "name": "Read", "output": "redacted", "isError": true }
+      ],
+      "expected": { "advisorySummaries": ["Read failed twice with unchanged input."], "aggregateLabels": [] }
+    },
+    {
+      "id": "repeated-failure-quiet",
+      "detector": "repeated-failure",
+      "intent": "quiet",
+      "events": [
+        { "type": "tool-request", "id": "read-1", "name": "Read", "input": { "file_path": "first.txt" } },
+        { "type": "tool-result", "id": "read-1", "name": "Read", "output": "redacted", "isError": true },
+        { "type": "tool-request", "id": "read-2", "name": "Read", "input": { "file_path": "second.txt" } },
+        { "type": "tool-result", "id": "read-2", "name": "Read", "output": "redacted", "isError": true }
+      ],
+      "expected": { "advisorySummaries": [], "aggregateLabels": [] }
+    },
+    {
+      "id": "verification-invalidation-helpful",
+      "detector": "verification-invalidation",
+      "intent": "helpful",
+      "events": [
+        { "type": "tool-request", "id": "gate-1", "name": "Bash", "input": { "command": "pnpm test" } },
+        { "type": "tool-result", "id": "gate-1", "name": "Bash", "output": "redacted", "isError": false },
+        { "type": "tool-request", "id": "write-1", "name": "Write", "input": { "file_path": "src/a.ts", "content": "redacted" } },
+        { "type": "tool-result", "id": "write-1", "name": "Write", "output": "redacted", "isError": false }
+      ],
+      "expected": { "advisorySummaries": ["Test verification is stale after Write changed the workspace."], "aggregateLabels": [] }
+    },
+    {
+      "id": "verification-invalidation-quiet",
+      "detector": "verification-invalidation",
+      "intent": "quiet",
+      "events": [
+        { "type": "tool-request", "id": "gate-1", "name": "Bash", "input": { "command": "pnpm test" } },
+        { "type": "tool-result", "id": "gate-1", "name": "Bash", "output": "redacted", "isError": false },
+        { "type": "tool-request", "id": "read-1", "name": "Read", "input": { "file_path": "src/a.ts" } },
+        { "type": "tool-result", "id": "read-1", "name": "Read", "output": "redacted", "isError": false }
+      ],
+      "expected": { "advisorySummaries": [], "aggregateLabels": [] }
+    },
+    {
+      "id": "budget-helpful",
+      "detector": "budget",
+      "intent": "helpful",
+      "events": [
+        { "type": "budget-status", "usage": { "inputTokens": 750, "outputTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0, "costUsd": 0, "modelCalls": 1, "toolCalls": 1, "turns": 1, "durationMs": 1 }, "limits": { "maxTokens": 1000 } },
+        { "type": "budget-status", "usage": { "inputTokens": 800, "outputTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0, "costUsd": 0, "modelCalls": 1, "toolCalls": 1, "turns": 1, "durationMs": 2 }, "limits": { "maxTokens": 1000 } },
+        { "type": "budget-status", "usage": { "inputTokens": 900, "outputTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0, "costUsd": 0, "modelCalls": 1, "toolCalls": 1, "turns": 1, "durationMs": 3 }, "limits": { "maxTokens": 1000 } },
+        { "type": "budget-status", "usage": { "inputTokens": 950, "outputTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0, "costUsd": 0, "modelCalls": 1, "toolCalls": 1, "turns": 1, "durationMs": 4 }, "limits": { "maxTokens": 1000 } }
+      ],
+      "expected": { "advisorySummaries": ["Run budget reached 75%.", "Run budget reached 90%."], "aggregateLabels": [] }
+    },
+    {
+      "id": "budget-quiet",
+      "detector": "budget",
+      "intent": "quiet",
+      "events": [
+        { "type": "budget-status", "usage": { "inputTokens": 749, "outputTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0, "costUsd": 0, "modelCalls": 1, "toolCalls": 1, "turns": 1, "durationMs": 1 }, "limits": { "maxTokens": 1000 } }
+      ],
+      "expected": { "advisorySummaries": [], "aggregateLabels": [] }
+    },
+    {
+      "id": "work-aggregation-helpful",
+      "detector": "work-aggregation",
+      "intent": "helpful",
+      "events": [
+        { "type": "child-status", "runId": "child-1", "agent": "reviewer", "status": "running" },
+        { "type": "background-status", "taskId": "bg-1", "status": "running", "awaited": false },
+        { "type": "child-status", "runId": "child-1", "agent": "reviewer", "status": "completed" },
+        { "type": "background-status", "taskId": "bg-1", "status": "completed", "awaited": false }
+      ],
+      "expected": { "advisorySummaries": [], "aggregateLabels": ["1 active task: 1 child, 0 background", "2 active tasks: 1 child, 1 background", "1 active task: 0 children, 1 background", "No active delegated work"] }
+    },
+    {
+      "id": "work-aggregation-quiet",
+      "detector": "work-aggregation",
+      "intent": "quiet",
+      "events": [
+        { "type": "child-status", "runId": "child-1", "agent": "reviewer", "status": "running" },
+        { "type": "child-status", "runId": "child-1", "agent": "reviewer", "status": "running" }
+      ],
+      "expected": { "advisorySummaries": [], "aggregateLabels": ["1 active task: 1 child, 0 background"] }
+    }
+  ]
+}

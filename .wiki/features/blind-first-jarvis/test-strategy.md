@@ -18,8 +18,8 @@ tests with manual keyboard, screen-reader, and user validation.
 | R-004 orientation/control | integration | `tests/cli/accessibility-commands.test.ts` |
 | R-005 permissions | integration + manual AT | permission queue and screen-reader fixtures |
 | R-006 keyboard parity | command matrix + manual | `tests/presentation/keyboard-parity.test.ts` |
-| R-007 outcome behavior | scenario replay | `tests/interaction/journeys.test.ts` |
-| R-008 proactivity | detector fixtures | `tests/interaction/detectors.test.ts` |
+| R-007 outcome behavior | scenario replay | `tests/interaction/journeys.test.ts` and `tests/fixtures/interaction/core-journeys.json` |
+| R-008 proactivity | detector fixtures | `tests/interaction/attention-quality.test.ts` and `tests/fixtures/interaction/attention-quality.json` |
 | R-009 watchers | platform-gated integration | `tests/harness/watchers.integration.test.ts` |
 | R-010 voice | adapter contract + manual | later phase, separate matrix |
 | R-011 privacy/evidence | redaction + trace verification | interaction/trace tests |
@@ -44,6 +44,12 @@ Replay versioned sequences for:
 Assert full snapshots, provenance, and invariant preservation after every event, not only
 the settled state.
 
+The versioned proxy baseline fixture covers authentication, broad objectives, local
+status, tools, permissions, child/background work, failure, interruption, resume, and
+completion. Its `proxy-baseline` marker is load-bearing: executable coverage is not a
+claim that a blind participant or assistive-technology combination has validated the
+journey.
+
 ### Announcement fixtures
 
 For each input sequence assert:
@@ -56,6 +62,12 @@ For each input sequence assert:
 - verbosity differences;
 - no raw secret-shaped values;
 - no routine animation/tool chatter in balanced mode.
+
+Attention-quality dogfood replays every deterministic detector through the production
+event adapter with one helpful and one deliberate quiet case. Repeated failure,
+verification invalidation, and budget thresholds assert exact advisories; delegated-work
+aggregation asserts exact count transitions and duplicate-event silence. Fixtures retain
+only redacted event shapes, never prompts, tool output, credentials, or local paths.
 
 ### Output invariants
 

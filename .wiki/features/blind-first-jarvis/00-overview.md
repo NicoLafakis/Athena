@@ -155,3 +155,9 @@ metadata rather than retrieved prose, and cross-system tests prove irrelevant, s
 or contradictory experience remains quiet and cannot replace current runtime truth.
 Visible experience-management commands remain behind the existing frontend approval
 gate.
+
+The Phase 0 engineering baseline and Phase 4 detector dogfood are now executable. A
+versioned proxy fixture covers all eleven core journey capabilities, a research-only
+vocabulary contract freezes the seven semantic labels, and every deterministic detector
+has exact helpful and quiet replay evidence through the production adapter. These remain
+explicitly distinct from the open blind-participant and assistive-technology gates.
