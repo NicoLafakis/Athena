@@ -139,3 +139,10 @@ selected until its adapter lands.
 additive versioned `interaction-event` records. Source engine events remain compatible,
 semantic facts follow their source event in stream order, the redacted objective precedes
 the run, and terminal facts precede the unchanged final `exec-result` envelope.
+
+Phase 4's deterministic situational-awareness core is also implemented: bounded
+agent-authored objective/next-step assertions, unchanged-input repeated-failure advice,
+gate invalidation after successful mutations, one-time 75%/90% budget advisories, and
+coalesced child/background activity. Background start, completion, failure, awaited
+retrieval, and shutdown abort are authoritative events; detectors retain bounded
+metadata or hashes and never grant/deny tools or create verified outcomes.

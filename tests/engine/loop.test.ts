@@ -76,6 +76,11 @@ describe('Engine.runTurn', () => {
     expect(events).toContainEqual({ type: 'assistant-text', delta: 'Hello!' })
     expect(events.at(-1)).toMatchObject({ type: 'turn-done' })
     expect(engine.getMessages()).toHaveLength(2) // user + assistant
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'budget-status',
+      usage: expect.objectContaining({ turns: 1, modelCalls: 1 }),
+      limits: expect.any(Object),
+    }))
   })
 
   it('tool round-trip: executes tool, feeds tool_result back, second call sees it', async () => {

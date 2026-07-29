@@ -100,4 +100,35 @@ describe('announcement policy', () => {
     }))!
     expect(changed.dedupeKey).not.toBe(base.dedupeKey)
   })
+
+  it('announces an explicitly awaited background completion without inventing attention', () => {
+    expect(classify(event('outcome-recorded', {
+      outcome: {
+        status: 'succeeded',
+        summary: 'Background task completed.',
+        verified: true,
+        operation: 'background:bg-1:awaited',
+      },
+    }))).toMatchObject({
+      priority: 'polite',
+      category: 'background',
+      text: 'Completed: Background task completed.',
+      requiresAcknowledgement: false,
+    })
+  })
+
+  it('labels proactive detector findings as advisory', () => {
+    expect(classify(event('attention-added', {
+      attention: {
+        id: 'repeated-failure:Write:abc',
+        category: 'advisory',
+        priority: 'assertive',
+        summary: 'Write failed twice with unchanged input.',
+        action: 'Review the failure before retrying unchanged input.',
+      },
+    }))).toMatchObject({
+      category: 'advisory',
+      text: 'Advisory: Write failed twice with unchanged input.',
+    })
+  })
 })

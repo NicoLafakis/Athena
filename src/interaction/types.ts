@@ -46,7 +46,7 @@ export interface Activity {
 
 export interface AttentionItem {
   id: string
-  category: 'permission' | 'error' | 'blocked' | 'decision' | 'limit'
+  category: 'permission' | 'error' | 'blocked' | 'decision' | 'limit' | 'advisory'
   priority: 'polite' | 'assertive' | 'blocking'
   summary: string
   action?: string

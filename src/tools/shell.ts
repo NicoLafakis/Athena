@@ -252,6 +252,8 @@ export interface BackgroundTask {
   owner?: string
   startedAt?: string
   child?: ChildProcess
+  emit?: ToolContext['emit']
+  terminalNotified?: boolean
 }
 
 class BackgroundTaskRegistry {
@@ -275,9 +277,16 @@ class BackgroundTaskRegistry {
   shutdown(owner?: string): void {
     for (const task of this.tasks.values()) {
       if (owner && task.owner !== owner) continue
-      if (task.status === 'running' && task.child) {
+      if (task.status === 'running') {
         task.status = 'aborted'
-        killProcessTree(task.child)
+        if (task.child) killProcessTree(task.child)
+        task.emit?.({
+          type: 'background-status',
+          taskId: task.id,
+          status: 'aborted',
+          awaited: false,
+        })
+        task.terminalNotified = true
       }
       this.tasks.delete(task.id)
     }
@@ -334,8 +343,10 @@ function makeShellTool(spec: ShellSpec): ToolDefinition<ShellInputT> {
         output: '',
         owner,
         startedAt: new Date().toISOString(),
+        emit: ctx.emit,
       }
       taskRegistry.tasks.set(id, task)
+      ctx.emit({ type: 'background-status', taskId: id, status: 'running', awaited: false })
       void runShell(spec, { ...input, run_in_background: false }, ctx, {
         onSpawn: (child) => {
           task.child = child
@@ -347,6 +358,15 @@ function makeShellTool(spec: ShellSpec): ToolDefinition<ShellInputT> {
       }).then((result) => {
         if (task.status !== 'aborted') task.status = result.isError ? 'failed' : 'done'
         task.output = result.output
+        if (!task.terminalNotified) {
+          ctx.emit({
+            type: 'background-status',
+            taskId: id,
+            status: task.status === 'done' ? 'completed' : task.status,
+            awaited: false,
+          })
+          task.terminalNotified = true
+        }
         const tail =
           result.output.length > NOTICE_TAIL_CHARS
             ? `…${result.output.slice(-NOTICE_TAIL_CHARS)}`
@@ -394,6 +414,12 @@ export const taskOutputTool: ToolDefinition<z.infer<typeof TaskOutputInput>> = {
       }
     }
     taskRegistry.tasks.delete(task.id)
+    ctx.emit({
+      type: 'background-status',
+      taskId: task.id,
+      status: task.status === 'done' ? 'completed' : task.status,
+      awaited: true,
+    })
     return {
       output: `Task ${task.id} ${task.status} (${task.command})\n${task.output}`,
       isError: task.status === 'failed' || task.status === 'aborted',

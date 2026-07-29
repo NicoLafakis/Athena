@@ -279,6 +279,7 @@ export class AgentOrchestrator {
           isError: event.isError,
         })
       }
+      if (event.type === 'agent-status-update') parentCtx.emit(event)
       if (event.type === 'error' && event.fatal) fatalError = event.message
     })
     const provider = this.opts.defaultProvider?.() ?? 'anthropic'

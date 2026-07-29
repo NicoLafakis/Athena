@@ -50,6 +50,20 @@ export type EngineEvent =
   | { type: 'tool-request'; id: string; name: string; input: unknown }
   | { type: 'tool-progress'; id: string; name: string; delta: string }
   | { type: 'background-output'; taskId: string; delta: string }
+  | {
+      type: 'background-status'
+      taskId: string
+      status: 'running' | 'completed' | 'failed' | 'aborted'
+      awaited: boolean
+    }
+  | { type: 'budget-status'; usage: RunUsage; limits: RunLimits }
+  | {
+      type: 'agent-status-update'
+      objective?: string
+      nextExpected?: string
+      sourceRef: string
+      runId?: string
+    }
   | { type: 'tool-result'; id: string; name: string; output: string; isError: boolean }
   | {
       type: 'permission-requested'

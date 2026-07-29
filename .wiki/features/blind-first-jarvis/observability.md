@@ -68,10 +68,17 @@ retention or create a second persisted transcript.
 - reducer and policy latency histograms;
 - renderer fallback count;
 - repeated-failure and invalidated-verification advisories;
+- 75%/90% budget crossings and child/background aggregate transitions;
 - watcher events/failures once enabled.
 
 Counters remain local and are exposed through diagnostics or trace evaluation. No new
 telemetry SaaS or network export is introduced.
+
+Detector state is deliberately non-transcriptive: repeated failures retain normalized
+input digests rather than arguments, verification retains gate/call labels, budget
+thresholds retain emitted flags, and work aggregation retains bounded active IDs. Exact
+usage remains in the redacted source `budget-status` event; unsolicited advisory text
+contains only its crossed percentage.
 
 ## Accessibility dogfood record
 

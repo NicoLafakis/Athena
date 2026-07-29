@@ -334,6 +334,32 @@ Each detector emits an advisory event once per condition sequence. Detectors nev
 actions. Experience remains explicitly advisory and is referenced by ID, not copied in
 full.
 
+Implementation status: Phase 4's deterministic core is active. `StatusUpdate` was chosen
+over extending Todo after an alternatives review: Todo remains the execution-list
+contract, while status assertions have explicit `source: agent` provenance and cannot
+author phases or verified outcomes. Objective and next-step strings are schema-bounded;
+the user's objective continues to outrank later agent wording. Child assertions preserve
+their child run ID when forwarded to the shared plane, and child tool detectors keep
+independent bounded state rather than contaminating the parent run.
+
+The repeated-failure detector is run-local, normalizes JSON key order, retains only
+bounded SHA-256 fingerprints, emits on the unchanged second failure, and resets on a
+meaningful input change or success. This is transient control state, not a second
+experience store; durable retrieval remains exclusively in the canonical Experiential
+Layer. Verification invalidation recognizes `Diagnostics` and the shipped `pnpm`
+typecheck/lint/test/build gates, then emits one advisory after a later successful
+Write/Edit/ApplyPatch/NotebookEdit. It does not infer arbitrary shell mutations.
+
+The engine emits authoritative `budget-status` snapshots after budget mutations. A
+run-local detector announces 75% once as polite and 90% once as assertive across any
+defined token, cost, model-call, tool-call, turn, or duration limit. Exact usage stays in
+the source event for explicit detail rather than unsolicited narration. Background shell
+tasks now emit started/completed/failed/aborted lifecycle facts, including synchronous
+shutdown aborts before semantic subscribers detach. Awaited completion is distinguished
+from routine success. Child and background identities feed a bounded root aggregate;
+unchanged counts coalesce, routine activity stays silent, and terminal failures, limits,
+aborts, and awaited completions retain their existing material paths.
+
 ## Persistent watchers
 
 Only after in-session semantics pass validation:

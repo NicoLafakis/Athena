@@ -11,6 +11,7 @@ import { readTool } from '../../src/tools/read.js'
 import { grepTool } from '../../src/tools/grep.js'
 import { writeTool } from '../../src/tools/write.js'
 import { bashTool, taskOutputTool } from '../../src/tools/shell.js'
+import { statusUpdateTool } from '../../src/tools/status-update.js'
 import { HookRunner } from '../../src/harness/hooks.js'
 import { TraceWarehouse } from '../../src/learning/warehouse.js'
 import type { AgentDef } from '../../src/brain/loader.js'
@@ -253,6 +254,36 @@ describe('AgentOrchestrator + Agent tool', () => {
     expect(res.isError).toBe(true)
     expect(res.output).toContain('researcher')
     expect(res.output).toContain('api down')
+  })
+
+  it('forwards child agent status assertions with the child run identity', async () => {
+    const registry = new ToolRegistry()
+    registry.register(statusUpdateTool as ToolDefinition<never>)
+    const childScript: ScriptedResponse[] = [
+      {
+        blocks: [toolUseBlock('status-1', 'StatusUpdate', { nextExpected: 'Review the result.' })],
+        stopReason: 'tool_use',
+      },
+      { blocks: [textBlock('done')], stopReason: 'end_turn' },
+    ]
+    const orchestrator = makeOrchestrator(() => new MockAnthropicClient(childScript), {
+      baseRegistry: registry,
+    })
+    const parentCtx = makeCtx(process.cwd())
+
+    await orchestrator.runAgent(
+      { ...researcherDef(), tools: ['StatusUpdate'] },
+      'report status',
+      parentCtx,
+    )
+
+    const update = parentCtx.events.find((event) => event.type === 'agent-status-update')
+    expect(update).toMatchObject({
+      type: 'agent-status-update',
+      nextExpected: 'Review the result.',
+      sourceRef: 'status-1',
+      runId: expect.any(String),
+    })
   })
 
   it('records a separate child trace linked to its parent run', async () => {

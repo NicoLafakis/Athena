@@ -153,6 +153,7 @@ export class Engine {
     const turnLimit = this.budget.beginTurn()
     if (turnLimit) return this.emitLimit(turnLimit)
     this.opts.bus.emit({ type: 'turn-start', turn: this.budget.snapshot().turns })
+    this.emitBudgetStatus()
     this.turnInFlight = true
     const remaining = this.budget.remainingDurationMs()
     let deadlineTimer: NodeJS.Timeout | null = null
@@ -250,6 +251,7 @@ export class Engine {
                       completion.usage,
                       usageCostUsd(this.getProvider(), this.opts.model, completion.usage),
                     ) ?? preflightCompactionLimit
+                  this.emitBudgetStatus()
                 }
                 return completion.text
               }
@@ -351,6 +353,7 @@ export class Engine {
         responseUsage,
         usageCostUsd(this.getProvider(), this.opts.model, responseUsage),
       )
+      this.emitBudgetStatus()
       contextManager.update(responseUsage)
       this.push({ role: 'assistant', content: msg.content })
 
@@ -365,7 +368,11 @@ export class Engine {
       // dispatch concurrently (spec section 7). Mixed batches stay sequential.
       const results: ToolResultBlockParam[] = []
       let abortedMidTools = false
-      const toolLimit = usageLimit ?? this.budget.beforeToolCalls(toolUses.length)
+      let toolLimit = usageLimit
+      if (!toolLimit) {
+        toolLimit = this.budget.beforeToolCalls(toolUses.length)
+        this.emitBudgetStatus()
+      }
       if (toolLimit) {
         terminal = this.recordLimit(toolLimit)
         for (const block of toolUses) {
@@ -499,6 +506,7 @@ export class Engine {
                       completion.usage,
                       usageCostUsd(this.getProvider(), this.opts.model, completion.usage),
                     ) ?? compactionLimit
+                  this.emitBudgetStatus()
                 }
                 return completion.text
               }
@@ -577,6 +585,14 @@ export class Engine {
       fatal: false,
     })
     return result
+  }
+
+  private emitBudgetStatus(): void {
+    this.opts.bus.emit({
+      type: 'budget-status',
+      usage: this.budget.snapshot(),
+      limits: { ...this.budget.getLimits() },
+    })
   }
 
   private emitLimit(reason: string): RunResult {

@@ -15,6 +15,7 @@ export {
   shutdownBackgroundTasks,
 } from './shell.js'
 export { todoTool } from './todo.js'
+export { statusUpdateTool } from './status-update.js'
 export { memoryTool } from './memory.js'
 export { webfetchTool, htmlToText } from './webfetch.js'
 export { websearchTool, parseDuckDuckGoHtml } from './websearch.js'

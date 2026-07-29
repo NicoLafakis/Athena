@@ -34,6 +34,7 @@ Trust boundaries:
 | Malicious watcher | Project starts monitoring outside workspace | Explicit user-created scope, resource policy, trust checks; only explicit `athena voice` may start the tracked voice daemon |
 | Optional-backend boot abort | Speech/watch migration throws during startup | Best-effort initialization, verified fallback, actionable warning |
 | Trace ambiguity | Semantic claim cannot be tied to evidence | Run ID, sequence, source type/ref, reducer version in trace metadata |
+| Detector secret retention | Repeated failure keeps raw tool arguments to compare retries | Run-local bounded canonical digests only; no tool input/output in detector state or advisory |
 | Double speech | Athena TTS and screen reader both announce | Direct speech default off; explicit exclusive/supplemental ownership |
 | Accessibility downgrade | Standard fallback silently restores inaccessible fullscreen | Plain warning names fallback and user command; never silent mode change |
 
@@ -46,6 +47,8 @@ Trust boundaries:
 - Optional subsystem failure cannot prevent the first user interaction when core state
   remains working.
 - No announcement requires disclosure of raw secret-bearing values.
+- Proactive detectors can emit advisory attention only; they cannot approve, deny, or
+  mark an outcome verified.
 
 ## Review gates
 

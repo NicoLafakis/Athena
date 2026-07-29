@@ -90,6 +90,7 @@ import {
   powershellTool,
   taskOutputTool,
   todoTool,
+  statusUpdateTool,
   memoryTool,
   webfetchTool,
   websearchTool,
@@ -1349,6 +1350,7 @@ async function main(): Promise<void> {
     powershellTool,
     taskOutputTool, // read-only poll over background shell tasks; flows to sub-agents via the base registry
     todoTool,
+    statusUpdateTool,
     memoryTool,
     webfetchTool,
     websearchTool,
@@ -1594,10 +1596,10 @@ async function main(): Promise<void> {
     try {
       result = await engine.runTurn(execPrompt!)
     } finally {
+      shutdownBackgroundTasks(trace.runId)
       unsubscribe()
       interaction.detach()
       await endSession('exec-complete')
-      shutdownBackgroundTasks(trace.runId)
       await mcp.closeAll()
     }
     const output = finalAssistantText(engine.getMessages())
@@ -1659,12 +1661,12 @@ async function main(): Promise<void> {
     bus.emit({ type: 'error', message: `Internal crash (logged to crash.log): ${message}`, fatal: true })
     engine.abort()
     void (async () => {
+      shutdownBackgroundTasks(trace.runId)
       await Promise.allSettled([
         endSession('crash'),
         mcp.closeAll(),
         trace.close(engine.getRunResult()),
       ])
-      shutdownBackgroundTasks(trace.runId)
       process.exit(1)
     })()
   }
@@ -1715,9 +1717,9 @@ async function main(): Promise<void> {
   try {
     await instance.waitUntilExit()
   } finally {
+    shutdownBackgroundTasks(trace.runId)
     interaction.detach()
     await endSession('interactive-exit')
-    shutdownBackgroundTasks(trace.runId)
     await mcp.closeAll()
     await trace.close(engine.getRunResult())
   }

@@ -119,22 +119,22 @@ editing under the active Global Rule.
 
 ## Phase 4 - outcome orientation and deterministic proactivity
 
-- [ ] **4.1 Add bounded agent status assertions** - create a `StatusUpdate` tool or extend
+- [x] **4.1 Add bounded agent status assertions** - create a `StatusUpdate` tool or extend
   the existing Todo contract only after an alternatives review; tests prove assertions
   cannot set verified outcomes - done when objective/next step can be richer without
   weakening truth precedence.
-- [ ] **4.2 Repeated-failure detector** - reuse the canonical
+- [x] **4.2 Repeated-failure detector** - reuse the canonical
   [Experiential Layer component](experience.md) rather than forking it; key by run and
   normalized tool input - done when the
   unchanged second failure emits one advisory and meaningful input change resets it.
-- [ ] **4.3 Verification-invalidation detector** - create
+- [x] **4.3 Verification-invalidation detector** - create
   `src/interaction/detectors/verification.ts`; consume successful gate and later mutation
   events - done when Athena never continues to claim stale gate success after relevant
   edits.
-- [ ] **4.4 Budget detector** - consume `RunBudget` snapshots at 75% and 90% thresholds -
+- [x] **4.4 Budget detector** - consume `RunBudget` snapshots at 75% and 90% thresholds -
   done when each threshold announces once and exact costs/tokens remain available on
   demand rather than unsolicited.
-- [ ] **4.5 Child/background aggregation** - create deterministic aggregation over child
+- [x] **4.5 Child/background aggregation** - create deterministic aggregation over child
   status and background task events - done when routine progress coalesces and
   failure/limit/awaited completion is never lost.
 - [ ] **4.6 Dogfood attention quality** - add positive and deliberate no-announcement

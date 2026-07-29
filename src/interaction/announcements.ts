@@ -79,7 +79,11 @@ function draftFor(event: InteractionEventEnvelope, previous: InteractionSnapshot
       return phaseDraft(event.payload.phase, false)
     case 'attention-added': {
       const item = event.payload.attention
-      const prefix = item.category === 'permission' ? 'Permission' : 'Attention'
+      const prefix = item.category === 'permission'
+        ? 'Permission'
+        : item.category === 'advisory'
+          ? 'Advisory'
+          : 'Attention'
       return {
         priority: item.priority,
         category: item.category,
@@ -98,6 +102,19 @@ function draftFor(event: InteractionEventEnvelope, previous: InteractionSnapshot
         target: event.payload.attentionId,
         condition: 'resolved',
       }
+    case 'outcome-recorded': {
+      const outcome = event.payload.outcome
+      if (!outcome.operation?.startsWith('background:') || !outcome.operation.endsWith(':awaited')) {
+        return null
+      }
+      return {
+        priority: outcome.status === 'succeeded' ? 'polite' : 'assertive',
+        category: 'background',
+        text: `${outcome.status === 'succeeded' ? 'Completed' : 'Attention'}: ${plainBounded(outcome.summary, 992)}`,
+        target: outcome.operation,
+        condition: outcome.status,
+      }
+    }
     default:
       return null
   }

@@ -63,7 +63,7 @@ describe('powershellTool', () => {
   })
 
   it('background mode returns a task id immediately and later emits an info event (never an orphan tool-result)', async () => {
-    const ctx = makeCtx(dir)
+    const ctx = makeCtx(dir, { runId: 'run-background' })
     const res = await powershellTool.execute(
       { command: 'Write-Output done', run_in_background: true },
       ctx,
@@ -73,6 +73,12 @@ describe('powershellTool', () => {
     const id = /bg-[0-9a-f]+/.exec(res.output)?.[0]
     expect(id).toBeDefined()
     expect(backgroundTasks.get(id!)?.status).toBe('running')
+    expect(ctx.events).toContainEqual({
+      type: 'background-status',
+      taskId: id,
+      status: 'running',
+      awaited: false,
+    })
     await vi.waitFor(
       () => {
         expect(
@@ -86,8 +92,36 @@ describe('powershellTool', () => {
     // An orphan tool-result (no matching tool_use id) must never be emitted.
     expect(ctx.events.some((e) => e.type === 'tool-result')).toBe(false)
     expect(backgroundTasks.get(id!)?.status).toBe('done')
+    expect(ctx.events).toContainEqual({
+      type: 'background-status',
+      taskId: id,
+      status: 'completed',
+      awaited: false,
+    })
     backgroundTasks.delete(id!)
   }, 40_000)
+
+  it('shutdown records an authoritative aborted lifecycle event before pruning', () => {
+    const ctx = makeCtx(dir)
+    backgroundTasks.set('bg-abort1', {
+      id: 'bg-abort1',
+      command: 'long-running command',
+      status: 'running',
+      output: '',
+      owner: 'run-abort',
+      emit: ctx.emit,
+    })
+
+    shutdownBackgroundTasks('run-abort')
+
+    expect(backgroundTasks.has('bg-abort1')).toBe(false)
+    expect(ctx.events).toContainEqual({
+      type: 'background-status',
+      taskId: 'bg-abort1',
+      status: 'aborted',
+      awaited: false,
+    })
+  })
 })
 
 describe('taskOutputTool', () => {
@@ -105,19 +139,33 @@ describe('taskOutputTool', () => {
 
   it('returns a finished task output and prunes the entry once read', async () => {
     backgroundTasks.set('bg-done1', { id: 'bg-done1', command: 'echo hi', status: 'done', output: 'hi there' })
-    const res = await taskOutputTool.execute({ taskId: 'bg-done1' }, makeCtx(dir))
+    const ctx = makeCtx(dir)
+    const res = await taskOutputTool.execute({ taskId: 'bg-done1' }, ctx)
     expect(res.isError).toBe(false)
     expect(res.output).toContain('hi there')
     expect(res.output).toContain('done')
     expect(backgroundTasks.has('bg-done1')).toBe(false)
+    expect(ctx.events).toContainEqual({
+      type: 'background-status',
+      taskId: 'bg-done1',
+      status: 'completed',
+      awaited: true,
+    })
   })
 
   it('a failed task reads back as an error result (and is pruned)', async () => {
     backgroundTasks.set('bg-fail1', { id: 'bg-fail1', command: 'boom', status: 'failed', output: 'kaput' })
-    const res = await taskOutputTool.execute({ taskId: 'bg-fail1' }, makeCtx(dir))
+    const ctx = makeCtx(dir)
+    const res = await taskOutputTool.execute({ taskId: 'bg-fail1' }, ctx)
     expect(res.isError).toBe(true)
     expect(res.output).toContain('kaput')
     expect(backgroundTasks.has('bg-fail1')).toBe(false)
+    expect(ctx.events).toContainEqual({
+      type: 'background-status',
+      taskId: 'bg-fail1',
+      status: 'failed',
+      awaited: true,
+    })
   })
 
   it('unknown task id is an error listing known ids', async () => {
