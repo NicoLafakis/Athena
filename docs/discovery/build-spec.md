@@ -6,6 +6,10 @@
 **Technical design:** [design](../../.wiki/features/blind-first-jarvis/design.md)
 **Implementation plan:** [tasks](../../.wiki/features/blind-first-jarvis/tasks.md)
 
+This build specification and the linked `blind-first-jarvis` package are the sole
+source of truth for the upgrade. The experiential and voice designs are components of
+that package; standalone drafts are historical inputs, not parallel plans. (D-018)
+
 _Regenerated 2026-07-29 from `decision-ledger.md` and repository/research artifacts. Do
 not hand-edit during implementation; change the ledger/models, then regenerate._
 
@@ -288,8 +292,10 @@ recording is authorized. Provenance: D-009 through D-014.
   defaults to denial.
 - **Run traces:** canonical redacted evidence; trace failure follows existing primary-run
   preservation rules.
-- **Experiential Layer:** advisory IDs and bounded context only; unavailable retrieval is
-  silent/nonfatal unless explicitly queried.
+- **Experiential Layer:** follow the canonical
+  [component design](../../.wiki/features/blind-first-jarvis/experience.md); exchange
+  advisory IDs and bounded context only; unavailable retrieval is silent/nonfatal unless
+  explicitly queried.
 - **Screen readers/terminals:** consume stable line output; incompatibility falls back to
   a plain recovery command and is scoped to the tested combination.
 - **Future watcher/voice backends:** optional and probed; failure never aborts core boot.
@@ -324,8 +330,8 @@ status target) and add no model cost (D-007, D-010, D-013, D-014).
 - Always-on autonomous host control.
 - Silent cross-project monitoring or cross-machine credential/memory sync.
 - Inferring disability or screen-reader use without explicit user configuration.
-- Replacing sessions, traces, permissions, memory, governed learning, or the planned
-  Experiential Layer.
+- Replacing sessions, traces, permissions, memory, governed learning, or the canonical
+  Experiential Layer component.
 - Solving Ink's documented platform input limitations through unreachable keybindings.
 
 Provenance: D-002, D-005, D-008 through D-013.
@@ -360,9 +366,9 @@ Assumed defaults are D-003 through D-009 and D-012 through D-015 in the
 - Implement screen-reader interaction as line I/O rather than a second React renderer.
   Revisit only after the supported AT matrix proves another mechanism more reliable.
   (D-006)
-- Keep non-voice watchers foreground-first. Reuse the tracked opt-in voice-daemon plan,
-  but put its spoken digests and permissions over this semantic contract; resolve the
-  current Realtime model during its probe instead of freezing the older draft's model.
-  (D-008, D-009, D-016, D-017)
+- Keep non-voice watchers foreground-first. Implement the canonical
+  [voice component](../../.wiki/features/blind-first-jarvis/voice.md) over this semantic
+  contract; resolve the current Realtime model during its probe instead of freezing a
+  historical draft's model. (D-008, D-009, D-016, D-017, D-018)
 - Reuse redaction, traces, permissions, resource policy, sessions, hooks, and the
   Experiential Layer. A parallel implementation is a design failure. (D-010, D-011)

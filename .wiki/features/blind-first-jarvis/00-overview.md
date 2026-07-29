@@ -6,6 +6,11 @@
 **Product contract:** [build specification](../../../docs/discovery/build-spec.md)
 **Decision ledger:** [decision ledger](../../../docs/discovery/decision-ledger.md)
 
+> **Single source of truth:** This directory, together with the linked build specification
+> and decision ledger, is the only authoritative plan for the Jarvis upgrade. Voice and
+> experiential learning are component designs inside this package, not independent
+> roadmaps.
+
 ## What was asked
 
 Research and develop the plan to upgrade Athena so she behaves like Jarvis, using the
@@ -52,7 +57,7 @@ observe -> reduce to semantic state -> prioritize -> announce or stay quiet
 - A stable append-only screen-reader presentation and accessible permission flow.
 - Query commands for status, repetition, detail, and interruption feedback.
 - Deterministic proactive triggers inside active runs.
-- Explicit integration seams for the existing Experiential Layer plan.
+- A deterministic, bounded Experiential Layer for advisory retrieval.
 - A staged foreground watcher and optional voice roadmap.
 - Automated and manual assistive-technology release gates.
 
@@ -88,6 +93,8 @@ Package:
 - [Product requirements](../../../docs/discovery/build-spec.md)
 - [PRD](prd.md)
 - [Technical design](design.md)
+- [Experiential Layer component](experience.md)
+- [Voice component](voice.md)
 - [ADR 001: semantic event plane](adr/0001-semantic-event-plane.md)
 - [ADR 002: append-only screen-reader adapter](adr/0002-append-only-screen-reader-adapter.md)
 - [Test strategy](test-strategy.md)

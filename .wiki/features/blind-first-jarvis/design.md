@@ -294,12 +294,12 @@ Only after in-session semantics pass validation:
 
 ## Voice seam
 
-The tracked voice plan in commit `3bc1ce6` already defines an opt-in `athena voice`
-daemon, wake word, OpenAI Realtime conductor, session router, and control channel. Reuse
-that architecture. Its conductor consumes `InteractionSnapshot` and `Announcement`, never
-raw tool/model events or a second independently inferred status digest. Voice input
-produces normal user prompts or command invocations. The adapter supports cancellation,
-speech ownership, and complete keyboard fallback.
+The canonical [voice component](voice.md) defines an opt-in `athena voice` daemon, wake
+word, OpenAI Realtime conductor, session router, and later control channel. Its conductor
+consumes `InteractionSnapshot` and `Announcement`, never raw tool/model events or a second
+independently inferred status digest. Voice input produces normal user prompts or command
+invocations. The adapter supports cancellation, speech ownership, and complete keyboard
+fallback.
 
 The older voice draft names `gpt-realtime-2`. Do not freeze that model string in this
 package. The voice capability spike must consult current official OpenAI documentation
@@ -308,10 +308,11 @@ and explicitly choose a supported model. As of 2026-07-29, official model pages 
 availability and cost are runtime dependencies with an event-based recheck before the
 spike, not durable product semantics.
 
-## Integration with existing planned systems
+## Integration with planned systems
 
-- **Experiential Layer:** contributes advisory context and midstream signals after its
-  threshold filters; does not own announcements.
+- **Experiential Layer:** the canonical [component design](experience.md) contributes
+  advisory context and midstream signals after its threshold filters; it does not own
+  announcements.
 - **Self-reflection journal:** may receive interaction event references but remains an
   evidence journal, not live state.
 - **Memory hygiene:** may create attention items for flagged memory but remains the
@@ -336,5 +337,5 @@ Implementation changes to TUI presentation or input must update:
 - `.wiki/architecture/tui-fullscreen-row-budget.md` if fullscreen siblings/budgets change;
 - `.wiki/reference/tui-keybindings.md` for new or changed bindings;
 - `.wiki/reference/tui-platform-limits.md` if a new reachable input seam is proven;
-- the Experiential Layer documentation when its events are integrated;
+- `experience.md` when its event, retrieval, or guidance contract changes;
 - `.wiki/INDEX.md` summaries when package status changes.

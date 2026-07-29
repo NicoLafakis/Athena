@@ -57,10 +57,10 @@
 
 ### Overlap with planned systems
 
-The untracked `docs/Athena Experiential Layer v1 - Implementation Plan.pdf` (the actual
-filename uses an em dash) proposes deterministic trace compilation, bounded retrieval,
-active-versus-provisional guidance, midstream repeated-failure advice, and internal
-hooks. This upgrade treats that system as the source of relevant prior experience.
+An earlier experiential draft proposed deterministic trace compilation, bounded
+retrieval, active-versus-provisional guidance, midstream repeated-failure advice, and
+internal hooks. Its useful decisions are now reconciled into the canonical
+[Experiential Layer component](experience.md); the standalone draft was removed.
 
 The existing self-reflection-journal and memory-hygiene wiki plans remain separate:
 
@@ -71,12 +71,12 @@ The existing self-reflection-journal and memory-hygiene wiki plans remain separa
 
 They may share event identifiers and trace references, but not stores or authority.
 
-The tracked remote branch is one commit ahead locally with commit `3bc1ce6`, which adds
-`docs/voice/athena-voice-mode-plan-2026-07-28.md`. That document establishes an opt-in
-voice daemon, local wake word, OpenAI Realtime conductor, engine-session router, voice
-permissions, and a later control channel. This package does not replace it. The semantic
-state and announcement plane becomes the source of trustworthy milestone digests and
-permission context for that conductor.
+An earlier voice draft in commit `3bc1ce6` established an opt-in voice daemon, local wake
+word, OpenAI Realtime conductor, engine-session router, voice permissions, and a later
+control channel. Its useful decisions are now reconciled into the canonical
+[voice component](voice.md); the standalone roadmap was removed. The semantic state and
+announcement plane is the sole source of trustworthy milestone digests and permission
+context for the conductor.
 
 The voice document's named `gpt-realtime-2` model is time-sensitive. Official OpenAI
 documentation checked 2026-07-29 lists `gpt-realtime-2.1` as an updated reasoning voice

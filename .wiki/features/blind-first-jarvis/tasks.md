@@ -118,8 +118,9 @@ editing under the active Global Rule.
   the existing Todo contract only after an alternatives review; tests prove assertions
   cannot set verified outcomes - done when objective/next step can be richer without
   weakening truth precedence.
-- [ ] **4.2 Repeated-failure detector** - reuse the design from the Experiential Layer
-  plan rather than forking it; keyed by run and normalized tool input - done when the
+- [ ] **4.2 Repeated-failure detector** - reuse the canonical
+  [Experiential Layer component](experience.md) rather than forking it; key by run and
+  normalized tool input - done when the
   unchanged second failure emits one advisory and meaningful input change resets it.
 - [ ] **4.3 Verification-invalidation detector** - create
   `src/interaction/detectors/verification.ts`; consume successful gate and later mutation
@@ -135,10 +136,10 @@ editing under the active Global Rule.
   fixtures from real traces - done when each detector has evidence of usefulness and no
   loop/spam regression before default enablement.
 
-## Phase 5 - Experiential Layer integration
+## Phase 5 - Experiential Layer
 
-- [ ] **5.1 Implement or land the separate Experiential Layer package** - follow its
-  existing plan and gates; do not absorb its store into `src/interaction/` - done when
+- [ ] **5.1 Implement the canonical Experiential Layer component** - follow
+  [experience.md](experience.md); keep its store outside `src/interaction/` - done when
   deterministic capture/retrieval, provenance, approval, no-hit, privacy, and context
   budgets pass.
 - [ ] **5.2 Define advisory event seam** - add metadata-only experience/guidance IDs,
@@ -171,13 +172,11 @@ editing under the active Global Rule.
   idle resource/privacy budgets pass and Nico decides separately whether a daemon is
   warranted.
 
-## Phase 7 - tracked voice-mode integration
+## Phase 7 - optional voice component
 
-- [ ] **7.1 Integrate the tracked plan** - after bringing commit `3bc1ce6` into the working
-  branch, treat `docs/voice/athena-voice-mode-plan-2026-07-28.md` as the voice subsystem
-  source; update it to consume `InteractionSnapshot`/`Announcement` instead of inventing
-  a second digest truth model - done when docs have one voice architecture and one state
-  authority.
+- [ ] **7.1 Implement the canonical voice component** - follow [voice.md](voice.md) and
+  consume `InteractionSnapshot`/`Announcement` instead of inventing a second digest truth
+  model - done when code and docs have one voice architecture and one state authority.
 - [ ] **7.2 Run the plan's capability/cost spike and resolve current API contracts** - use
   only official OpenAI docs for the supported Realtime model and wire schema; do not pin
   the older draft's `gpt-realtime-2` without re-verification - done when audio, wake word,
