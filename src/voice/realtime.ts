@@ -115,7 +115,9 @@ export class RealtimeVoiceClient {
           type: 'realtime',
           model: this.model,
           output_modalities: ['audio'],
-          audio: { output: { format: { type: 'audio/pcm' }, voice: 'marin' } },
+          audio: {
+            output: { format: { type: 'audio/pcm', rate: 24_000 }, voice: 'marin' },
+          },
           instructions: CONDUCTOR_INSTRUCTIONS,
           tools: VOICE_TOOLS,
           tool_choice: 'auto',

@@ -35,7 +35,13 @@ describe('OpenAI Realtime voice transport', () => {
     socket.open()
     expect(socket.sent[0]).toMatchObject({
       type: 'session.update',
-      session: { model: 'gpt-realtime-2.1-mini', output_modalities: ['audio'] },
+      session: {
+        model: 'gpt-realtime-2.1-mini',
+        output_modalities: ['audio'],
+        audio: {
+          output: { format: { type: 'audio/pcm', rate: 24_000 }, voice: 'marin' },
+        },
+      },
     })
     expect(authorization).toBe('Bearer test-key')
     socket.server({ type: 'session.updated' })
