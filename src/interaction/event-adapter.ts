@@ -84,6 +84,26 @@ export class InteractionEventAdapter {
         this.emit(this.options.runId, 'runtime', 'phase-changed', { phase: 'thinking' }, event.id)
         return
       }
+      case 'permission-requested':
+        this.emit(this.options.runId, 'runtime', 'phase-changed', {
+          phase: 'waiting-permission',
+        }, event.requestId)
+        this.emit(this.options.runId, 'runtime', 'attention-added', {
+          attention: {
+            id: boundedPlain(event.requestId, 256),
+            category: 'permission',
+            priority: 'blocking',
+            summary: boundedPlain(event.summary, 1_024),
+            action: 'Choose allow once, allow for this session, or deny.',
+          },
+        }, event.requestId)
+        return
+      case 'permission-resolved':
+        this.emit(this.options.runId, 'runtime', 'attention-resolved', {
+          attentionId: boundedPlain(event.requestId, 256),
+        }, event.requestId)
+        this.emit(this.options.runId, 'runtime', 'phase-changed', { phase: 'acting' }, event.requestId)
+        return
       case 'run-limit':
         this.emitTerminalResult(this.options.runId, {
           status: 'limit',

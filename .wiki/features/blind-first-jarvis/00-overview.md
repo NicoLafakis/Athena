@@ -121,9 +121,12 @@ composition. The service exposes local status, repeat, detail, verbosity, acknow
 and unresolved-blocker APIs without a model call or presentation output. A 20,000-event
 regression fixture enforces the reducer-plus-policy p95 budget.
 
-Permission lifecycle events and visible slash command/menu wiring remain outstanding
-because those changes cross the explicit frontend approval gate before editing
-`src/tui/App.tsx` or its visible command surfaces.
+Adapter-neutral permission lifecycle events are now emitted around every engine `ask`
+decision with stable pairing, fail-closed headless resolution, credential redaction, and
+no raw tool input. They drive exact blocking attention and semantic phase restoration
+outside React. Migrating the existing interactive permission queue and wiring visible
+slash command/menu surfaces remain outstanding because those changes cross the explicit
+frontend approval gate before editing `src/tui/App.tsx` or its visible command surfaces.
 
 The Phase 3 settings foundation is also active: global accessibility preferences receive
 deep safe defaults, project `.athena/settings.json` values cannot override them, and a

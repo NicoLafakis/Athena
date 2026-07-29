@@ -169,6 +169,22 @@ describe('Engine.runTurn', () => {
     const result = events.find((e) => e.type === 'tool-result') as { output: string }
     expect(result.output).toContain('denied (headless')
     expect(result.output).not.toContain('needs approval') // not the ask reason
+    expect(events).toContainEqual({
+      type: 'permission-requested',
+      requestId: 'permission:tu_1',
+      toolCallId: 'tu_1',
+      toolName: 'Echo',
+      summary: 'Echo requires permission.',
+      reason: 'needs approval',
+    })
+    expect(events).toContainEqual({
+      type: 'permission-resolved',
+      requestId: 'permission:tu_1',
+      toolCallId: 'tu_1',
+      toolName: 'Echo',
+      answer: 'deny',
+      resolution: 'headless-default',
+    })
   })
 
   it('ask denied by a wired askUser says "denied by user"', async () => {
@@ -186,6 +202,52 @@ describe('Engine.runTurn', () => {
     await engine.runTurn('go')
     const result = events.find((e) => e.type === 'tool-result') as { output: string }
     expect(result.output).toContain('denied by user')
+  })
+
+  it('emits paired permission lifecycle events without exposing tool input', async () => {
+    const askGate: PermissionGate = {
+      check: () => ({
+        decision: 'ask',
+        reason: 'policy requires approval for sk-ant-api03-supersecretvalue1234',
+      }),
+      grantSession: () => {},
+    }
+    const { engine, events } = makeEngine(
+      [
+        {
+          blocks: [toolUseBlock('tu_secret', 'Echo', { value: 'do-not-publish-this-secret' })],
+          stopReason: 'tool_use',
+        },
+        { blocks: [textBlock('ok')], stopReason: 'end_turn' },
+      ],
+      { gate: askGate, askUser: async () => 'allow-once' },
+    )
+
+    await engine.runTurn('go')
+
+    const lifecycle = events.filter(
+      (event) => event.type === 'permission-requested' || event.type === 'permission-resolved',
+    )
+    expect(lifecycle).toEqual([
+      {
+        type: 'permission-requested',
+        requestId: 'permission:tu_secret',
+        toolCallId: 'tu_secret',
+        toolName: 'Echo',
+        summary: 'Echo requires permission.',
+        reason: 'policy requires approval for [REDACTED]',
+      },
+      {
+        type: 'permission-resolved',
+        requestId: 'permission:tu_secret',
+        toolCallId: 'tu_secret',
+        toolName: 'Echo',
+        answer: 'allow-once',
+        resolution: 'user',
+      },
+    ])
+    expect(JSON.stringify(lifecycle)).not.toContain('do-not-publish-this-secret')
+    expect(JSON.stringify(lifecycle)).not.toContain('supersecretvalue1234')
   })
 
   it('parallel tool_use blocks execute sequentially in block order', async () => {

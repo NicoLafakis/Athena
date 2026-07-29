@@ -13,6 +13,7 @@ import { estimateRequestTokens } from './context.js'
 import { RunBudget } from './run.js'
 import type { ToolRegistry } from '../tools/registry.js'
 import type { HookRunner } from '../harness/hooks.js'
+import { redactSessionValue } from '../harness/redaction.js'
 import {
   modelCapabilities,
   modelId,
@@ -27,6 +28,7 @@ import {
 } from '../brain/models.js'
 import type {
   PermissionGate,
+  PermissionAnswer,
   RunLimits,
   RunResult,
   ToolContext,
@@ -40,7 +42,7 @@ export type AskUserFn = (req: {
   input: unknown
   summary: string
   reason: string
-}) => Promise<'allow-once' | 'allow-always' | 'deny'>
+}) => Promise<PermissionAnswer>
 
 export interface EngineOptions {
   client: ModelClient
@@ -622,6 +624,16 @@ export class Engine {
     let allowed = decision.decision === 'allow'
     let denyReason = decision.reason
     if (decision.decision === 'ask') {
+      const requestId = `permission:${block.id}`
+      const summary = `${block.name} requires permission.`
+      this.opts.bus.emit({
+        type: 'permission-requested',
+        requestId,
+        toolCallId: block.id,
+        toolName: block.name,
+        summary,
+        reason: safePermissionReason(decision.reason),
+      })
       const answer = this.opts.askUser
         ? await this.opts.askUser({
             toolName: block.name,
@@ -630,6 +642,14 @@ export class Engine {
             reason: decision.reason,
           })
         : ('deny' as const)
+      this.opts.bus.emit({
+        type: 'permission-resolved',
+        requestId,
+        toolCallId: block.id,
+        toolName: block.name,
+        answer,
+        resolution: this.opts.askUser ? 'user' : 'headless-default',
+      })
       if (answer === 'allow-always') {
         gate.grantSession(ruleFor(effectiveBlock, toolContext.cwd))
         allowed = true
@@ -708,6 +728,12 @@ async function mapWithConcurrency<T, R>(
 function summarize(block: ToolUseBlock): string {
   const input = JSON.stringify(block.input)
   return `${block.name}(${input.length > 120 ? input.slice(0, 120) + '…' : input})`
+}
+
+function safePermissionReason(reason: string): string {
+  const redacted = redactSessionValue(reason)
+  return String(redacted).replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1_024)
+    || 'Permission policy requires approval.'
 }
 
 /** "Always allow" rule derived from the request: Bash gets a command-prefix rule,

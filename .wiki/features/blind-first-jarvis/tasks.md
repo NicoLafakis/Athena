@@ -38,7 +38,11 @@ editing under the active Global Rule.
   `src/presentation/types.ts`; modify `src/engine/loop.ts`, `src/tui/App.tsx`, and
   composition in `src/cli.ts`; tests in `tests/engine/` and `tests/tui/` - done when the
   current Ink queue still behaves identically and request/resolution events are observable
-  outside React. **Frontend approval gate applies before editing `App.tsx`.**
+  outside React. The engine/event-adapter half is complete: paired, stable, redacted
+  `permission-requested`/`permission-resolved` events now drive exact blocking attention
+  outside React, including headless default-deny. The presentation contract and existing
+  Ink queue migration remain pending. **Frontend approval gate applies before editing
+  `App.tsx`.**
 - [x] **1.4 Implement pure reducer** - create `src/interaction/state.ts`; test every
   fixture after every event - done when snapshots are deterministic and runtime/user
   precedence over agent assertions is mechanically enforced.

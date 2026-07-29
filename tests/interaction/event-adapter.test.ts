@@ -88,6 +88,52 @@ describe('InteractionEventAdapter', () => {
     expect(seen).toEqual([])
   })
 
+  it('turns a permission request into blocking attention and resolves the exact item', () => {
+    const bus = new EngineEventBus()
+    const seen: InteractionEventEnvelope[] = []
+    const adapter = new InteractionEventAdapter({
+      runId: 'root-run',
+      now: () => '2026-07-29T12:00:00.000Z',
+      onEnvelope: (event) => seen.push(event),
+    })
+    adapter.attach(bus)
+
+    bus.emit({
+      type: 'permission-requested',
+      requestId: 'permission:tool-1',
+      toolCallId: 'tool-1',
+      toolName: 'Write',
+      summary: 'Write requires permission.',
+      reason: 'workspace write requires approval',
+    })
+    bus.emit({
+      type: 'permission-resolved',
+      requestId: 'permission:tool-1',
+      toolCallId: 'tool-1',
+      toolName: 'Write',
+      answer: 'allow-once',
+      resolution: 'user',
+    })
+
+    expect(seen).toMatchObject([
+      { kind: 'phase-changed', payload: { phase: 'waiting-permission' } },
+      {
+        kind: 'attention-added',
+        payload: {
+          attention: {
+            id: 'permission:tool-1',
+            category: 'permission',
+            priority: 'blocking',
+            summary: 'Write requires permission.',
+          },
+        },
+      },
+      { kind: 'attention-resolved', payload: { attentionId: 'permission:tool-1' } },
+      { kind: 'phase-changed', payload: { phase: 'acting' } },
+    ])
+    expect(JSON.stringify(seen)).not.toContain('workspace write requires approval')
+  })
+
   it('bounds user objectives before they reach the validated state plane', () => {
     const seen: InteractionEventEnvelope[] = []
     const adapter = new InteractionEventAdapter({

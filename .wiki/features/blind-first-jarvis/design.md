@@ -148,6 +148,15 @@ payloads. The engine's additive `turn-done.result` field is the authoritative te
 fact. Accepted envelopes are recorded through `RunTraceWriter.recordInteraction`, which
 uses the existing redaction and hash-chain path and records reducer version 1.
 
+The engine now also emits paired `permission-requested` and `permission-resolved`
+events around every `ask` decision. Their stable request ID derives from the tool-call
+ID, headless mode records its fail-closed default denial, and public event payloads omit
+raw tool input while bounding and redacting the policy reason. The interaction adapter
+turns the request into `waiting-permission` plus one blocking attention item, then
+resolves that exact item and resumes `acting`. The existing React `PermissionBridge`
+still owns interactive prompt presentation; moving that queue behind a presentation
+contract remains gated on explicit frontend approval.
+
 In JSONL exec mode, accepted envelopes are also externalized as
 `{ schemaVersion: 1, event: { type: "interaction-event", envelope } }`. The composition
 root buffers envelopes produced synchronously by a source engine event, writes the
@@ -302,6 +311,12 @@ Engine permission decision = ask
 The accessible summary contains tool, normalized target, consequence, reason, and keys.
 For Write/Edit it includes bounded diff statistics and `/details permission <id>` for the
 full bounded diff. It never substitutes a summary for the existing permission engine.
+
+Current implementation boundary: the engine lifecycle/semantic events described above
+are complete, but the richer target/consequence/diff formatter and presentation-neutral
+FIFO request contract are not. Until that approved presentation work lands, the public
+event summary deliberately names only the tool and policy reason and never exposes raw
+tool input.
 
 ## Proactive attention
 

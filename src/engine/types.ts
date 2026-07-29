@@ -42,6 +42,8 @@ export interface RunResult {
   usage: RunUsage
 }
 
+export type PermissionAnswer = 'allow-once' | 'allow-always' | 'deny'
+
 export type EngineEvent =
   | { type: 'assistant-text'; delta: string }
   | { type: 'assistant-thinking'; delta: string }
@@ -49,6 +51,22 @@ export type EngineEvent =
   | { type: 'tool-progress'; id: string; name: string; delta: string }
   | { type: 'background-output'; taskId: string; delta: string }
   | { type: 'tool-result'; id: string; name: string; output: string; isError: boolean }
+  | {
+      type: 'permission-requested'
+      requestId: string
+      toolCallId: string
+      toolName: string
+      summary: string
+      reason: string
+    }
+  | {
+      type: 'permission-resolved'
+      requestId: string
+      toolCallId: string
+      toolName: string
+      answer: PermissionAnswer
+      resolution: 'user' | 'headless-default'
+    }
   | { type: 'todo-update'; todos: TodoItem[] }
   | { type: 'turn-done'; usage: TokenUsage; result?: RunResult }
   | { type: 'turn-start'; turn: number }
