@@ -29,7 +29,7 @@ import type {
 import { atomicWriteFile } from '../tools/files.js'
 import { RunTraceWriter } from './traces.js'
 import { ResourcePolicy } from './resource-policy.js'
-import { redactSessionValue } from './sessions.js'
+import { redactSessionValue } from './redaction.js'
 
 export interface AgentOrchestratorOptions {
   defs: AgentDef[]

@@ -14,6 +14,9 @@ import {
 import { basename, join } from 'node:path'
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
 import { canonicalProjectPath } from './trust.js'
+import { redactSessionValue } from './redaction.js'
+
+export { redactSessionValue } from './redaction.js'
 
 const SESSION_SCHEMA_VERSION = 2
 const STALE_LOCK_MS = 30_000
@@ -41,36 +44,6 @@ interface CheckpointData {
 
 interface MetadataData {
   title?: string
-}
-
-const SECRET_KEY = /^(?:api[_-]?key|authorization|password|secret|token|access[_-]?token|refresh[_-]?token)$/i
-const SECRET_PATTERNS = [
-  /\bsk-(?:ant|kimi|live|proj)-[A-Za-z0-9._-]{8,}\b/g,
-  /\b(Bearer\s+)[A-Za-z0-9._~+/-]{12,}\b/gi,
-  /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g,
-]
-
-export function redactSessionValue(value: unknown, key?: string): unknown {
-  if (key && SECRET_KEY.test(key)) return '[REDACTED]'
-  if (typeof value === 'string') {
-    return SECRET_PATTERNS.reduce(
-      (text, pattern) =>
-        text.replace(pattern, (match) =>
-          /^Bearer\s+/i.test(match) ? 'Bearer [REDACTED]' : '[REDACTED]',
-        ),
-      value,
-    )
-  }
-  if (Array.isArray(value)) return value.map((item) => redactSessionValue(item))
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([name, item]) => [
-        name,
-        redactSessionValue(item, name),
-      ]),
-    )
-  }
-  return value
 }
 
 export interface SessionCheckpoint {

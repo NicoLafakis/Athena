@@ -141,6 +141,13 @@ Assistant text does not become verified state. A model may provide a bounded sta
 assertion through a future `StatusUpdate` tool, but it remains `source: agent` until a
 runtime event confirms it.
 
+Implementation note: the adapter is now a passive subscriber at the CLI composition
+root. It assigns independent sequence spaces to the root and each child run, emits no
+presentation output, and never copies tool input or raw tool output into semantic
+payloads. The engine's additive `turn-done.result` field is the authoritative terminal
+fact. Accepted envelopes are recorded through `RunTraceWriter.recordInteraction`, which
+uses the existing redaction and hash-chain path and records reducer version 1.
+
 ### `src/interaction/state.ts`
 
 A pure reducer with no I/O, clock, model, or renderer dependencies. The caller supplies
@@ -155,6 +162,10 @@ resolution, tool success, verified completion, or resource mutation.
 
 The store retains the current snapshot and a bounded ring of recent material events and
 announcements. Complete detail lives in the trace.
+
+The implemented Phase 1 store retains only the latest snapshot per observed run. The
+bounded material-event and announcement rings belong to Phase 2, when announcement
+policy exists; complete Phase 1 evidence already lives in the trace.
 
 ### `src/interaction/announcements.ts`
 

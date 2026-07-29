@@ -50,7 +50,7 @@ export type EngineEvent =
   | { type: 'background-output'; taskId: string; delta: string }
   | { type: 'tool-result'; id: string; name: string; output: string; isError: boolean }
   | { type: 'todo-update'; todos: TodoItem[] }
-  | { type: 'turn-done'; usage: TokenUsage }
+  | { type: 'turn-done'; usage: TokenUsage; result?: RunResult }
   | { type: 'turn-start'; turn: number }
   | { type: 'run-limit'; limit: string; usage: RunUsage }
   | {

@@ -2,7 +2,7 @@
 
 **Tier:** 3 - major / high-risk
 **Date:** 2026-07-29
-**Status:** planning
+**Status:** implementation in progress (semantic truth plane)
 **Product contract:** [build specification](../../../docs/discovery/build-spec.md)
 **Decision ledger:** [decision ledger](../../../docs/discovery/decision-ledger.md)
 
@@ -104,3 +104,17 @@ Package:
 - [Threat model](threat-model.md)
 - [Risk register](risks.md)
 - [Implementation tasks](tasks.md)
+
+## Implementation status
+
+Phase 1 now has a passive semantic subscriber in the CLI composition root. Versioned,
+bounded envelopes are derived from user objectives and runtime events, reduced into
+per-run snapshots, and appended as redacted metadata through the existing hash-chained
+run trace. `turn-done` carries its authoritative `RunResult`, so completion, limit,
+failure, and abort state never need to be inferred from assistant prose.
+
+Implemented and covered by deterministic tests: contracts and schemas, per-run/root-child
+sequencing, the pure reducer and source-precedence rules, malformed/cross-run/order
+rejection, trace metadata, and real `athena exec` composition. Permission lifecycle
+events remain the outstanding Phase 1 seam because wiring the current Ink bridge requires
+the explicit frontend approval gate before editing `src/tui/App.tsx`.

@@ -3,8 +3,10 @@ import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { RunResult } from '../engine/types.js'
 import type { EngineEventBus } from '../engine/events.js'
+import type { InteractionEventEnvelope } from '../interaction/types.js'
+import { INTERACTION_REDUCER_VERSION } from '../interaction/types.js'
 import { projectId } from './trust.js'
-import { redactSessionValue } from './sessions.js'
+import { redactSessionValue } from './redaction.js'
 
 export const RUN_TRACE_SCHEMA_VERSION = 1
 
@@ -89,6 +91,13 @@ export class RunTraceWriter {
 
   recordPrompt(prompt: string): void {
     this.append('user-prompt', { prompt })
+  }
+
+  recordInteraction(event: InteractionEventEnvelope): void {
+    this.append('interaction-event', {
+      reducerVersion: INTERACTION_REDUCER_VERSION,
+      envelope: event,
+    })
   }
 
   async close(result: RunResult): Promise<void> {

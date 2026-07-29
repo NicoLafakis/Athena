@@ -31,12 +31,13 @@ turning an unanswered choice into an invisible requirement.
 | D-016 | Is there already a voice architecture to reuse? | inferred | Yes. Preserve its opt-in daemon, wake word, Realtime conductor, engine-session router, permissions, and phased control channel inside this package, with the semantic plane as its only state authority. | reconciled artifact: `.wiki/features/blind-first-jarvis/voice.md`; historical commit `3bc1ce6`. | The canonical voice component is superseded. |
 | D-017 | Which Realtime model is pinned in the implementation plan? | assumed-default | Do not freeze the older draft's `gpt-realtime-2` choice now. Resolve and explicitly configure a supported current model during the voice spike; official docs currently list `gpt-realtime-2.1` and `gpt-realtime-2.1-mini`, both with audio and function calling. | agent-default from official OpenAI model docs checked 2026-07-29. | Immediately before the voice spike or when OpenAI model availability changes. |
 | D-018 | Which upgrade plan survives the remote sync? | answered | The blind-first Jarvis package is the only source of truth. Fold useful voice and experiential decisions into component pages here, remove their standalone artifacts, and update every inbound reference. | Nico: "make sure that YOUR version of this upgrade is the only one that survives" (2026-07-29). | Resolves competing roadmaps and authorizes documentation reconciliation. | Nico explicitly designates another canonical plan. |
+| D-019 | Which implementation sequence is active? | default-applied | Build the semantic truth plane first, while keeping voice as a later opt-in adapter over that authority. | active user objective: "complete the blind-first-jarvis upgrade" plus the Q-001 recommended default (2026-07-29). | Lets implementation proceed without making voice or an external audio dependency foundational. | Nico explicitly directs voice to lead or the semantic seam proves insufficient. |
 
 ## Priority-ranked open questions
 
 | ID | Question (plain language) | Status | Decision | Source | Why it matters / unblocks | Revisit trigger |
 |---|---|---|---|---|---|---|
-| Q-001 | Which milestone should lead: the semantic/screen-reader foundation or the voice capability spike? | open | Recommended default: run the audio/probe spike in parallel, but ship the semantic truth plane before conversational status and voice permissions. | - | The voice conductor needs trustworthy state summaries; sequencing determines the critical path. | Before implementation starts. |
+| Q-001 | Which milestone should lead: the semantic/screen-reader foundation or the voice capability spike? | default-applied | Ship the semantic truth plane before conversational status and voice permissions; the audio/probe spike remains independently schedulable. | D-019 | The voice conductor needs trustworthy state summaries; sequencing determines the critical path. | Nico explicitly selects a different order. |
 | Q-002 | Which screen-reader and platform combinations must pass before the first production claim? | open | Recommended default: Windows Terminal with NVDA and Narrator first; VoiceOver/macOS and Orca/Linux before a cross-platform claim. | - | Sets recruitment, hardware, and release scope. | Before Phase 3 support claim. |
 | Q-003 | It is three months after launch and this flopped - what happened? | open | - | - | The founder-facing pre-mortem identifies the risk that should reorder the rollout gates. | Before final dogfood thresholds. |
 
@@ -72,5 +73,6 @@ turning an unanswered choice into an invisible requirement.
 - After sync, Nico selected this package as the only surviving upgrade plan (D-018).
   Useful voice and experiential decisions were folded into component pages and the two
   standalone artifacts were removed.
-- Q-001 through Q-003 remain the only founder decisions; no coding should start before
-  the build-spec playback and sequencing are confirmed.
+- The active completion objective applied the recommended semantic-first default (D-019).
+  Phase 1 implementation began with contracts, runtime adaptation, deterministic state,
+  and trace provenance; Q-002 and Q-003 remain open before their respective release gates.

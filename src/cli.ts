@@ -64,6 +64,7 @@ import { AnthropicClient } from './engine/client.js'
 import type { ModelClient } from './engine/client.js'
 import { FixtureModelClient } from './engine/fixture-client.js'
 import { EngineEventBus } from './engine/events.js'
+import { InteractionEventAdapter, InteractionStateStore } from './interaction/index.js'
 import { ContextManager } from './engine/context.js'
 import { assembleSystemPrompt, findProjectContextFiles } from './engine/prompt.js'
 import type { BrainPaths } from './brain/paths.js'
@@ -1290,6 +1291,17 @@ async function main(): Promise<void> {
     sandbox: settings.sandboxMode,
   })
   trace.attach(bus)
+  const interactionState = new InteractionStateStore((diagnostic) => {
+    trace.append('interaction-diagnostic', diagnostic)
+  })
+  const interaction = new InteractionEventAdapter({
+    runId: trace.runId,
+    onEnvelope: (event) => {
+      const reduction = interactionState.accept(event)
+      if (reduction.accepted) trace.recordInteraction(event)
+    },
+  })
+  interaction.attach(bus)
   const store = new SessionStore(paths.sessionsDir, cwd)
 
   const registry = new ToolRegistry()
@@ -1545,11 +1557,13 @@ async function main(): Promise<void> {
       }
     })
     trace.recordPrompt(execPrompt!)
+    interaction.recordUserObjective(execPrompt!, 'prompt:exec')
     let result
     try {
       result = await engine.runTurn(execPrompt!)
     } finally {
       unsubscribe()
+      interaction.detach()
       await endSession('exec-complete')
       shutdownBackgroundTasks(trace.runId)
       await mcp.closeAll()
@@ -1640,6 +1654,7 @@ async function main(): Promise<void> {
       },
       onSubmit: async (text: string) => {
         trace.recordPrompt(text)
+        interaction.recordUserObjective(text, `prompt:${Date.now()}`)
         await engine.runTurn(text)
       },
       onAbort: () => engine.abort(),
@@ -1668,6 +1683,7 @@ async function main(): Promise<void> {
   try {
     await instance.waitUntilExit()
   } finally {
+    interaction.detach()
     await endSession('interactive-exit')
     shutdownBackgroundTasks(trace.runId)
     await mcp.closeAll()

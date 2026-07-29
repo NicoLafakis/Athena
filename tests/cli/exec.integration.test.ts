@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 
@@ -57,6 +57,18 @@ describe('athena exec process contract', () => {
     })
     expect(output['runId']).toEqual(expect.any(String))
     expect(output['traceFile']).toEqual(expect.any(String))
+
+    const traceLines = readFileSync(output['traceFile'] as string, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { type: string; payload: unknown })
+    const semantic = traceLines.filter((line) => line.type === 'interaction-event')
+    expect(semantic.map((line) => (line.payload as { envelope: { kind: string } }).envelope.kind)).toEqual([
+      'objective-set',
+      'phase-changed',
+      'phase-changed',
+      'outcome-recorded',
+    ])
   })
 
   it('reads a prompt from stdin and emits versioned JSONL events', () => {

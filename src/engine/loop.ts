@@ -181,11 +181,9 @@ export class Engine {
         message: `Prompt blocked by UserPromptSubmit hook: ${promptHook.reason ?? 'no reason given'}`,
         fatal: false,
       })
-      bus.emit({
-        type: 'turn-done',
-        usage: this.budget.snapshot(),
-      })
-      return this.budget.completed()
+      const result = this.budget.completed()
+      bus.emit({ type: 'turn-done', usage: result.usage, result })
+      return result
     }
     const text = promptHook.addedContext
       ? `${userText}\n\n<hook-context>\n${promptHook.addedContext}\n</hook-context>`
@@ -548,7 +546,7 @@ export class Engine {
     // stays the last event of the turn (tests and the TUI both key off that).
     bus.emit({ type: 'status', patch: { contextPct: Math.round(contextManager.usedFraction() * 100) } })
     const result = terminal ?? this.budget.completed()
-    bus.emit({ type: 'turn-done', usage: result.usage })
+    bus.emit({ type: 'turn-done', usage: result.usage, result })
     return result
   }
 
@@ -581,7 +579,7 @@ export class Engine {
 
   private emitLimit(reason: string): RunResult {
     const result = this.recordLimit(reason)
-    this.opts.bus.emit({ type: 'turn-done', usage: result.usage })
+    this.opts.bus.emit({ type: 'turn-done', usage: result.usage, result })
     return result
   }
 

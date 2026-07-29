@@ -26,11 +26,11 @@ editing under the active Global Rule.
 
 ## Phase 1 - semantic truth plane
 
-- [ ] **1.1 Add versioned contracts** - create `src/interaction/types.ts` and
+- [x] **1.1 Add versioned contracts** - create `src/interaction/types.ts` and
   `src/interaction/schemas.ts`; test `tests/interaction/types.test.ts` - done when all
   externalized envelopes, snapshots, attention items, outcomes, and announcements reject
   malformed/oversized payloads.
-- [ ] **1.2 Implement per-run sequencing** - create
+- [x] **1.2 Implement per-run sequencing** - create
   `src/interaction/event-adapter.ts`; test duplicates, ordering, parent/child isolation -
   done when each accepted runtime event has a stable run ID, monotonic sequence, source,
   timestamp, and source reference.
@@ -39,19 +39,20 @@ editing under the active Global Rule.
   composition in `src/cli.ts`; tests in `tests/engine/` and `tests/tui/` - done when the
   current Ink queue still behaves identically and request/resolution events are observable
   outside React. **Frontend approval gate applies before editing `App.tsx`.**
-- [ ] **1.4 Implement pure reducer** - create `src/interaction/state.ts`; test every
+- [x] **1.4 Implement pure reducer** - create `src/interaction/state.ts`; test every
   fixture after every event - done when snapshots are deterministic and runtime/user
   precedence over agent assertions is mechanically enforced.
-- [ ] **1.5 Add replay/invariant property tests** - create
+- [x] **1.5 Add replay/invariant property tests** - create
   `tests/interaction/state-property.test.ts` - done when duplicate, malformed,
   out-of-order, and contradictory sequences cannot create verified facts without runtime
   evidence or cross run boundaries.
-- [ ] **1.6 Attach trace metadata** - modify `src/harness/traces.ts` only through the
+- [x] **1.6 Attach trace metadata** - modify `src/harness/traces.ts` only through the
   existing redaction/hash-chain path; test verification - done when transitions have
   reducer version and source sequences without duplicated raw content.
-- [ ] **1.7 Wire composition behind disabled subscriber** - modify `src/cli.ts` and
-  `src/engine/index.ts` as needed - done when existing TUI/text/JSON/JSONL behavior is byte
-  compatible with the subscriber disabled and full repository gates pass.
+- [x] **1.7 Wire passive composition subscriber** - modify `src/cli.ts` and
+  `src/engine/index.ts` as needed - done when the subscriber emits no presentation output,
+  existing TUI/text/JSON/JSONL behavior remains compatible, semantic transitions reach
+  the redacted trace, and full repository gates pass.
 
 ## Phase 2 - attention and announcement policy
 

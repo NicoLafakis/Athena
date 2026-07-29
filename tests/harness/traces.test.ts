@@ -111,4 +111,55 @@ describe('RunTraceWriter', () => {
     expect(serialized).toContain('[REDACTED]')
     expect(await verifyRunTrace(writer.file)).toMatchObject({ valid: true })
   })
+
+  it('records bounded semantic metadata through the redacted hash chain', async () => {
+    const writer = await RunTraceWriter.create(root, {
+      cwd: root,
+      provider: 'anthropic',
+      model: 'sonnet',
+      mode: 'normal',
+      sandbox: 'workspace-write',
+    })
+    writer.recordInteraction({
+      schemaVersion: 1,
+      id: `${writer.runId}:1`,
+      runId: writer.runId,
+      sequence: 1,
+      timestamp: '2026-07-29T12:00:00.000Z',
+      source: 'runtime',
+      kind: 'attention-added',
+      payload: {
+        attention: {
+          id: 'error:1',
+          category: 'error',
+          priority: 'assertive',
+          summary: 'Provider rejected sk-ant-api03-supersecretvalue1234.',
+          action: 'Run athena auth.',
+        },
+      },
+      sourceRef: 'runtime-error',
+    })
+    await writer.close({
+      status: 'error',
+      reason: 'provider error',
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        costUsd: 0,
+        modelCalls: 0,
+        toolCalls: 0,
+        turns: 0,
+        durationMs: 0,
+      },
+    })
+
+    const events = await readRunTrace(writer.file)
+    const semantic = events.find((event) => event.type === 'interaction-event')
+    expect(semantic?.payload).toMatchObject({ reducerVersion: 1 })
+    expect(JSON.stringify(semantic)).not.toContain('supersecretvalue1234')
+    expect(JSON.stringify(semantic)).toContain('[REDACTED]')
+    expect(await verifyRunTrace(writer.file)).toMatchObject({ valid: true })
+  })
 })
