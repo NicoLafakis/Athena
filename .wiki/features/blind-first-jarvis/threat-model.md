@@ -56,8 +56,9 @@ Trust boundaries:
   mark an outcome verified.
 - A non-voice watch exists only after an explicit user request, watches one resolved
   in-workspace resource, and owns no process after its foreground invocation exits.
-- Voice routing never silently selects an ambiguous session, and the Realtime conductor
-  cannot complete its own approve, deny, or cancel confirmation.
+- The reusable voice router never silently selects an ambiguous session. The current
+  conductor cannot execute its own delegation proposal, and the direct-harness adapter
+  cannot authorize or resolve a canonical permission from model-authored text alone.
 
 ## Review gates
 

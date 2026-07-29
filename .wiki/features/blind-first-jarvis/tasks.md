@@ -199,13 +199,14 @@ editing under the active Global Rule.
 
 ## Phase 7 - optional voice component
 
-- [x] **7.1 Implement the canonical voice component** - follow [voice.md](voice.md) and
-  consume `InteractionSnapshot`/`Announcement` instead of inventing a second digest truth
-  model - done when code and docs have one voice architecture and one state authority.
-  The provider-neutral context, function, routing, speech-ownership, and confirmation
-  core is composed with an opt-in daemon, dynamically loaded Realtime transport, one
-  resumable child Athena session, local wake gate, and usage-only record. The conductor
-  never owns file tools or claims child results without the engine envelope.
+- [x] **7.1 Implement the provider-neutral voice foundation** - follow [voice.md](voice.md)
+  and define `InteractionSnapshot`/`Announcement` context, routing, speech ownership, and
+  bounded confirmation contracts without inventing a second digest truth model. Those
+  reusable components and their tests exist. The working opt-in CLI composes the local
+  wake gate, Realtime conductor, one resumable child Athena session, and usage-only record,
+  but does not yet wire the semantic context/router into a direct harness session; that is
+  task 7.6. The conductor owns no file tools and cannot claim child results without the
+  engine envelope.
 - [ ] **7.2 Run the plan's capability/cost spike and resolve current API contracts** - use
   only official OpenAI docs for the supported Realtime model and wire schema; do not pin
   the older draft's `gpt-realtime-2` without re-verification - done when audio, wake word,
@@ -224,13 +225,15 @@ editing under the active Global Rule.
   Deterministic ownership and announcement-only output are complete. Realtime PCM is
   wrapped in a temporary owner-only WAV, played synchronously by the OS, and deleted;
   transcript fallback and `--keyboard` preserve stable-text/Braille reachability.
-- [x] **7.4 Implement optional speech input** - translate into normal prompts/commands -
-  done when recognition failure loses no state and confirmation is required for
-  consequential ambiguity.
+- [x] **7.4 Implement the optional speech-input foundation** - provide bounded input
+  contracts plus the first working wake-gated Realtime path - done when recognition
+  failure loses no state and the intermediate conductor cannot execute a proposal in the
+  same turn.
   Windows speech recognition runs locally, requires a confidence-thresholded `Athena`
   prefix, and sends only post-wake raw PCM to Realtime. Coding delegation requires a
   separate confirm turn; cancel/recognition failure lose no engine state. The keyboard
-  input adapter exercises the same conductor and confirmation state machine.
+  input adapter exercises the same conductor and confirmation state machine. Mapping each
+  accepted work turn into the normal direct harness prompt path remains task 7.6.
 - [ ] **7.5 Manual AT/voice validation** - test with actual screen readers enabled and
   disabled - done when voice improves measured workflows and can be entirely removed
   without reducing capability.

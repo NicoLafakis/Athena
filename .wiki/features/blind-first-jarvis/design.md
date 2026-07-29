@@ -402,19 +402,22 @@ and semantic-announcement composition remain pending.
 
 ## Voice seam
 
-The canonical [voice component](voice.md) defines an opt-in `athena voice` daemon, wake
-word, OpenAI Realtime conductor, session router, and later control channel. Its conductor
-consumes `InteractionSnapshot` and `Announcement`, never raw tool/model events or a second
-independently inferred status digest. Voice input produces normal user prompts or command
-invocations. The adapter supports cancellation, speech ownership, and complete keyboard
-fallback.
+The [voice component](voice.md) records both the working intermediate composition and its
+provider-neutral seams. Today, an opt-in `athena voice` process uses a local `Athena` wake
+gate, sends post-wake PCM to an OpenAI Realtime conductor, and runs separately confirmed
+work through one resumable `athena exec` child. The reusable `InteractionSnapshot`,
+`Announcement`, routing, and speech-ownership components exist, but the working CLI does
+not yet compose them into a direct harness-owned voice session.
 
-The older voice draft names `gpt-realtime-2`. Do not freeze that model string in this
-package. The voice capability spike must consult current official OpenAI documentation
-and explicitly choose a supported model. As of 2026-07-29, official model pages list
-`gpt-realtime-2.1` and `gpt-realtime-2.1-mini` with audio and function calling. Model
-availability and cost are runtime dependencies with an event-based recheck before the
-spike, not durable product semantics.
+The [direct-harness voice specification](direct-harness-voice.md) is the next-phase
+authority: Realtime becomes a bounded audio/intent adapter, every work turn enters one
+Athena-owned harness session, and status and permissions come from canonical harness
+state. Active control of an independently running TUI remains deferred.
+
+The implemented defaults are `gpt-realtime-2.1-mini` for cost and
+`gpt-realtime-2.1` for quality, resolved from official documentation on 2026-07-29.
+Model availability and price remain runtime dependencies that must be rechecked before a
+support or cost claim; they are not durable product semantics.
 
 ## Integration with planned systems
 

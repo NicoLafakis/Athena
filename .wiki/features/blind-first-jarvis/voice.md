@@ -16,53 +16,57 @@ hands-free conversation from any window, but it is not the accessibility foundat
 it does not create a second account of current state. Every workflow remains complete by
 keyboard and stable text when audio, wake word, network, or the Realtime provider fails.
 
-The Realtime model is a conductor, not a coding agent. It can converse and invoke bounded
-voice functions, but it never edits files or bypasses Athena's engine. Spoken status and
-permissions are derived from `InteractionSnapshot` and `Announcement`.
+In the working intermediate composition, the Realtime model is a conductor, not a coding
+agent. It can converse and invoke bounded voice functions, but it never edits files or
+bypasses Athena's engine. Its current `status` function reports only the latest voice
+delegation result; canonical harness status and permissions are not yet wired into the
+live CLI path. That wiring belongs to the direct-harness upgrade above.
 
-## Architecture
+## Current intermediate architecture
 
 ```text
-microphone -> local wake-word/PTT gate -> opt-in VoiceDaemon <-> Realtime API
+microphone -> local Athena wake gate -> opt-in VoiceDaemon <-> Realtime API
                                            |
                                            v
                                      VoiceConductor
-                           (delegate, status, focus, approve,
-                                deny, cancel; no file tools)
+                         (delegate, status, confirm, cancel,
+                              stop listening; no file tools)
+                                           |
+                                  separate confirm
                                            |
                                            v
-                                      SessionRouter
-                              /                         \
-                     owned Engine session       local control client
-                                                   to an Athena session
-
-InteractionSnapshot + Announcement -> bounded spoken context -> VoiceConductor
+                                resumable athena exec child
 ```
 
 `athena voice` is a separate entrypoint. Ordinary `athena` and `athena exec` boot paths
 do not import, probe, or start voice dependencies.
 
-## Session routing
+## Reusable session-routing seam
 
-Windows are display surfaces; sessions are the control surface. Resolution order is:
+`VoiceSessionRouter` exists and implements this provider-neutral resolution order:
 
 1. an explicitly selected session;
 2. a foreground-window hint, when supported and proven;
 3. the most recently active unambiguous session;
 4. an audible request for clarification.
 
-Athena states the destination before a consequential command. Ambiguity never silently
-selects a session. Each session retains one writer; a later localhost named-pipe or socket
-control channel makes the daemon a client of the owning process rather than a competing
-engine writer.
+The working `athena voice` CLI does not currently use this router; it owns one resumable
+child session after confirmation. The next upgrade instead makes voice own one harness
+session directly. A later authenticated named-pipe or socket control channel may make
+voice a client of an independently running TUI, but that IPC work is explicitly deferred.
 
 ## Voice permissions
 
-The existing permission engine remains authoritative. An accessible request supplies the
-conductor a bounded tool, target, consequence, reason, and stable request ID. The spoken
-answer resolves that exact pending request. Consequential or ambiguous recognition
-requires confirmation, and every request remains answerable from the keyboard. Voice
-sessions default to scoped permissions, never implicit trust.
+The working conductor has no file or shell tools. It can only propose a bounded
+delegation, and a separate later `Athena confirm` or keyboard `confirm` is required before
+the resumable child engine runs it under Athena's existing permission and sandbox policy.
+The current voice process does not yet announce or resolve canonical pending permission
+records from that child.
+
+The direct-harness upgrade must expose those records through stable permission IDs,
+announce the exact bounded action and consequence, and allow voice or keyboard resolution
+without treating model-authored confirmation as authority. Voice sessions default to
+scoped permissions, never implicit trust.
 
 ## Capability and privacy contract
 
@@ -82,7 +86,7 @@ component, backend, and recovery command and leaves core Athena usable.
 - Start half-duplex or headphones-first. Full-duplex echo cancellation and barge-in wait
   for a proven audio backend.
 
-## Delivery sequence
+## Historical delivery sequence
 
 1. **Capability and cost spike:** probe the desktop and laptop audio paths, wake word,
    current API contract, latency, privacy, licensing, and failure reporting.
@@ -101,26 +105,33 @@ metering, and at least one platform-gated real subprocess/audio probe. Manual va
 runs with supported screen readers both enabled and disabled to catch double speech and
 focus conflicts.
 
+This sequence produced the working audio proof. Phase 7.6 now follows the separate
+[direct-harness implementation sequence](direct-harness-voice.md#implementation-sequence),
+which is authoritative for subsequent voice work.
+
 ## Implementation status (2026-07-29)
 
-The provider-neutral core now lives in `src/voice/`. `buildVoiceContext` accepts only an
+Provider-neutral building blocks live in `src/voice/`. `buildVoiceContext` accepts only an
 `InteractionSnapshot` and optional `Announcement`, then emits a strict bounded/redacted
 context containing semantic objective, phase, pending attention, verified outcome, and
 latest material announcement. No raw engine event, tool input/output, or independent
-status digest enters the voice seam.
+status digest enters that context seam. The working CLI conductor does not yet consume
+this context.
 
-`VoiceSessionRouter` implements the canonical order: explicit session, proven foreground
+`VoiceSessionRouter` implements the planned order: explicit session, proven foreground
 hint, then an unambiguous recent session. Unknown or near-simultaneous candidates return
-clarification rather than silently choosing. `VoiceSpeechOutput` consumes
-`Announcement` only. Direct speech off is removable; exclusive ownership yields to an
-active screen reader; supplemental ownership suppresses routine speech and allows only
-blocking interruption when a screen reader is active.
+clarification rather than silently choosing. It is not wired into the current CLI.
+`VoiceSpeechOutput` consumes `Announcement` only and likewise remains a reusable semantic
+output component rather than the current Marin playback path. Direct speech off is
+removable; exclusive ownership yields to an active screen reader; supplemental ownership
+suppresses routine speech and allows only blocking interruption when a screen reader is
+active.
 
-Recognized text becomes an ordinary prompt or slash command, while recognition failure
-is a no-op with a keyboard recovery message. Delegate/status/focus/approve/deny/cancel
-calls are strict and ID-bound. Approve, deny, and cancel can never execute directly from
-a conductor call: they create a bounded local confirmation request, and only a separate
-exact `confirm` for its opaque ID releases the action.
+The provider-neutral input mapper can turn recognized text into an ordinary prompt or
+slash command, while recognition failure is a no-op with a keyboard recovery message.
+The working CLI instead uses the conductor's `delegate`, `status`, `confirm`, `cancel`,
+and `stop_listening` calls. A delegation cannot execute from its proposal turn: only a
+separate later confirmation releases it to the resumable child engine session.
 
 ### Working Windows composition
 

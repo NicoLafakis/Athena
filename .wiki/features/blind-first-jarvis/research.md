@@ -74,15 +74,21 @@ They may share event identifiers and trace references, but not stores or authori
 An earlier voice draft in commit `3bc1ce6` established an opt-in voice daemon, local wake
 word, OpenAI Realtime conductor, engine-session router, voice permissions, and a later
 control channel. Its useful decisions are now reconciled into the canonical
-[voice component](voice.md); the standalone roadmap was removed. The semantic state and
-announcement plane is the sole source of trustworthy milestone digests and permission
-context for the conductor.
+[voice component](voice.md); the standalone roadmap was removed. The first working
+composition proved a local wake gate, raw microphone audio into Realtime, Marin playback,
+and a separately confirmed resumable `athena exec` child. It remains an intermediate
+proxy composition, not the final product boundary.
 
-The voice document's named `gpt-realtime-2` model is time-sensitive. Official OpenAI
-documentation checked 2026-07-29 lists `gpt-realtime-2.1` as an updated reasoning voice
-model with tool use and `gpt-realtime-2.1-mini` as a lower-cost variant. The implementation
-spike must resolve current supported models and API contracts again rather than copying a
-stale planning string.
+The [direct-harness voice specification](direct-harness-voice.md) and
+[ADR 0003](adr/0003-realtime-as-audio-adapter.md) supersede preservation of that conductor
+boundary. Realtime is to interpret post-wake audio and speak results while the semantic
+state, announcement plane, permissions, reasoning, tools, and claims about work remain
+owned by one Athena harness session.
+
+Official OpenAI documentation checked 2026-07-29 resolved `gpt-realtime-2.1` as the
+quality model and `gpt-realtime-2.1-mini` as the implemented lower-cost default. Current
+availability, API contracts, retention, and prices must still be rechecked before making
+support, privacy, or cost claims.
 
 ## Primary sources
 

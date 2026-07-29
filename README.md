@@ -74,7 +74,7 @@ policy. `Athena cancel` discards a pending delegation.
 
 ```sh
 athena voice auth       # hidden key entry; validates and saves to the OS vault
-athena voice probe      # speaks a sentinel, asks for “Athena probe”, checks Realtime
+athena voice probe      # speaks a sentinel, asks for “Athena voice probe”, checks Realtime
 athena voice            # microphone input; say “Athena” followed by a command
 athena voice --keyboard # stable text/Braille equivalent; type confirm/cancel/exit
 ```
