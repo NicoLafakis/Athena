@@ -116,8 +116,43 @@ calls are strict and ID-bound. Approve, deny, and cancel can never execute direc
 a conductor call: they create a bounded local confirmation request, and only a separate
 exact `confirm` for its opaque ID releases the action.
 
-The official OpenAI developer-docs MCP endpoint is installed locally, but this Codex
-session must restart before the connector is callable. Consequently the Realtime model,
-wire schema, price, retention policy, audio backend, wake-word dependency/license, and
-real capability probes remain deliberately unresolved. Ordinary Athena boot imports
-none of `src/voice/`.
+### Official Realtime contract resolved by the documentation spike
+
+Official documentation checked on 2026-07-29 establishes two current candidates. The
+quality baseline is [`gpt-realtime-2.1`](https://developers.openai.com/api/docs/models/gpt-realtime-2.1):
+128k context, 32k maximum output, audio and text input/output, function calling, and no
+structured outputs. Its published per-million-token prices are $4 text input, $0.40
+cached text input, $24 text output, $32 audio input, $0.40 cached audio input, and $64
+audio output. The cost-first candidate is
+[`gpt-realtime-2.1-mini`](https://developers.openai.com/api/docs/models/gpt-realtime-2.1-mini),
+with the same context/output limits and modalities at $0.60/$0.06/$2.40 for text and
+$10/$0.30/$20 for audio. These are mutable published prices, not a session-cost promise;
+Athena must record actual usage and expose a user budget.
+
+The desktop CLI direction is a server-side WebSocket connection to
+`wss://api.openai.com/v1/realtime?model=...` using the normal per-machine API key. The
+official [WebSocket guide](https://developers.openai.com/api/docs/guides/realtime-websocket)
+explicitly permits a standard API key for server-side clients. The current
+[conversation contract](https://developers.openai.com/api/docs/guides/realtime-conversations)
+uses `session.created`/`session.update`/`session.updated`; 24 kHz PCM is a documented
+input option; streamed input uses `input_audio_buffer.append`, then `commit` and
+`response.create` when VAD is disabled; audio arrives through
+`response.output_audio.delta`; function tools are declared on `session.tools`; and
+push-to-talk interruption uses `response.cancel` plus playback stop and
+`conversation.item.truncate`. Realtime sessions have a documented 60-minute maximum.
+Athena therefore starts with push-to-talk, not always-listening or full-duplex behavior.
+
+This resolves model and wire-schema selection only. No paid/live call was made, and
+documentation is not a capability probe. The following release gates remain open:
+
+- round-trip microphone and playback sentinels on each target machine;
+- measured first-audio and interruption latency plus actual token/cost records;
+- a selected local wake-word backend with an acceptable license, false-positive result,
+  supervision behavior, and synthetic-audio probe;
+- an authoritative retention/data-control determination for the selected account and
+  endpoint;
+- manual double-speech and focus testing with NVDA and Narrator enabled and disabled.
+
+Ordinary Athena boot still imports none of `src/voice/`. No Realtime package, daemon,
+audio backend, wake-word dependency, visible `athena voice` command, or credential prompt
+has been added.

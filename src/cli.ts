@@ -116,6 +116,7 @@ import {
   permissionDiff,
   permissionDiffStats,
 } from './presentation/index.js'
+import type { LineInput } from './presentation/index.js'
 import { getVersion } from './version.js'
 import { admitCandidate, CandidateStore, reflectTraces } from './learning/candidates.js'
 import { LearningEvaluator } from './learning/evaluation.js'
@@ -547,23 +548,62 @@ function pickSession(sessions: SessionInfo[]): Promise<SessionInfo | null> {
 }
 
 /** Append-only equivalent of the Ink session picker. Empty input starts fresh. */
-async function pickSessionLine(
+export async function pickSessionLine(
   sessions: SessionInfo[],
-  input: ReadlineLineInput,
+  input: LineInput,
+  write: (line: string) => void = (line) => console.log(line),
 ): Promise<SessionInfo | null> {
   if (sessions.length === 0) return null
   const visible = sessions.slice(0, 20)
-  console.log('Status: Choose a session by number, or press Enter for a fresh session.')
+  write('Status: Choose a session by number, or press Enter for a fresh session.')
   visible.forEach((session, index) => {
-    console.log(`${index + 1}. ${session.updatedAt.toISOString()} ${session.title}`)
+    write(`${index + 1}. ${session.updatedAt.toISOString()} ${session.title}`)
   })
   for (;;) {
     const answer = (await input.readLine('Session: ')).trim()
     if (answer === '' || answer.toLowerCase() === 'q') return null
     const selected = visible[Number(answer) - 1]
     if (selected) return selected
-    console.log(`Status: Enter a number from 1 to ${visible.length}, or press Enter for fresh.`)
+    write(`Status: Enter a number from 1 to ${visible.length}, or press Enter for fresh.`)
   }
+}
+
+export type ScreenReaderCommandRoute =
+  | 'shared-handler'
+  | 'append-only-clear'
+  | 'presentation-change'
+  | 'exit'
+  | 'submit-prompt'
+
+/** Pure routing contract used by the append-only loop and parity tests. */
+export function screenReaderCommandRoute(command: SlashCommand): ScreenReaderCommandRoute {
+  if (command.kind === 'quit') return 'exit'
+  if (command.kind === 'clear') return 'append-only-clear'
+  if (command.kind === 'tui') return 'presentation-change'
+  if (command.kind === 'custom') return 'submit-prompt'
+  return 'shared-handler'
+}
+
+export interface ScreenReaderInterruptDependencies {
+  abort(): void
+  cancelInput(): boolean
+  acknowledge(accepted: boolean): void
+  closeInput(): void
+}
+
+/** Pure control handoff: active work cancels; idle input exits the line session. */
+export function handleScreenReaderInterrupt(
+  activeTurn: boolean,
+  dependencies: ScreenReaderInterruptDependencies,
+): 'turn-cancelled' | 'session-exit' {
+  if (activeTurn) {
+    dependencies.abort()
+    dependencies.cancelInput()
+    dependencies.acknowledge(true)
+    return 'turn-cancelled'
+  }
+  dependencies.closeInput()
+  return 'session-exit'
 }
 
 interface SlashDeps {
@@ -1830,14 +1870,13 @@ async function main(): Promise<void> {
     let activeTurn = false
     let exitRequested = false
     const onSigint = () => {
-      if (activeTurn) {
-        engine.abort()
-        screenPresentation.cancelPendingInput()
-        screenPresentation.acknowledgeCancellation(true)
-      } else {
-        exitRequested = true
-        screenInput.close()
-      }
+      const result = handleScreenReaderInterrupt(activeTurn, {
+        abort: () => engine.abort(),
+        cancelInput: () => screenPresentation.cancelPendingInput(),
+        acknowledge: (accepted) => screenPresentation.acknowledgeCancellation(accepted),
+        closeInput: () => screenInput.close(),
+      })
+      if (result === 'session-exit') exitRequested = true
     }
     process.on('SIGINT', onSigint)
     await screenPresentation.start(
@@ -1854,22 +1893,23 @@ async function main(): Promise<void> {
         }
         if (!text) continue
         const slash = parseSlash(text, commands)
-        if (slash?.kind === 'quit') break
-        if (slash?.kind === 'clear') {
+        const route = slash ? screenReaderCommandRoute(slash) : 'submit-prompt'
+        if (route === 'exit') break
+        if (route === 'append-only-clear') {
           bus.emit({
             type: 'info',
             message: 'Append-only screen-reader mode keeps native scrollback; nothing was cleared.',
           })
           continue
         }
-        if (slash?.kind === 'tui') {
+        if (route === 'presentation-change' && slash?.kind === 'tui') {
           bus.emit({
             type: 'info',
             message: `Presentation changes take effect at startup. Restart with --accessibility ${slash.value === 'fullscreen' ? 'standard' : 'screen-reader'}.`,
           })
           continue
         }
-        if (slash && slash.kind !== 'custom') {
+        if (route === 'shared-handler' && slash) {
           slashHandler(slash)
           continue
         }

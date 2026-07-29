@@ -114,16 +114,21 @@ editing under the active Global Rule.
   Both presentations now consume presentation-neutral diff calculation. The line flow
   names the stable request, target, consequence, reason, choices, change counts, and a
   bounded redacted `/details permission <id>` route; FIFO and real-process tests cover it.
-- [ ] **3.6 Add accessible cancellation/resume** - modify adapter-neutral input and engine
+- [x] **3.6 Add accessible cancellation/resume** - modify adapter-neutral input and engine
   handoff; tests for busy, waiting-permission, idle, and aborted states - done when every
   interrupt gets explicit acknowledgement and no dead prompt remains.
-  Screen-reader composition now turns SIGINT during a run into `engine.abort()` plus an
-  explicit acknowledgement and uses the line selector for resume. Waiting-permission,
-  idle-signal, and dead-prompt process tests remain before this task can close.
-- [ ] **3.7 Add feature-parity matrix** - create
+  Screen-reader composition turns SIGINT during a run into `engine.abort()`, cancels an
+  active line or permission read, and emits an explicit acknowledgement. An idle SIGINT
+  closes the line session without a false cancellation message. Regression coverage
+  proves the next prompt remains usable, and the numbered line selector covers invalid,
+  cancel, selected, and no-session resume paths.
+- [x] **3.7 Add feature-parity matrix** - create
   `tests/fixtures/interaction/presentation-parity.json`; test handlers rather than visual
   frames - done when every interactive command is reachable by key or slash/CLI path in
   screen-reader mode.
+  The versioned fixture is checked against the live built-in command catalog and the
+  production append-only routing helper. It also records prompt, permission, resume, and
+  active/idle interruption controls while explicitly withholding any human-AT claim.
 - [ ] **3.8 Run manual Windows cohort** - NVDA and Narrator in Windows Terminal - done
   when all core journeys pass, versions/settings are recorded, and blocking issues are
   converted to regression fixtures.
@@ -202,8 +207,12 @@ editing under the active Global Rule.
   only official OpenAI docs for the supported Realtime model and wire schema; do not pin
   the older draft's `gpt-realtime-2` without re-verification - done when audio, wake word,
   model, cost, privacy, latency, and licenses are proven or fail with a concrete report.
-  The official Docs MCP is installed but requires a Codex restart before research can
-  continue; no stale model claim was accepted as a substitute.
+  Official documentation now resolves the current candidates and wire direction:
+  `gpt-realtime-2.1` is the quality baseline, `gpt-realtime-2.1-mini` is the lower-cost
+  candidate, and a server-side CLI uses authenticated WebSocket events. Hardware audio,
+  wake-word licensing/quality, live latency and usage cost, and provider retention remain
+  unproven, so the task stays open rather than treating documentation as a capability
+  probe.
 - [ ] **7.3 Implement speech output adapter** - consume `Announcement`, not raw events -
   done when exclusive/supplemental ownership avoids duplicate routine speech and all
   controls retain keyboard/Braille parity.

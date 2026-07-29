@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "claim": "Automated command reachability only; human assistive-technology validation remains open.",
+  "commands": [
+    { "name": "help", "invocation": "/help", "route": "shared-handler" },
+    { "name": "status", "invocation": "/status", "route": "shared-handler" },
+    { "name": "repeat", "invocation": "/repeat", "route": "shared-handler" },
+    { "name": "details", "invocation": "/details", "route": "shared-handler" },
+    { "name": "verbosity", "invocation": "/verbosity balanced", "route": "shared-handler" },
+    { "name": "clear", "invocation": "/clear", "route": "append-only-clear" },
+    { "name": "resume", "invocation": "/resume", "route": "shared-handler" },
+    { "name": "compact", "invocation": "/compact", "route": "shared-handler" },
+    { "name": "model", "invocation": "/model sonnet", "route": "shared-handler" },
+    { "name": "effort", "invocation": "/effort high", "route": "shared-handler" },
+    { "name": "provider", "invocation": "/provider anthropic", "route": "shared-handler" },
+    { "name": "mode", "invocation": "/mode normal", "route": "shared-handler" },
+    { "name": "tui", "invocation": "/tui classic", "route": "presentation-change" },
+    { "name": "memory", "invocation": "/memory", "route": "shared-handler" },
+    { "name": "skills", "invocation": "/skills", "route": "shared-handler" },
+    { "name": "agents", "invocation": "/agents", "route": "shared-handler" },
+    { "name": "quit", "invocation": "/quit", "route": "exit" }
+  ],
+  "controls": [
+    { "id": "submit-prompt", "path": "line-input" },
+    { "id": "custom-command", "path": "expanded-prompt" },
+    { "id": "interrupt-busy", "path": "sigint" },
+    { "id": "interrupt-permission", "path": "sigint" },
+    { "id": "interrupt-idle", "path": "sigint" },
+    { "id": "session-resume", "path": "--resume" },
+    { "id": "permission-allow-once", "path": "y" },
+    { "id": "permission-allow-always", "path": "a" },
+    { "id": "permission-deny", "path": "n" }
+  ]
+}

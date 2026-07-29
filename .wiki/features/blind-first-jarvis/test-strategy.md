@@ -50,6 +50,13 @@ completion. Its `proxy-baseline` marker is load-bearing: executable coverage is 
 claim that a blind participant or assistive-technology combination has validated the
 journey.
 
+The versioned presentation-parity fixture is separately checked against the live slash
+command catalog and production screen-reader router. It records nonvisual prompt,
+permission, resume, and interrupt paths. Cancellation tests cover active work, a pending
+line/permission read, the next usable prompt, and idle exit; selector tests cover invalid,
+selected, fresh/cancel, and no-session outcomes. This is reachability evidence only, not
+manual keyboard, Braille, NVDA, or Narrator validation.
+
 ### Announcement fixtures
 
 For each input sequence assert:
