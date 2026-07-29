@@ -94,6 +94,8 @@ export function ensureBrainScaffold(paths: BrainPaths): void {
     paths.hooksDir,
     paths.sessionsDir,
     paths.journalDir,
+    paths.runsDir,
+    paths.agentRunsDir,
   ]) {
     mkdirSync(dir, { recursive: true })
   }

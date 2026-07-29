@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { HarnessSessionController } from '../../src/harness/controller.js'
 import type {
   RealtimeToolCall,
   RealtimeTurnResult,
@@ -147,5 +148,58 @@ describe('voice conductor composition', () => {
     expect(client.askAudio).toHaveBeenCalledTimes(2)
     expect(delegate).toHaveBeenCalledOnce()
     expect(delegate).toHaveBeenCalledWith('run tests')
+  })
+
+  it('handles direct-harness submit_turn and local_control tools when a controller is present', async () => {
+    const input = new ScriptedInput(['run tests', 'exit'])
+    const controller = {
+      submitTurn: vi.fn(async (text: string) => ({
+        status: 'completed' as const,
+        summary: `Harness finished: ${text}`,
+        sessionId: 'session-xyz',
+      })),
+      getSnapshot: vi.fn(() => ({
+        schemaVersion: 1 as const,
+        reducerVersion: 1 as const,
+        runId: 'run-1',
+        lastSequence: 1,
+        objective: { value: 'All tests green.', source: 'user' as const, sequence: 1, timestamp: '' },
+        phase: { value: 'completed' as const, source: 'user' as const, sequence: 1, timestamp: '' },
+        activity: { value: null, source: 'user' as const, sequence: 1, timestamp: '' },
+        attention: [],
+        lastVerifiedOutcome: { value: null, source: 'user' as const, sequence: 1, timestamp: '' },
+        nextExpected: { value: null, source: 'user' as const, sequence: 1, timestamp: '' },
+        updatedAt: '',
+      })),
+    } as unknown as HarnessSessionController
+
+    const client: VoiceRealtimeClient = {
+      connect: vi.fn(async () => {}),
+      close: vi.fn(),
+      ask: vi.fn(async (_text, handler) => {
+        const turnRes = (await handler({ name: 'submit_turn', callId: '1', arguments: { text: 'run tests' } })) as { summary: string }
+        const statusRes = (await handler({ name: 'local_control', callId: '2', arguments: { action: 'status' } })) as { summary: string }
+        return {
+          transcript: `${turnRes.summary} | ${statusRes.summary}`,
+          audio: Buffer.alloc(0),
+          usage: [],
+        }
+      }),
+      askAudio: vi.fn(async () => ({ transcript: '', audio: Buffer.alloc(0), usage: [] })),
+    }
+
+    await runVoiceSession({
+      apiKey: 'test',
+      model: 'gpt-realtime-2.1-mini',
+      input,
+      client,
+      controller,
+      speakFallback: async () => {},
+      play: async () => {},
+      onStatus: () => {},
+    })
+
+    expect(controller.submitTurn).toHaveBeenCalledWith('run tests')
+    expect(controller.getSnapshot).toHaveBeenCalled()
   })
 })

@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { createInterface } from 'node:readline/promises'
 import { plainBounded } from '../interaction/format.js'
+import type { HarnessSessionController } from '../harness/controller.js'
 import {
   RealtimeVoiceClient,
   type RealtimeToolCall,
@@ -161,6 +162,7 @@ export interface VoiceSessionOptions {
   apiKey: string
   model: RealtimeVoiceModel
   input: VoiceCommandInput
+  controller?: HarnessSessionController
   delegate?: DelegateRunner
   client?: VoiceRealtimeClient
   play?: (audio: Buffer) => Promise<void>
@@ -203,8 +205,53 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
     call: RealtimeToolCall,
     pendingAtTurnStart: boolean,
   ): Promise<unknown> => {
+    if (call.name === 'submit_turn') {
+      const args = call.arguments as { text?: unknown } | null
+      const text = typeof args?.text === 'string' ? plainBounded(args.text, 4_096) : ''
+      if (!text) return { error: 'Submit turn text is missing.' }
+      if (options.controller) {
+        status(`Athena harness: ${text}`)
+        const turnResult = await options.controller.submitTurn(text)
+        return {
+          status: turnResult.status,
+          summary: turnResult.summary,
+          sessionId: turnResult.sessionId,
+        }
+      }
+      lastDelegate = await delegate(text)
+      return {
+        status: lastDelegate.status,
+        summary: plainBounded(lastDelegate.summary, 8_192),
+      }
+    }
+    if (call.name === 'local_control') {
+      const args = call.arguments as { action?: unknown; request_id?: unknown } | null
+      const action = typeof args?.action === 'string' ? args.action : ''
+      if (action === 'status') {
+        const snap = options.controller?.getSnapshot()
+        return {
+          status: snap?.phase.value ?? lastDelegate?.status ?? 'idle',
+          summary: snap?.objective.value ?? lastDelegate?.summary ?? 'Athena voice is ready.',
+        }
+      }
+      if (action === 'stop_listening') {
+        stopRequested = true
+        return { status: 'stopping', summary: 'Athena voice is stopping.' }
+      }
+      if (action === 'repeat') {
+        const snap = options.controller?.getSnapshot()
+        return {
+          summary: snap?.objective.value ?? lastDelegate?.summary ?? 'Athena is ready.',
+        }
+      }
+      return { error: `Unhandled local control action: ${action}` }
+    }
     if (call.name === 'status') {
-      return lastDelegate ?? { status: 'idle', summary: 'No voice delegation has run yet.' }
+      const snap = options.controller?.getSnapshot()
+      return {
+        status: snap?.phase.value ?? lastDelegate?.status ?? 'idle',
+        summary: snap?.objective.value ?? lastDelegate?.summary ?? 'No voice delegation has run yet.',
+      }
     }
     if (call.name === 'stop_listening') {
       stopRequested = true
@@ -224,6 +271,14 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
       const prompt = pendingDelegate
       pendingDelegate = null
       status('Athena: Confirmed. Delegating to the coding engine.')
+      if (options.controller) {
+        const turnResult = await options.controller.submitTurn(prompt)
+        return {
+          status: turnResult.status,
+          summary: turnResult.summary,
+          sessionId: turnResult.sessionId,
+        }
+      }
       lastDelegate = await delegate(prompt)
       return {
         status: lastDelegate.status,
@@ -237,6 +292,15 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
     const args = call.arguments as { prompt?: unknown } | null
     const prompt = typeof args?.prompt === 'string' ? plainBounded(args.prompt, 4_096) : ''
     if (!prompt) return { error: 'Delegate prompt is missing.' }
+    if (options.controller) {
+      status(`Athena harness: ${prompt}`)
+      const turnResult = await options.controller.submitTurn(prompt)
+      return {
+        status: turnResult.status,
+        summary: turnResult.summary,
+        sessionId: turnResult.sessionId,
+      }
+    }
     pendingDelegate = prompt
     return {
       status: 'confirmation_required',

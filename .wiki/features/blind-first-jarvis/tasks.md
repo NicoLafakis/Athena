@@ -184,9 +184,10 @@ editing under the active Global Rule.
 - [x] **6.2 Add watch contracts/store** - create `src/harness/watchers/` with Zod,
   atomic writes, stable IDs, resource-policy scope, and recoverable disable - done when no
   watch exists without explicit user action.
-- [ ] **6.3 Implement foreground `athena watch`** - modify CLI and reuse semantic policy -
+- [x] **6.3 Implement foreground `athena watch`** - modify CLI and reuse semantic policy -
   done when the process stays foreground, announces material events, and has a documented
   stop/recovery command.
+  Foreground watching is wired via CLI, using `probeFilesystemWatch` for diagnostics, `runForegroundFilesystemWatch` for change notifications, and `WatchStore` for persistence.
 - [x] **6.4 Add real capability probes** - platform-gated integration tests must actually
   exercise the backend - done when `doctor` never reports availability from a hard-coded
   literal or executable/platform inference.
@@ -203,10 +204,8 @@ editing under the active Global Rule.
   and define `InteractionSnapshot`/`Announcement` context, routing, speech ownership, and
   bounded confirmation contracts without inventing a second digest truth model. Those
   reusable components and their tests exist. The working opt-in CLI composes the local
-  wake gate, Realtime conductor, one resumable child Athena session, and usage-only record,
-  but does not yet wire the semantic context/router into a direct harness session; that is
-  task 7.6. The conductor owns no file tools and cannot claim child results without the
-  engine envelope.
+  wake gate, Realtime conductor, one resumable child Athena session, and usage-only record.
+  The conductor owns no file tools and cannot claim child results without the engine envelope.
 - [ ] **7.2 Run the plan's capability/cost spike and resolve current API contracts** - use
   only official OpenAI docs for the supported Realtime model and wire schema; do not pin
   the older draft's `gpt-realtime-2` without re-verification - done when audio, wake word,
@@ -232,16 +231,16 @@ editing under the active Global Rule.
   Windows speech recognition runs locally, requires a confidence-thresholded `Athena`
   prefix, and sends only post-wake raw PCM to Realtime. Coding delegation requires a
   separate confirm turn; cancel/recognition failure lose no engine state. The keyboard
-  input adapter exercises the same conductor and confirmation state machine. Mapping each
-  accepted work turn into the normal direct harness prompt path remains task 7.6.
+  input adapter exercises the same conductor and confirmation state machine.
 - [ ] **7.5 Manual AT/voice validation** - test with actual screen readers enabled and
   disabled - done when voice improves measured workflows and can be entirely removed
   without reducing capability.
-- [ ] **7.6 Replace the intermediate conductor with direct-harness voice** - execute the
+- [x] **7.6 Replace the intermediate conductor with direct-harness voice** - execute the
   [next-upgrade specification](direct-harness-voice.md) and
   [ADR 0003](adr/0003-realtime-as-audio-adapter.md) - done when one persistent wake
   listener feeds ordinary turns into one Athena-owned harness session, Marin speaks only
   authoritative harness results, and the hands-free acceptance script passes.
+  Shared `HarnessSessionController` encapsulates engine lifecycle, permissions, traces, and session storage. `submit_turn` and `local_control` tools send speech directly into the in-process harness session.
 
 ## Documentation and release closure for every phase
 

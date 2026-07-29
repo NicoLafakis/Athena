@@ -59,6 +59,7 @@ import { McpManager } from './harness/mcp.js'
 import { Session, SessionStore, type SessionInfo } from './harness/sessions.js'
 import { RunTraceWriter } from './harness/traces.js'
 import { AgentOrchestrator } from './harness/agents.js'
+import { HarnessSessionController } from './harness/controller.js'
 import { PluginManager } from './harness/plugins.js'
 import { Engine } from './engine/loop.js'
 import { AnthropicClient } from './engine/client.js'
@@ -153,6 +154,7 @@ export type CliCommand =
     }
   | { command: 'import'; sourceDir: string; force: boolean }
   | { command: 'trust'; revoke: boolean; capabilities: ProjectCapability[] }
+  | { command: 'watch'; path?: string; statusOnly?: boolean }
   | { command: 'exec'; provider?: ProviderId; options: ExecOptions }
   | {
       command: 'session'
@@ -387,6 +389,11 @@ function parseVoiceArgs(argv: string[]): CliCommand {
 export function parseArgs(argv: string[]): CliCommand {
   if (argv[0] === 'exec') return parseExecArgs(argv.slice(1))
   if (argv[0] === 'voice') return parseVoiceArgs(argv.slice(1))
+  if (argv[0] === 'watch') {
+    const statusOnly = argv.includes('--status')
+    const pathArg = argv.slice(1).find((a) => !a.startsWith('-'))
+    return { command: 'watch', path: pathArg, statusOnly }
+  }
   if (argv[0] === 'doctor') {
     const unknown = argv.slice(1).find((arg) => arg !== '--json')
     return unknown
@@ -1363,17 +1370,55 @@ async function main(): Promise<void> {
         process.exitCode = CLI_EXIT.usage
         return
       }
-      const usageFile = join(paths.brainDir, 'voice-usage.jsonl')
-      await runVoiceSession({
-        apiKey: resolvedVoice.key,
-        model: cmd.model,
-        input: cmd.keyboard ? new KeyboardVoiceCommandInput() : new WindowsWakeCommandInput(),
-        onUsage: (usage) => appendFileSync(
-          usageFile,
-          JSON.stringify({ schemaVersion: 1, timestamp: new Date().toISOString(), model: cmd.model, usage }) + '\n',
-          { encoding: 'utf8', mode: 0o600 },
-        ),
+      let credentials: Credentials
+      try {
+        credentials = loadCredentials(paths)
+      } catch (err) {
+        console.error((err as Error).message)
+        process.exitCode = 1
+        return
+      }
+      const projectTrust = resolveStoredProjectTrust(paths, cwd)
+      const effectivePaths: BrainPaths = projectTrust.trusted ? paths : { ...paths, projectBrainDir: null }
+      const provider = credentials.activeProvider
+      const settings = loadSettings(paths, provider, (msg) => console.error(msg), {
+        projectTrusted: projectTrust.trusted,
+        allowProjectHooks: projectTrust.allowProjectHooks,
+        allowProjectMcp: projectTrust.allowProjectMcp,
       })
+      const resolvedKey = resolveApiKey(provider, credentials, process.env, credentialVault, () => {})
+      if (!resolvedKey) {
+        console.error(`No API key found for ${PROVIDERS[provider].label}; run \`athena auth\`.`)
+        process.exitCode = CLI_EXIT.provider
+        return
+      }
+      const harnessClient = makeClient(provider, resolvedKey.key)
+      const controller = await HarnessSessionController.create({
+        paths,
+        effectivePaths,
+        cwd,
+        provider,
+        client: harnessClient,
+        settings,
+        projectTrust,
+        persistSession: true,
+      })
+      const usageFile = join(paths.brainDir, 'voice-usage.jsonl')
+      try {
+        await runVoiceSession({
+          apiKey: resolvedVoice.key,
+          model: cmd.model,
+          controller,
+          input: cmd.keyboard ? new KeyboardVoiceCommandInput() : new WindowsWakeCommandInput(),
+          onUsage: (usage) => appendFileSync(
+            usageFile,
+            JSON.stringify({ schemaVersion: 1, timestamp: new Date().toISOString(), model: cmd.model, usage }) + '\n',
+            { encoding: 'utf8', mode: 0o600 },
+          ),
+        })
+      } finally {
+        await controller.close('shutdown')
+      }
     } catch (error) {
       console.error(
         `Athena voice stopped: ${(error as Error).message} ` +
@@ -1381,6 +1426,56 @@ async function main(): Promise<void> {
       )
       process.exitCode = CLI_EXIT.provider
     }
+    return
+  }
+  if (cmd.command === 'watch') {
+    const {
+      probeFilesystemWatch,
+      runForegroundFilesystemWatch,
+      WatchStore,
+      createExplicitFilesystemWatch,
+    } = await import('./harness/watchers/index.js')
+    const probe = await probeFilesystemWatch()
+    if (cmd.statusOnly) {
+      console.log(`Watch backend: ${probe.backend} (${probe.available ? 'available' : 'unavailable'})`)
+      console.log(`Detail: ${probe.detail}`)
+      console.log(`Recovery command: ${probe.recoveryCommand}`)
+      return
+    }
+    const targetPath = resolve(cwd, cmd.path ?? '.')
+    const resourcePolicy = new ResourcePolicy(cwd, 'workspace-write', [paths.brainDir])
+    const store = new WatchStore(paths.watchesFile)
+    const watchDef = store.upsert(createExplicitFilesystemWatch({
+      requestedBy: 'user',
+      projectRoot: cwd,
+      resource: targetPath,
+      policy: resourcePolicy,
+    }))
+    console.log(`Athena watching ${targetPath} (watch ID ${watchDef.id}). Press Ctrl+C to stop.`)
+    const controller = new AbortController()
+    const handleSigint = () => {
+      console.log('\nStopping watch.')
+      controller.abort()
+    }
+    process.on('SIGINT', handleSigint)
+    const handle = runForegroundFilesystemWatch({
+      watchId: watchDef.id,
+      resourcePath: targetPath,
+      signal: controller.signal,
+      onObservation: (obs) => {
+        console.log(`[${obs.observedAt}] Watch ${obs.watchId}: ${obs.summary}`)
+      },
+      onFailure: (warn) => {
+        console.error(warn)
+      },
+    })
+    await new Promise<void>((res) => {
+      controller.signal.addEventListener('abort', () => {
+        handle.close()
+        process.removeListener('SIGINT', handleSigint)
+        res()
+      })
+    })
     return
   }
   if (cmd.command === 'auth') {

@@ -48,8 +48,36 @@ export function sanitizeVoiceUsage(value: unknown): unknown {
 const VOICE_TOOLS = [
   {
     type: 'function',
+    name: 'submit_turn',
+    description: 'Submit an understood user coding or repository request directly to the Athena harness.',
+    parameters: {
+      type: 'object',
+      properties: { text: { type: 'string', minLength: 1, maxLength: 4096 } },
+      required: ['text'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'local_control',
+    description: 'Perform a deterministic local control action (status, repeat, allow, deny, stop_listening).',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['status', 'repeat', 'allow', 'deny', 'stop_listening'],
+        },
+        request_id: { type: 'string' },
+      },
+      required: ['action'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
     name: 'delegate',
-    description: 'Propose a coding task for Athena. The local user must separately confirm it.',
+    description: 'Propose a coding task for Athena.',
     parameters: {
       type: 'object',
       properties: { prompt: { type: 'string', minLength: 1, maxLength: 4096 } },
@@ -60,38 +88,36 @@ const VOICE_TOOLS = [
   {
     type: 'function',
     name: 'status',
-    description: 'Get the status of the last voice delegation.',
+    description: 'Get the status of the current Athena harness or delegation.',
     parameters: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     type: 'function',
     name: 'confirm',
-    description: 'Confirm the delegation proposed in an earlier user turn.',
+    description: 'Confirm a proposal.',
     parameters: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     type: 'function',
     name: 'cancel',
-    description: 'Cancel the delegation proposed in an earlier user turn.',
+    description: 'Cancel a proposal.',
     parameters: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     type: 'function',
     name: 'stop_listening',
-    description: 'End the Athena voice session when the user asks to quit or stop listening.',
+    description: 'End the Athena voice session when requested.',
     parameters: { type: 'object', properties: {}, additionalProperties: false },
   },
 ] as const
 
 const CONDUCTOR_INSTRUCTIONS = [
-  'You are Athena voice, a concise conductor for the Athena terminal coding agent.',
-  'Never claim that work was executed unless a function result proves it.',
-  'Use delegate for coding or repository work and status for the latest delegation state.',
-  'A delegate result may require a separate local confirmation; explain that clearly.',
+  'You are Athena voice, an audio/intent adapter for the Athena terminal coding agent.',
+  'For every user coding, inspection, or repository request, call submit_turn with the understood text.',
+  'Never answer repository or coding questions independently, and never invent state or work.',
+  'Use local_control for status, repeat, allow/deny permission decisions, or stop_listening.',
   'The word Athena at the beginning of user audio is a wake word, not part of the request.',
-  'Use confirm or cancel only when the user clearly answers a proposal from an earlier turn.',
-  'Use stop_listening when the user asks Athena to quit or stop listening.',
-  'Keep spoken responses brief and do not read code, paths, tokens, or secrets aloud.',
+  'When submit_turn returns a harness result, summarize its summary briefly and faithfully for Marin speech output.',
 ].join(' ')
 
 export class RealtimeVoiceClient {

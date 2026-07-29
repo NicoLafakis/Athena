@@ -13,3 +13,6 @@ export type { HookEventPayload } from './hooks.js'
 export { Session, SessionStore, projectSlug } from './sessions.js'
 export type { SessionInfo } from './sessions.js'
 export { ensureBrainScaffold } from './bootstrap.js'
+export { HarnessSessionController } from './controller.js'
+export type { HarnessSessionControllerOptions, HarnessTurnResult } from './controller.js'
+
