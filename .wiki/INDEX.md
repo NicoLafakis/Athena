@@ -15,6 +15,10 @@ links here for depth, this wiki explains it.
 - [Memory hygiene / anti-rot](architecture/memory-hygiene.md) - Event-driven citation verification, correction capture, contradiction detection, and count-triggered consolidation for the free-text brain-memory surface, distinct from the existing governed-learning MemoryClaim pipeline. Never deletes: proposes via flag/supersede/tombstone, reviewed in seconds via /memory review.
 - [Environment staleness detection](architecture/environment-staleness.md) - Four filesystem/git signals (`stale-build`, `stale-deps`, `branch-behind`, `uncommitted-work`) that catch a stale `dist/` or `node_modules` running against fresh source on a two-machine workflow. Zero-subprocess boot checks versus git-backed doctor-only checks, the shared `VAULT_SPAWN_TIMEOUT_MS` and null-on-timeout lesson, and why every check degrades to `unknown` rather than ever blocking boot.
 
+## Cross-repo ops plans
+
+- [Vercel cost mitigation plan](../docs/superpowers/plans/2026-07-29-vercel-cost-mitigation.md) - 8-task cross-repo plan covering build settings, logging, OpenCRM cron migration to Supabase pg_cron, SimCRM polling batch, floatfuel CDN caching, DiscoverAI/DonorHunterPro cron tuning, and Spend Management cap.
+
 ## Reference
 
 - [TUI keybindings](reference/tui-keybindings.md) - Input box editing/cursor motion, `@`-mention and `/`-command popups, the second-level value picker, and fullscreen-only transcript scrolling (PageUp/PageDown, Ctrl+PageUp/PageDown).
