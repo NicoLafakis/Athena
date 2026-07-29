@@ -23,6 +23,86 @@ describe('loadSettings', () => {
     expect(s.model).toBe(SettingsSchema.parse({}).model)
     expect(s.permissionMode).toBe('normal')
     expect(s.allow).toEqual([])
+    expect(s.accessibility).toEqual({
+      presentation: 'standard',
+      verbosity: 'balanced',
+      progressAnnouncements: 'milestones',
+      progressIntervalMs: 60_000,
+      directSpeech: 'off',
+    })
+  })
+
+  it('deep-fills partial global accessibility settings without aliasing defaults', () => {
+    mkdirSync(join(home, '.athena'), { recursive: true })
+    writeFileSync(
+      join(home, '.athena', 'settings.json'),
+      JSON.stringify({ accessibility: { presentation: 'screen-reader', verbosity: 'detailed' } }),
+    )
+    const paths = resolveBrainPaths({ cwd: project, homeOverride: home })
+    const first = loadSettings(paths)
+    const second = loadSettings(paths)
+
+    expect(first.accessibility).toEqual({
+      presentation: 'screen-reader',
+      verbosity: 'detailed',
+      progressAnnouncements: 'milestones',
+      progressIntervalMs: 60_000,
+      directSpeech: 'off',
+    })
+    first.accessibility.presentation = 'standard'
+    expect(second.accessibility.presentation).toBe('screen-reader')
+  })
+
+  it('ignores project accessibility settings and keeps the global user preference', () => {
+    mkdirSync(join(home, '.athena'), { recursive: true })
+    writeFileSync(
+      join(home, '.athena', 'settings.json'),
+      JSON.stringify({ accessibility: { presentation: 'screen-reader', verbosity: 'concise' } }),
+    )
+    mkdirSync(join(project, '.athena'), { recursive: true })
+    writeFileSync(
+      join(project, '.athena', 'settings.json'),
+      JSON.stringify({
+        accessibility: {
+          presentation: 'standard',
+          verbosity: 'detailed',
+          directSpeech: 'supplemental',
+        },
+      }),
+    )
+    const warnings: string[] = []
+    const settings = loadSettings(
+      resolveBrainPaths({ cwd: project, homeOverride: home }),
+      'anthropic',
+      (warning) => warnings.push(warning),
+    )
+
+    expect(settings.accessibility.presentation).toBe('screen-reader')
+    expect(settings.accessibility.verbosity).toBe('concise')
+    expect(settings.accessibility.directSpeech).toBe('off')
+    expect(warnings).toContain(
+      'Project settings cannot override global accessibility preferences; ignoring project accessibility.',
+    )
+  })
+
+  it('warns and uses safe defaults when optional global accessibility settings are malformed', () => {
+    mkdirSync(join(home, '.athena'), { recursive: true })
+    writeFileSync(
+      join(home, '.athena', 'settings.json'),
+      JSON.stringify({ accessibility: { presentation: 'telepathy', progressIntervalMs: -1 } }),
+    )
+    const warnings: string[] = []
+    const settings = loadSettings(
+      resolveBrainPaths({ cwd: project, homeOverride: home }),
+      'anthropic',
+      (warning) => warnings.push(warning),
+    )
+
+    expect(settings.accessibility.presentation).toBe('standard')
+    expect(settings.accessibility.progressIntervalMs).toBe(60_000)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('Global accessibility settings')
+    expect(warnings[0]).toContain('using safe defaults')
   })
 
   it('defaults model to sonnet and effort to high; normalizes a legacy model id', () => {

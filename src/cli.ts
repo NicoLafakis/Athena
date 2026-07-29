@@ -1292,6 +1292,11 @@ async function main(): Promise<void> {
   })
   trace.attach(bus)
   const interactionService = new InteractionService({
+    verbosity: settings.accessibility.verbosity === 'concise'
+      ? 'quiet'
+      : settings.accessibility.verbosity === 'detailed'
+        ? 'verbose'
+        : 'balanced',
     tracePath: () => trace.file,
     onDiagnostic: (diagnostic) => trace.append('interaction-diagnostic', diagnostic),
   })

@@ -124,3 +124,10 @@ regression fixture enforces the reducer-plus-policy p95 budget.
 Permission lifecycle events and visible slash command/menu wiring remain outstanding
 because those changes cross the explicit frontend approval gate before editing
 `src/tui/App.tsx` or its visible command surfaces.
+
+The Phase 3 settings foundation is also active: global accessibility preferences receive
+deep safe defaults, project `.athena/settings.json` values cannot override them, and a
+malformed optional accessibility object warns with its file and recovery action while
+falling back to standard presentation. Global concise/balanced/detailed verbosity already
+maps to the internal quiet/balanced/verbose announcement policy; no new presentation is
+selected until its adapter lands.

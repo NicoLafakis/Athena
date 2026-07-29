@@ -79,7 +79,7 @@ editing under the active Global Rule.
 
 ## Phase 3 - append-only screen-reader presentation
 
-- [ ] **3.1 Add global accessibility settings** - modify `src/brain/settings.ts` with
+- [x] **3.1 Add global accessibility settings** - modify `src/brain/settings.ts` with
   deep defaults and project-override rejection; tests in `tests/brain/settings.test.ts` -
   done when legacy settings parse and partial objects cannot erase defaults.
 - [ ] **3.2 Add CLI selection** - modify argument parsing/help in `src/cli.ts`; tests in

@@ -192,6 +192,15 @@ function modelSchema(provider: ProviderId) {
     .default(PROVIDERS[provider].defaultModel)
 }
 
+export const AccessibilitySettingsSchema = z.object({
+  presentation: z.enum(['standard', 'screen-reader']).default('standard'),
+  verbosity: z.enum(['concise', 'balanced', 'detailed']).default('balanced'),
+  progressAnnouncements: z.enum(['off', 'milestones', 'timed']).default('milestones'),
+  progressIntervalMs: z.number().int().min(10_000).max(3_600_000).default(60_000),
+  directSpeech: z.enum(['off', 'exclusive', 'supplemental']).default('off'),
+}).strict()
+export type AccessibilitySettings = z.infer<typeof AccessibilitySettingsSchema>
+
 const baseShape = {
   effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('high'),
   maxOutputTokens: z.number().int().positive().optional(),
@@ -201,6 +210,7 @@ const baseShape = {
   deny: z.array(z.string()).default([]),
   hooks: z.array(HookDefSchema).default([]),
   mcpServers: z.record(z.string(), McpServerSchema).default({}),
+  accessibility: AccessibilitySettingsSchema.default({}),
 }
 
 export function makeSettingsSchema(provider: ProviderId = 'anthropic') {
@@ -256,6 +266,22 @@ export function loadSettings(
   const project = projectTrusted && paths.projectBrainDir
     ? readJsonIfExists(join(paths.projectBrainDir, 'settings.json'))
     : {}
+  const globalAccessibility = AccessibilitySettingsSchema.safeParse(global['accessibility'] ?? {})
+  if (globalAccessibility.success) {
+    global['accessibility'] = globalAccessibility.data
+  } else {
+    onWarn?.(
+      `Global accessibility settings in ${paths.settingsFile} are invalid; using safe defaults. ` +
+      `Fix or remove the accessibility object in ${paths.settingsFile}.`,
+    )
+    global['accessibility'] = AccessibilitySettingsSchema.parse({})
+  }
+  if (Object.prototype.hasOwnProperty.call(project, 'accessibility')) {
+    onWarn?.(
+      'Project settings cannot override global accessibility preferences; ignoring project accessibility.',
+    )
+    delete project['accessibility']
+  }
   if (project['permissionMode'] === 'trusted') {
     onWarn?.('Project settings cannot select trusted permission mode; using the global/default mode.')
     delete project['permissionMode']

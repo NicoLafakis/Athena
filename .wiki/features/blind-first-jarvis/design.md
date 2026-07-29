@@ -270,6 +270,14 @@ Project settings cannot override this object. CLI flags override global settings
 current invocation. Nested settings require explicit deep merge so a partial global
 object does not erase defaults.
 
+Implemented settings foundation: `AccessibilitySettingsSchema` owns these defaults and
+`loadSettings` normalizes the global object before the ordinary cascade. Any project
+`accessibility` object is removed with one bounded warning. A malformed global object is
+an optional-subsystem failure: Athena names the exact settings file, uses safe defaults,
+and tells the user to fix or remove that object rather than aborting boot. The configured
+verbosity already feeds `InteractionService`; presentation selection remains standard
+until the approved line adapter and invocation override land together.
+
 ## Permission flow
 
 Move permission presentation out of the React-only boundary:
