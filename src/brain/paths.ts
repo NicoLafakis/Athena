@@ -28,6 +28,7 @@ export interface BrainPaths {
   learningLineageFile: string
   learningSigningKeyFile: string
   learnedMemoryFile: string
+  vmpLedgerFile: string
   projectBrainDir: string | null // <cwd>/.athena when present
 }
 
@@ -60,6 +61,7 @@ export function resolveBrainPaths(opts: { cwd: string; homeOverride?: string }):
     learningLineageFile: join(brainDir, 'learning', 'lineage.jsonl'),
     learningSigningKeyFile: join(brainDir, 'learning', 'signing-key.pem'),
     learnedMemoryFile: join(brainDir, 'memory', 'learned.jsonl'),
+    vmpLedgerFile: join(brainDir, 'vmp-ledger.jsonl'),
     projectBrainDir: existsSync(projectBrain) ? projectBrain : null,
   }
 }

@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
+import { atomicWriteFileSync } from '../tools/files.js'
 import type { HookEventName, PermissionMode, SandboxMode } from '../engine/types.js'
 import type { Effort, ProviderId } from './models.js'
 import { normalizeModel, modelKeys, PROVIDERS } from './models.js'
@@ -201,6 +202,13 @@ export const AccessibilitySettingsSchema = z.object({
 }).strict()
 export type AccessibilitySettings = z.infer<typeof AccessibilitySettingsSchema>
 
+export const VmpConnectorSchema = z.object({
+  enabled: z.boolean().default(false),
+  reportUrl: z.string().url().optional(),
+  keyHash: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
+}).strict()
+export type VmpConnectorSettings = z.infer<typeof VmpConnectorSchema>
+
 const baseShape = {
   effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('high'),
   maxOutputTokens: z.number().int().positive().optional(),
@@ -211,6 +219,7 @@ const baseShape = {
   hooks: z.array(HookDefSchema).default([]),
   mcpServers: z.record(z.string(), McpServerSchema).default({}),
   accessibility: AccessibilitySettingsSchema.default({}),
+  vmp: VmpConnectorSchema.default({}),
 }
 
 export function makeSettingsSchema(provider: ProviderId = 'anthropic') {
@@ -333,4 +342,12 @@ export function readProjectSettingsCapabilities(paths: BrainPaths): ProjectSetti
         ? (project['mcpServers'] as Record<string, unknown>)
         : {},
   }
+}
+
+/** Persist settings back to the global settings file. Project settings are never
+ *  overwritten from here; this is for user-controlled global state such as the
+ *  VMP connector configuration. */
+export function saveSettings(paths: BrainPaths, settings: Settings): void {
+  const parsed = SettingsSchema.parse(settings)
+  atomicWriteFileSync(paths.settingsFile, JSON.stringify(parsed, null, 2) + '\n')
 }

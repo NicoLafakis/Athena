@@ -9,6 +9,7 @@ import { render } from 'ink'
 import React from 'react'
 import { resolveBrainPaths } from './brain/paths.js'
 import { loadSettings, readProjectSettingsCapabilities } from './brain/settings.js'
+import { FileLedgerStore } from './brain/vmp-ledger.js'
 import {
   normalizeModel,
   modelCapabilities,
@@ -65,6 +66,7 @@ import { Engine } from './engine/loop.js'
 import { AnthropicClient } from './engine/client.js'
 import type { ModelClient } from './engine/client.js'
 import { FixtureModelClient } from './engine/fixture-client.js'
+import { makeTelemetryRecorder, type TelemetryRecorder } from './engine/telemetry.js'
 import { EngineEventBus } from './engine/events.js'
 import {
   InteractionEventAdapter,
@@ -126,6 +128,7 @@ import { PromotionManager } from './learning/promotion.js'
 import { TraceWarehouse } from './learning/warehouse.js'
 import { collectDiagnostics, formatDiagnostics } from './harness/diagnostics.js'
 import { stalenessBootWarnings } from './harness/staleness.js'
+import { configureVmp, getVmpStatus, printVmpReport, startVmpServer } from './harness/vmp.js'
 export type AccessibilityPresentation = 'standard' | 'screen-reader'
 export type VoiceModel = 'gpt-realtime-2.1-mini' | 'gpt-realtime-2.1'
 
@@ -155,6 +158,7 @@ export type CliCommand =
   | { command: 'import'; sourceDir: string; force: boolean }
   | { command: 'trust'; revoke: boolean; capabilities: ProjectCapability[] }
   | { command: 'watch'; path?: string; statusOnly?: boolean }
+  | { command: 'vmp'; sub: 'report' | 'server' | 'status' | 'configure'; url?: string; keyHash?: string; port?: number }
   | { command: 'exec'; provider?: ProviderId; options: ExecOptions }
   | {
       command: 'session'
@@ -394,6 +398,47 @@ export function parseArgs(argv: string[]): CliCommand {
     const pathArg = argv.slice(1).find((a) => !a.startsWith('-'))
     return { command: 'watch', path: pathArg, statusOnly }
   }
+  if (argv[0] === 'vmp') {
+    const sub = argv[1] ?? 'status'
+    const actions = new Set(['report', 'server', 'status', 'configure'])
+    if (!actions.has(sub)) {
+      return { command: 'error', message: 'Usage: athena vmp <report|server|status|configure> [--url <url>] [--key-hash <hash>] [--port <n>]' }
+    }
+    const rest = argv.slice(2)
+    let url: string | undefined
+    let keyHash: string | undefined
+    let port = 8080
+    for (let index = 0; index < rest.length;) {
+      const flag = rest[index]
+      const value = rest[index + 1]
+      if (flag === '--url') {
+        if (!value) return { command: 'error', message: '--url requires a value' }
+        url = value
+        rest.splice(index, 2)
+        continue
+      }
+      if (flag === '--key-hash') {
+        if (!value) return { command: 'error', message: '--key-hash requires a value' }
+        keyHash = value
+        rest.splice(index, 2)
+        continue
+      }
+      if (flag === '--port') {
+        const parsed = value ? Number(value) : Number.NaN
+        if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 65535) {
+          return { command: 'error', message: '--port requires a valid port number' }
+        }
+        port = parsed
+        rest.splice(index, 2)
+        continue
+      }
+      return { command: 'error', message: `Unknown vmp argument: ${flag}` }
+    }
+    if (sub === 'configure' && (!url || !keyHash)) {
+      return { command: 'error', message: 'Usage: athena vmp configure --url <report-url> --key-hash <sha256-hash>' }
+    }
+    return { command: 'vmp', sub: sub as Extract<CliCommand, { command: 'vmp' }>['sub'], url, keyHash, port }
+  }
   if (argv[0] === 'doctor') {
     const unknown = argv.slice(1).find((arg) => arg !== '--json')
     return unknown
@@ -581,6 +626,10 @@ Usage:
   athena voice probe     round-trip local speech and verify the Realtime connection
   athena voice auth      securely save the per-machine OpenAI voice key
   athena doctor          inspect credentials, trust, dependencies, sandbox, and update status
+  athena vmp status      show Vibe Monitor Plus connector configuration
+  athena vmp report      print the current usage report JSON for VMP
+  athena vmp server      start a local HTTP server that serves the VMP report
+  athena vmp configure --url <url> --key-hash <hash>  save VMP connector settings
   athena import <path>   one-time import of an ares-style brain (--force to merge)
   athena trust           trust this canonical project path
   athena trust --hooks   separately approve the current project hook definitions
@@ -702,6 +751,7 @@ interface SlashDeps {
   runId?: string
   permissionDetails?: (id: string) => string | null
   commands?: ReadonlyMap<string, { description: string; argumentHint: string | null }>
+  vmpRecorder?: TelemetryRecorder
 }
 
 export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
@@ -719,6 +769,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
     runId,
     permissionDetails,
     commands,
+    vmpRecorder,
   } = deps
   const info = (message: string) => bus.emit({ type: 'info', message })
   return (cmd) => {
@@ -824,7 +875,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
           )
           break
         }
-        client.swap(makeClient(p, resolved.key))
+        client.swap(makeClient(p, resolved.key, vmpRecorder))
         engine.setProvider(p)
         engine.setModel(PROVIDERS[p].defaultModel)
         bus.emit({
@@ -913,10 +964,16 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
   }
 }
 
-function makeClient(provider: ProviderId, key: string): ModelClient {
+function makeClient(provider: ProviderId, key: string, recorder?: TelemetryRecorder): ModelClient {
   const fixture = process.env['ATHENA_TEST_MODEL_SCRIPT']
   if (process.env['NODE_ENV'] === 'test' && fixture) return new FixtureModelClient(fixture)
-  return new AnthropicClient(key, PROVIDERS[provider].baseURL ?? undefined, PROVIDERS[provider].authMode)
+  return new AnthropicClient(
+    key,
+    PROVIDERS[provider].baseURL ?? undefined,
+    PROVIDERS[provider].authMode,
+    provider,
+    recorder,
+  )
 }
 
 function describeCapability(
@@ -1106,6 +1163,50 @@ async function main(): Promise<void> {
     return
   }
   ensureBrainScaffold(paths)
+  if (cmd.command === 'vmp') {
+    const settings = loadSettings(paths, 'anthropic')
+    try {
+      switch (cmd.sub) {
+        case 'status': {
+          const status = await getVmpStatus(paths, settings)
+          console.log(`VMP connector: ${status.enabled ? 'enabled' : 'disabled'}`)
+          if (status.reportUrl) console.log(`Report URL: ${status.reportUrl}`)
+          console.log(`Key hash configured: ${status.keyHashConfigured ? 'yes' : 'no'}`)
+          console.log(`Ledger entries: ${status.ledgerEntries}`)
+          break
+        }
+        case 'report': {
+          await printVmpReport(paths)
+          break
+        }
+        case 'configure': {
+          if (!cmd.url || !cmd.keyHash) {
+            console.error('Usage: athena vmp configure --url <report-url> --key-hash <sha256-hash>')
+            process.exitCode = CLI_EXIT.usage
+            break
+          }
+          configureVmp(paths, settings, { reportUrl: cmd.url, keyHash: cmd.keyHash })
+          console.log('VMP connector configured. VMP can now pull reports from this app.')
+          break
+        }
+        case 'server': {
+          await startVmpServer(paths, settings.vmp, cmd.port)
+          // Server runs until SIGINT.
+          await new Promise<void>((resolve) => {
+            process.on('SIGINT', () => {
+              console.error('\nVMP server stopping.')
+              resolve()
+            })
+          })
+          break
+        }
+      }
+    } catch (err) {
+      console.error((err as Error).message)
+      process.exitCode = 1
+    }
+    return
+  }
   if (cmd.command === 'plugin') {
     const manager = new PluginManager(paths)
     const [target] = cmd.args
@@ -1386,13 +1487,15 @@ async function main(): Promise<void> {
         allowProjectHooks: projectTrust.allowProjectHooks,
         allowProjectMcp: projectTrust.allowProjectMcp,
       })
+      const voiceVmpLedger = settings.vmp.enabled ? FileLedgerStore.forPaths(paths) : undefined
+      const voiceVmpRecorder = makeTelemetryRecorder(voiceVmpLedger)
       const resolvedKey = resolveApiKey(provider, credentials, process.env, credentialVault, () => {})
       if (!resolvedKey) {
         console.error(`No API key found for ${PROVIDERS[provider].label}; run \`athena auth\`.`)
         process.exitCode = CLI_EXIT.provider
         return
       }
-      const harnessClient = makeClient(provider, resolvedKey.key)
+      const harnessClient = makeClient(provider, resolvedKey.key, voiceVmpRecorder)
       const controller = await HarnessSessionController.create({
         paths,
         effectivePaths,
@@ -1612,6 +1715,8 @@ async function main(): Promise<void> {
     allowProjectHooks: projectTrust.allowProjectHooks,
     allowProjectMcp: projectTrust.allowProjectMcp,
   })
+  const vmpLedger = settings.vmp.enabled ? FileLedgerStore.forPaths(paths) : undefined
+  const vmpRecorder = makeTelemetryRecorder(vmpLedger)
   const pluginExtensions = loadPluginRuntimeExtensions(
     effectivePaths,
     (message) => console.error(message),
@@ -1810,7 +1915,7 @@ async function main(): Promise<void> {
       '\n\nReturn the final answer as JSON only, with no Markdown fence, matching this JSON Schema:\n' +
       JSON.stringify(outputSchema)
   }
-  const client = new ClientHolder(makeClient(provider, resolved.key))
+  const client = new ClientHolder(makeClient(provider, resolved.key, vmpRecorder))
   const orchestrator = new AgentOrchestrator({
     defs: loadAgentsIndexWithPlugins(effectivePaths, (msg) => console.error(msg)),
     clientFactory: () => client,
@@ -2129,6 +2234,7 @@ async function main(): Promise<void> {
       runId: trace.runId,
       permissionDetails: (id) => permissionDetails.get(id) ?? null,
       commands,
+      vmpRecorder,
     })
     const unsubscribeScreen = bus.on((event) => {
       if (event.type === 'info') {
@@ -2246,6 +2352,7 @@ async function main(): Promise<void> {
         runId: trace.runId,
         permissionDetails: (id) => permissionDetails.get(id) ?? null,
         commands,
+        vmpRecorder,
       }),
     }),
   )

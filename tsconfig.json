@@ -11,7 +11,7 @@
     "skipLibCheck": true,
     "noEmit": true,
     "types": ["node"],
-    "lib": ["ES2022"]
+    "lib": ["ES2022"],
   },
-  "include": ["src", "tests"]
+  "include": ["src", "tests", "api-calculator/src", "api-calculator/adapters"]
 }

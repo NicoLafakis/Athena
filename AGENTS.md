@@ -140,7 +140,28 @@ Never end a session with uncommitted work. The handoff unit between machines is 
 commit; anything left dirty is invisible to the other machine and will be lost or
 conflicted.
 
-## 8. Keep the wiki current
+## 8. VMP API Calculator integration
+
+Athena reports its own provider usage to Vibe Monitor Plus (VMP). The integration lives
+in `api-calculator/` (portable kit), `src/engine/telemetry.ts`, `src/brain/vmp-ledger.ts`,
+and `src/harness/vmp.ts`.
+
+- **Telemetry is opt-in.** Set `vmp.enabled: true` in `~/.athena/settings.json` or run
+  `athena vmp configure --url <report-url> --key-hash <sha256-hash>`.
+- **Provider calls are recorded at the client boundary.** `AnthropicClient` writes one
+  attempt per API call (retries share a `logical_request_id`) to a JSONL ledger at
+  `~/.athena/vmp-ledger.jsonl`.
+- **The report endpoint is local.** `athena vmp server` serves `GET /api/vmp/report` for
+  VMP to pull. The connector key is verified with a SHA-256 hash; the raw key is never
+  stored.
+- **Never send prompts, completions, headers, or raw API keys to VMP.** Only normalized
+  scalar meters leave the machine.
+
+When changing instrumentation, keep the api-calculator tests green and ensure the host
+repo gates still pass. Provider admin/org keys are optional reconciliation tools and are
+not required for the integration.
+
+## 9. Keep the wiki current
 
 Any change that alters a mechanism documented in `.wiki/` must update that page in the
 same commit, including `.wiki/INDEX.md` when a page is added or its summary changes. A

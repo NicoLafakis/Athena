@@ -1,7 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { MessageParam, Message, Tool } from '@anthropic-ai/sdk/resources/messages'
 import type { ThinkingParam, Effort } from '../brain/models.js'
+import type { Provider } from '../../api-calculator/src/types.js'
 import type { TokenUsage } from './types.js'
+import type { TelemetryRecorder } from './telemetry.js'
+import { anthropicUsageMeters, newLogicalRequestId } from './telemetry.js'
 
 export interface StreamCallbacks {
   onTextDelta: (delta: string) => void
@@ -49,11 +52,23 @@ export interface ModelClient {
 
 const MAX_RETRIES = 3
 
+function attemptOutcomeFromError(err: unknown): 'ok' | 'error' | 'cancelled' {
+  const status = (err as { status?: number }).status
+  if (status === 401 || status === 403) return 'error'
+  return 'error'
+}
+
 export class AnthropicClient implements ModelClient {
   private readonly sdk: Anthropic
   private readonly promptCaching: boolean
 
-  constructor(apiKey?: string, baseURL?: string, authMode: 'x-api-key' | 'bearer' = 'x-api-key') {
+  constructor(
+    apiKey?: string,
+    baseURL?: string,
+    authMode: 'x-api-key' | 'bearer' = 'x-api-key',
+    private readonly provider: Provider = 'anthropic',
+    private readonly telemetry?: TelemetryRecorder,
+  ) {
     // Bearer (Moonshot's Anthropic-compatible endpoint): the key goes out as
     // Authorization: Bearer via authToken. apiKey: null is REQUIRED — otherwise the
     // SDK auto-picks ANTHROPIC_API_KEY from the env and sends BOTH auth headers,
@@ -73,6 +88,8 @@ export class AnthropicClient implements ModelClient {
     // Only clean-slate failures are retried: once any delta reached the caller,
     // a retry would re-stream the same text into the transcript (double render).
     let deltaEmitted = false
+    const logicalRequestId = newLogicalRequestId()
+    const startedAt = new Date().toISOString()
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
         // Forward-compat pass-through: the installed SDK (0.57) does not yet type
@@ -107,18 +124,45 @@ export class AnthropicClient implements ModelClient {
         // error listener is attached (MessageStream.js). We already surface errors via the
         // finalMessage() rejection caught below; this no-op listener just disarms that footgun.
         stream.on('error', () => {})
-        return { message: await stream.finalMessage() }
+        const message = await stream.finalMessage()
+        this.recordStreamAttempt(logicalRequestId, attempt, startedAt, params.model, message, 'ok')
+        return { message }
       } catch (err) {
         lastError = err
-        if (params.signal.aborted) throw err
+        const aborted = params.signal.aborted
         const status = (err as { status?: number }).status
         const retryable =
           status === undefined || status === 429 || status === 529 || status >= 500
+        const outcome = aborted ? 'cancelled' : attemptOutcomeFromError(err)
+        // Record the failed attempt before deciding whether to retry.
+        this.recordStreamAttempt(logicalRequestId, attempt, startedAt, params.model, undefined, outcome)
+        if (aborted) throw err
         if (!retryable || deltaEmitted || attempt === MAX_RETRIES - 1) throw err
         await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt))
       }
     }
     throw lastError
+  }
+
+  private recordStreamAttempt(
+    logicalRequestId: string,
+    attemptIndex: number,
+    startedAt: string,
+    model: string,
+    message: Message | undefined,
+    outcome: 'ok' | 'error' | 'cancelled',
+  ): void {
+    if (!this.telemetry) return
+    this.telemetry({
+      external_id: `${logicalRequestId}-${attemptIndex}`,
+      logical_request_id: logicalRequestId,
+      provider: this.provider,
+      model,
+      operation: 'stream',
+      started_at: startedAt,
+      outcome,
+      meters: message ? anthropicUsageMeters(message.usage) : [],
+    })
   }
 
   async complete(params: {
@@ -137,6 +181,8 @@ export class AnthropicClient implements ModelClient {
     signal?: AbortSignal
   }): Promise<CompletionResult> {
     let lastError: unknown
+    const logicalRequestId = newLogicalRequestId()
+    const startedAt = new Date().toISOString()
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
         const res = await this.sdk.messages.create(
@@ -151,6 +197,7 @@ export class AnthropicClient implements ModelClient {
           .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
           .map((b) => b.text)
           .join('')
+        this.recordCompleteAttempt(logicalRequestId, attempt, startedAt, params.model, res, 'ok')
         return {
           text,
           usage: {
@@ -162,14 +209,38 @@ export class AnthropicClient implements ModelClient {
         }
       } catch (err) {
         lastError = err
-        if (params.signal?.aborted) throw err
+        const aborted = params.signal?.aborted ?? false
         const status = (err as { status?: number }).status
         const retryable =
           status === undefined || status === 429 || status === 529 || status >= 500
+        const outcome = aborted ? 'cancelled' : attemptOutcomeFromError(err)
+        this.recordCompleteAttempt(logicalRequestId, attempt, startedAt, params.model, undefined, outcome)
+        if (aborted) throw err
         if (!retryable || attempt === MAX_RETRIES - 1) throw err
         await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt))
       }
     }
     throw lastError
+  }
+
+  private recordCompleteAttempt(
+    logicalRequestId: string,
+    attemptIndex: number,
+    startedAt: string,
+    model: string,
+    message: Message | undefined,
+    outcome: 'ok' | 'error' | 'cancelled',
+  ): void {
+    if (!this.telemetry) return
+    this.telemetry({
+      external_id: `${logicalRequestId}-${attemptIndex}`,
+      logical_request_id: logicalRequestId,
+      provider: this.provider,
+      model,
+      operation: 'complete',
+      started_at: startedAt,
+      outcome,
+      meters: message ? anthropicUsageMeters(message.usage) : [],
+    })
   }
 }

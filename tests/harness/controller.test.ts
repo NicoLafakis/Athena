@@ -38,6 +38,7 @@ const defaultSettings: Settings = {
   },
   hooks: [],
   mcpServers: {},
+  vmp: { enabled: false },
 }
 
 describe('HarnessSessionController', () => {

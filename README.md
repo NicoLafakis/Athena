@@ -63,6 +63,25 @@ The standard Ink TUI remains the default. Set global
 for serialized append-only input/output that preserves native terminal scrollback and
 does not mount Ink.
 
+## Vibe Monitor Plus cost reporting
+
+Athena can report its own model usage to Vibe Monitor Plus (VMP). Usage is recorded at
+the provider response boundary, stored locally in `~/.athena/vmp-ledger.jsonl`, and
+exposed through a read-only authenticated report endpoint. No prompts, completions,
+headers, or raw API keys are transmitted.
+
+```sh
+athena vmp status                                   # show connector state
+athena vmp report                                   # print the current report JSON
+athena vmp configure --url <report-url> --key-hash <sha256-hash>
+athena vmp server                                   # serve GET /api/vmp/report
+```
+
+Configure the connector once in VMP Settings, copy the generated key, and paste its
+SHA-256 hash into Athena with `athena vmp configure`. VMP pulls the report on its
+schedule; `athena vmp server` must be running when a pull occurs. Provider
+organization/admin keys are optional reconciliation tools and are not required.
+
 ## Optional Athena voice
 
 Windows voice mode listens through the local `System.Speech` recognizer. An utterance is
