@@ -17,7 +17,7 @@ links here for depth, this wiki explains it.
 
 ## Cross-repo ops plans
 
-- [Vercel cost mitigation plan](../docs/superpowers/plans/2026-07-29-vercel-cost-mitigation.md) - 8-task cross-repo plan covering build settings, logging, OpenCRM cron migration to Supabase pg_cron, SimCRM polling batch, floatfuel CDN caching, DiscoverAI/DonorHunterPro cron tuning, and Spend Management cap.
+- [Vercel cost mitigation plan](../docs/superpowers/plans/2026-07-29-vercel-cost-mitigation.md) - EXECUTED 2026-07-29 (commit 8794dc8): 8-task cross-repo plan covering build settings, logging, OpenCRM cron migration to Supabase pg_cron, SimCRM polling batch, floatfuel CDN caching, DiscoverAI/DonorHunterPro cron tuning, and Spend Management cap. Two Vercel-dashboard steps (build machine setting, Spend Management) remain manual/pending.
 
 ## Reference
 
