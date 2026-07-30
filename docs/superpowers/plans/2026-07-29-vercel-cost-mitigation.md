@@ -39,9 +39,9 @@ Build machine size is a **project setting, not a vercel.json key** — it must b
 
 ### Steps
 
-- [ ] **Manual dashboard checklist — build machine.** For each of the 14 Vercel projects: Vercel Dashboard → select project → Settings → Build and Deployment → Build Machine → select **Standard (4 vCPU → 2 vCPU / 8 GB → 4 GB)** → Save. Expected result: setting shows "Standard" for every project. (Repos with local checkouts: opencrm, simcrm-v10, floatfuel, discoveraiwithnico, donorhunterpro; repeat for the other 9 projects in the team list.)
+- [ ] **Manual dashboard checklist — build machine.** For each of the 14 Vercel projects: Vercel Dashboard → select project → Settings → Build and Deployment → Build Machine → select **Standard (4 vCPU → 2 vCPU / 8 GB → 4 GB)** → Save. Expected result: setting shows "Standard" for every project. (Repos with local checkouts: opencrm, simcrm-v10, floatfuel, discoveraiwithnico, donorhunterpro; repeat for the other 9 projects in the team list.) *_(pending: Nico dashboard action)_*
 
-- [ ] Add `ignoreCommand` to `C:\programming\nicos-apps\OpenCRM\vercel.json`. Old content (entire file):
+- [x] Add `ignoreCommand` to `C:\programming\nicos-apps\OpenCRM\vercel.json`. Old content (entire file):
 
   ```json
   {
@@ -70,7 +70,7 @@ Build machine size is a **project setting, not a vercel.json key** — it must b
 
   How it works: `ignoreCommand` exiting **0** means "skip the build". `git diff --quiet` exits 0 when nothing outside markdown/docs/.wiki changed, so docs-only pushes skip the build entirely.
 
-- [ ] Add the same key to `C:\programming\nicos-apps\floatfuel\vercel.json`. Old content (entire file):
+- [x] Add the same key to `C:\programming\nicos-apps\floatfuel\vercel.json`. Old content (entire file):
 
   ```json
   {
@@ -99,7 +99,7 @@ Build machine size is a **project setting, not a vercel.json key** — it must b
   }
   ```
 
-- [ ] Add the key to `C:\programming\nicos-apps\DiscoverAIWithNico\vercel.json` (insert as the second property; the `crons` array is edited later in Task 6). Old first lines:
+- [x] Add the key to `C:\programming\nicos-apps\DiscoverAIWithNico\vercel.json` (insert as the second property; the `crons` array is edited later in Task 6). Old first lines:
 
   ```json
   {
@@ -116,7 +116,7 @@ Build machine size is a **project setting, not a vercel.json key** — it must b
     "crons": [
   ```
 
-- [ ] Add the key to `C:\programming\nicos-apps\DonorHunterPro\vercel.json` the same way. Old first lines:
+- [x] Add the key to `C:\programming\nicos-apps\DonorHunterPro\vercel.json` the same way. Old first lines:
 
   ```json
   {
@@ -133,7 +133,7 @@ Build machine size is a **project setting, not a vercel.json key** — it must b
     "crons": [
   ```
 
-- [ ] Create `C:\programming\nicos-apps\SimCRM-v10\vercel.json` (new file — repo has none):
+- [x] Create `C:\programming\nicos-apps\SimCRM-v10\vercel.json` (new file — repo has none):
 
   ```json
   {
@@ -142,7 +142,7 @@ Build machine size is a **project setting, not a vercel.json key** — it must b
   }
   ```
 
-- [ ] Verify each JSON parses. From each repo root:
+- [x] Verify each JSON parses. From each repo root:
 
   ```bash
   node -e "JSON.parse(require('fs').readFileSync('vercel.json','utf8')); console.log('vercel.json OK')"
@@ -150,7 +150,7 @@ Build machine size is a **project setting, not a vercel.json key** — it must b
 
   Expected output: `vercel.json OK`
 
-- [ ] Commit per repo (these are config/JSON-only edits, but each repo still gets its build gate before push — run the gate from the table above first; e.g. in OpenCRM: `pnpm typecheck && pnpm build`). Then in each repo:
+- [x] Commit per repo (these are config/JSON-only edits, but each repo still gets its build gate before push — run the gate from the table above first; e.g. in OpenCRM: `pnpm typecheck && pnpm build`). Then in each repo:
 
   ```bash
   # OpenCRM
@@ -163,7 +163,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
   Repeat identically in floatfuel, DiscoverAIWithNico, DonorHunterPro, and SimCRM-v10 (SimCRM commit message: `chore: add vercel.json with docs-only build skip`), each ending with the same `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>` trailer.
 
-- [ ] Verify on Vercel: push a markdown-only commit to one repo and confirm the deployment list shows the build was **Canceled/Skipped** ("The Deployment has been canceled as a result of running the command defined in the Ignored Build Step setting").
+- [ ] Verify on Vercel: push a markdown-only commit to one repo and confirm the deployment list shows the build was **Canceled/Skipped** ("The Deployment has been canceled as a result of running the command defined in the Ignored Build Step setting"). *_(will be proven by the next docs-only push)_*
 
 ---
 
@@ -183,7 +183,7 @@ Grep audit results (2026-07-29):
 
 ### Steps
 
-- [ ] In `src\app\api\discovery\route.ts` line 129, old:
+- [x] In `src\app\api\discovery\route.ts` line 129, old:
 
   ```ts
       console.log("[api/discovery] received (no supabase configured):", email);
@@ -195,7 +195,7 @@ Grep audit results (2026-07-29):
       console.warn("[api/discovery] received (no supabase configured):", email);
   ```
 
-- [ ] In `src\app\api\assessment\route.ts` lines 195 and 215 — these fire per assessment request on unmatched roles (high-frequency). Old (line 195):
+- [x] In `src\app\api\assessment\route.ts` lines 195 and 215 — these fire per assessment request on unmatched roles (high-frequency). Old (line 195):
 
   ```ts
       console.log(`[api/assessment] no match: ${role}`);
@@ -211,7 +211,7 @@ Grep audit results (2026-07-29):
 
   New: delete the line entirely.
 
-- [ ] In `src\app\api\assessment\route.ts` line 472 (now ~470), old:
+- [x] In `src\app\api\assessment\route.ts` line 472 (now ~470), old:
 
   ```ts
       console.log("[api/assessment] received (no supabase configured)");
@@ -223,7 +223,7 @@ Grep audit results (2026-07-29):
       console.warn("[api/assessment] received (no supabase configured)");
   ```
 
-- [ ] Verify no per-request info logs remain:
+- [x] Verify no per-request info logs remain:
 
   ```bash
   cd C:/programming/nicos-apps/DiscoverAIWithNico
@@ -232,7 +232,7 @@ Grep audit results (2026-07-29):
 
   Expected output: no lines (exit code 1).
 
-- [ ] Gate and commit (DiscoverAIWithNico repo):
+- [x] Gate and commit (DiscoverAIWithNico repo):
 
   ```bash
   pnpm typecheck
@@ -258,7 +258,7 @@ The drain route (`app/api/worker/drain/route.ts`) authenticates a `Bearer` token
 
 ### Steps
 
-- [ ] Create the migration `supabase\migrations\20260729T000000_schedule_worker_drain.sql` (replace `https://<OPENCRM_PROD_URL>` with the project's live production URL from Vercel → opencrm project → Domains before running):
+- [x] Create the migration `supabase\migrations\20260729T000000_schedule_worker_drain.sql` (replace `https://<OPENCRM_PROD_URL>` with the project's live production URL from Vercel → opencrm project → Domains before running):
 
   ```sql
   -- Schedules the jobs-worker drain from inside Supabase (pg_cron + pg_net),
@@ -292,9 +292,9 @@ The drain route (`app/api/worker/drain/route.ts`) authenticates a `Bearer` token
   );
   ```
 
-- [ ] Apply it: Supabase Dashboard → the OpenCRM project → SQL Editor → first run `alter database postgres set app.worker_secret = '<WORKER_SECRET value>';` (copy the value from Vercel → opencrm → Settings → Environment Variables → `WORKER_SECRET`), then paste and run the migration file contents. Expected output: `CREATE EXTENSION` (x2, or no-op notices) and a `schedule` row id.
+- [x] Apply it: Supabase Dashboard → the OpenCRM project → SQL Editor → first run `alter database postgres set app.worker_secret = '<WORKER_SECRET value>';` (copy the value from Vercel → opencrm → Settings → Environment Variables → `WORKER_SECRET`), then paste and run the migration file contents. Expected output: `CREATE EXTENSION` (x2, or no-op notices) and a `schedule` row id.
 
-- [ ] Verify the job fires:
+- [x] Verify the job fires:
 
   ```sql
   select jobname, schedule, active from cron.job where jobname = 'opencrm-worker-drain';
@@ -306,7 +306,7 @@ The drain route (`app/api/worker/drain/route.ts`) authenticates a `Bearer` token
 
   Also confirm in Vercel → opencrm → Logs that `/api/worker/drain` shows fresh 200s with no `unauthorized` responses.
 
-- [ ] Only after the 200s are confirmed, remove the Vercel cron. `vercel.json` old content (post-Task 1):
+- [x] Only after the 200s are confirmed, remove the Vercel cron. `vercel.json` old content (post-Task 1):
 
   ```json
   {
@@ -330,7 +330,7 @@ The drain route (`app/api/worker/drain/route.ts`) authenticates a `Bearer` token
 
   (Ordering safety per house rule "optional hardening never blocks boot": the drain route is concurrency-safe via `claim_jobs FOR UPDATE SKIP LOCKED`, so pg_cron and Vercel cron overlapping during the transition is harmless.)
 
-- [ ] Gate and commit (OpenCRM repo):
+- [x] Gate and commit (OpenCRM repo):
 
   ```bash
   pnpm typecheck
@@ -342,7 +342,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
   git push
   ```
 
-- [ ] Post-deploy verify on the LIVE OpenCRM URL: create a job through the app (any action that enqueues), wait up to 90 seconds, confirm it completes — proof that pg_cron is now the only scheduler and jobs still drain.
+- [ ] Post-deploy verify on the LIVE OpenCRM URL: create a job through the app (any action that enqueues), wait up to 90 seconds, confirm it completes — proof that pg_cron is now the only scheduler and jobs still drain. *_(pg_cron verified via 200s + job_run_details succeeded; in-app job creation not exercised)_*
 
 ---
 
@@ -357,7 +357,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 ### Steps
 
-- [ ] In `lib\store.tsx`, old (lines 203-217):
+- [x] In `lib\store.tsx`, old (lines 203-217):
 
   ```ts
       const timer = setInterval(async () => {
@@ -399,7 +399,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
       }, 2000);
   ```
 
-- [ ] Gate and commit (SimCRM-v10 repo; note there is no `typecheck` script — use tsc directly):
+- [x] Gate and commit (SimCRM-v10 repo; note there is no `typecheck` script — use tsc directly):
 
   ```bash
   cd C:/programming/nicos-apps/SimCRM-v10
@@ -414,7 +414,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
   Expected: tsc silent exit 0; `next build` route table prints.
 
-- [ ] **Behavioral verification on the LIVE deployed SimCRM URL (never localhost).** Open the production URL, sign in, start (or resume) a simulation run. Observe: (1) the run's progress counters advance at the same apparent rate as before — roughly 60 sim steps per second, now arriving in visible chunks every ~2 seconds instead of a near-continuous trickle; (2) in browser DevTools → Network, `runs/<id>/action` POSTs fire every ~2s, not 4x/second; (3) pausing and resuming the run still works instantly. If progress appears to stall for more than ~3 seconds while status is "running", the change regressed — investigate before closing.
+- [ ] **Behavioral verification on the LIVE deployed SimCRM URL (never localhost).** Open the production URL, sign in, start (or resume) a simulation run. Observe: (1) the run's progress counters advance at the same apparent rate as before — roughly 60 sim steps per second, now arriving in visible chunks every ~2 seconds instead of a near-continuous trickle; (2) in browser DevTools → Network, `runs/<id>/action` POSTs fire every ~2s, not 4x/second; (3) pausing and resuming the run still works instantly. If progress appears to stall for more than ~3 seconds while status is "running", the change regressed — investigate before closing. *_(blocked by auth wall; needs a signed-in manual pass)_*
 
 ---
 
@@ -430,7 +430,7 @@ All four handlers set `Cache-Control: no-store`, so every client's 15s/60s/300s 
 
 ### Steps
 
-- [ ] `api\market.ts` line 190 (client polls every 15s), old:
+- [x] `api\market.ts` line 190 (client polls every 15s), old:
 
   ```ts
     res.setHeader('Cache-Control', 'no-store')
@@ -442,7 +442,7 @@ All four handlers set `Cache-Control: no-store`, so every client's 15s/60s/300s 
     res.setHeader('Cache-Control', 'public, s-maxage=15, stale-while-revalidate=30')
   ```
 
-- [ ] `api\halts.ts` line 129 (client polls every 60s), old:
+- [x] `api\halts.ts` line 129 (client polls every 60s), old:
 
   ```ts
     res.setHeader('Cache-Control', 'no-store')
@@ -454,7 +454,7 @@ All four handlers set `Cache-Control: no-store`, so every client's 15s/60s/300s 
     res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120')
   ```
 
-- [ ] `api\news.ts` line 136 (client polls every 300s), old:
+- [x] `api\news.ts` line 136 (client polls every 300s), old:
 
   ```ts
     res.setHeader('Cache-Control', 'no-store')
@@ -466,7 +466,7 @@ All four handlers set `Cache-Control: no-store`, so every client's 15s/60s/300s 
     res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600')
   ```
 
-- [ ] `api\edgar.ts` line 132 (client refreshes every 6h; audit prescribes the news window), old:
+- [x] `api\edgar.ts` line 132 (client refreshes every 6h; audit prescribes the news window), old:
 
   ```ts
     res.setHeader('Cache-Control', 'no-store')
@@ -478,7 +478,7 @@ All four handlers set `Cache-Control: no-store`, so every client's 15s/60s/300s 
     res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600')
   ```
 
-- [ ] Gate and commit (floatfuel repo; build script already includes `tsc -b`):
+- [x] Gate and commit (floatfuel repo; build script already includes `tsc -b`):
 
   ```bash
   cd C:/programming/nicos-apps/floatfuel
@@ -492,7 +492,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
   Expected: `tsc -b` silent, `vite build` prints `✓ built in …`.
 
-- [ ] Verify against the LIVE floatfuel URL after deploy:
+- [x] Verify against the LIVE floatfuel URL after deploy:
 
   ```bash
   curl -sI "https://<FLOATFUEL_PROD_URL>/api/market?symbols=AAPL" | grep -iE "cache-control|x-vercel-cache"
@@ -512,7 +512,7 @@ The library-assets cron is a webhook-drop safety net by its own doc comment (rou
 
 ### Steps
 
-- [ ] In `vercel.json`, old cron entry:
+- [x] In `vercel.json`, old cron entry:
 
   ```json
       {
@@ -532,7 +532,7 @@ The library-assets cron is a webhook-drop safety net by its own doc comment (rou
 
   (Leave `/api/cron/newsletter` `17 12 * * 1` and `/api/cron/retention` `0 4 * * *` untouched — already infrequent.)
 
-- [ ] In `src\app\api\chat\route.ts`, old (lines 11-13):
+- [x] In `src\app\api\chat\route.ts`, old (lines 11-13):
 
   ```ts
   // Post-stream discovery engine (analysis + artifact generation via after()) needs
@@ -549,7 +549,7 @@ The library-assets cron is a webhook-drop safety net by its own doc comment (rou
   export const maxDuration = 120;
   ```
 
-- [ ] Gate and commit (DiscoverAIWithNico repo):
+- [x] Gate and commit (DiscoverAIWithNico repo):
 
   ```bash
   pnpm typecheck
@@ -561,7 +561,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
   git push
   ```
 
-- [ ] Verify on the LIVE DiscoverAIWithNico URL: (1) Vercel Dashboard → project → Settings → Cron Jobs shows `library-assets` at `0 */6 * * *`; (2) send a chat message on the live site and confirm the full streamed reply arrives and, where applicable, the follow-up artifact still appears (exercises the `after()` window under the new 120s cap).
+- [x] Verify on the LIVE DiscoverAIWithNico URL: (1) Vercel Dashboard → project → Settings → Cron Jobs shows `library-assets` at `0 */6 * * *`; (2) send a chat message on the live site and confirm the full streamed reply arrives and, where applicable, the follow-up artifact still appears (exercises the `after()` window under the new 120s cap).
 
 ---
 
@@ -572,7 +572,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 ### Steps
 
-- [ ] Old:
+- [x] Old:
 
   ```json
       { "path": "/api/cron/heartbeat", "schedule": "*/15 * * * *" },
@@ -586,7 +586,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
   Note: `/api/cron/report-delivery` also runs hourly at `20 * * * *`; staggering heartbeat to minute 0 keeps them from stacking. All other crons in this file are daily/annual — leave untouched.
 
-- [ ] Gate and commit (DonorHunterPro repo):
+- [x] Gate and commit (DonorHunterPro repo):
 
   ```bash
   pnpm typecheck
@@ -598,7 +598,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
   git push
   ```
 
-- [ ] Verify: Vercel Dashboard → donorhunterpro → Settings → Cron Jobs shows heartbeat at `0 * * * *` after the next deploy, and Logs show the route firing once per hour (2,880 → 720 invocations/mo).
+- [x] Verify: Vercel Dashboard → donorhunterpro → Settings → Cron Jobs shows heartbeat at `0 * * * *` after the next deploy, and Logs show the route firing once per hour (2,880 → 720 invocations/mo).
 
 ---
 
@@ -606,7 +606,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 No code. Exact click path:
 
-- [ ] Vercel Dashboard → switch to the team (top-left team picker) → **Team Settings** → **Billing** → scroll to **Spend Management** → toggle **On**.
+- [ ] Vercel Dashboard → switch to the team (top-left team picker) → **Team Settings** → **Billing** → scroll to **Spend Management** → toggle **On**. *_(pending: Nico dashboard action)_*
 - [ ] Set **notification threshold: $10** (email/webhook notice when on-demand spend passes $10).
 - [ ] Set **pause threshold: $40** with action **"Pause all projects"** (hard stop before a runaway bill).
 - [ ] Save. Expected result: Spend Management panel shows "Enabled — notify at $10.00, pause at $40.00".
@@ -616,6 +616,25 @@ No code. Exact click path:
 
 ## Self-review checklist (run after all tasks)
 
-- [ ] Every audit finding has a task: build machines + ignored-build-step (T1), chatty logs (T2), OpenCRM cron (T3), SimCRM polling (T4), floatfuel caching (T5), DiscoverAI cron + maxDuration (T6), DonorHunterPro heartbeat (T7), spend cap (T8).
-- [ ] No placeholders remain except the two deploy-time substitutions that cannot be committed: `<OPENCRM_PROD_URL>` / `<WORKER_SECRET value>` (Task 3 — secret must never be committed) and `<FLOATFUEL_PROD_URL>` (Task 5 curl check) — both are filled at execution time from the Vercel dashboard, per instructions in the steps.
-- [ ] Each repo committed and pushed separately with its own gates; every commit message carries the `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>` trailer.
+- [x] Every audit finding has a task: build machines + ignored-build-step (T1), chatty logs (T2), OpenCRM cron (T3), SimCRM polling (T4), floatfuel caching (T5), DiscoverAI cron + maxDuration (T6), DonorHunterPro heartbeat (T7), spend cap (T8).
+- [x] No placeholders remain except the two deploy-time substitutions that cannot be committed: `<OPENCRM_PROD_URL>` / `<WORKER_SECRET value>` (Task 3 — secret must never be committed) and `<FLOATFUEL_PROD_URL>` (Task 5 curl check) — both are filled at execution time from the Vercel dashboard, per instructions in the steps.
+- [x] Each repo committed and pushed separately with its own gates; every commit message carries the `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>` trailer.
+
+---
+
+## Execution log (2026-07-29)
+
+**Commits per repo:**
+
+- **OpenCRM:** `3145e9d`, `568671e`, `7f0ee45` (+ docs commit pending separately)
+- **SimCRM-v10:** `6fb32c7`, `63a066c`, `ae35346`
+- **floatfuel:** `2eb61d2`, `af1c05b`, `f7d7741`
+- **DiscoverAIWithNico:** `f4ad727`, `de44138`, `777ad6f`, `38de12e`, `062bcba`
+- **DonorHunterPro:** `981667c`, `47c1349`, `620489e`
+
+**Deviations from plan:**
+
+1. **Task 3:** the secret is stored in Supabase Vault instead of a database GUC — `alter database ... set` was denied (42501); the cron command reads it from Vault inside a fail-loud DO block.
+2. **Tasks 4/6, tuned by review:** SimCRM ticks 1000ms/60 steps (not 2000ms/120) with `maxDuration = 60` on the action route; DiscoverAI chat `maxDuration = 180` (not 120).
+
+**Additional fix (Task 5):** cacheable headers are set only on 200 responses; 400/405 error paths return `no-store` so errors are never CDN-cached.
