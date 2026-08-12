@@ -1,0 +1,2542 @@
+{
+  "meta": {
+    "version": 1,
+    "generatedAt": "2026-08-09T02:40:47+00:00",
+    "engine": "ast-only",
+    "root": "C:\\programming\\nicos-apps\\Athena",
+    "counts": {
+      "files": 278,
+      "symbols": 0,
+      "edges": 0,
+      "modules": 5,
+      "reusedFromCache": 0
+    }
+  },
+  "files": {
+    "api-calculator/adapters/memory-ledger.ts": {
+      "lang": "typescript",
+      "hash": "47d3cb976320edd5712a1c7782bdbc38acdfc2195eaf68145ac66c2e80b3aac3",
+      "loc": 21,
+      "module": "api-calculator",
+      "symbols": [],
+      "imports": []
+    },
+    "api-calculator/adapters/next-report-route.test.ts": {
+      "lang": "typescript",
+      "hash": "22542cfcfae4ae2545e6c091716bcf54bc508d4835dddb75a399032cc9853ee4",
+      "loc": 60,
+      "module": "api-calculator",
+      "symbols": [],
+      "imports": []
+    },
+    "api-calculator/adapters/next-report-route.ts": {
+      "lang": "typescript",
+      "hash": "9734a8ff17727df57caa16ae8be36e7c6d0df7d10d7ce2df014b96c5decab02f",
+      "loc": 29,
+      "module": "api-calculator",
+      "symbols": [],
+      "imports": []
+    },
+    "api-calculator/src/auth.test.ts": {
+      "lang": "typescript",
+      "hash": "38036d18e9bab499ea945dda8221da70d295d2b4b180fa7879d135908c1ccdd8",
+      "loc": 32,
+      "module": "api-calculator",
+      "symbols": [],
+      "imports": []
+    },
+    "api-calculator/src/auth.ts": {
+      "lang": "typescript",
+      "hash": "c33f30c89c349d89d19d6c2a8b513e6781be75a93ecbeb5c2bacda9b27dbde29",
+      "loc": 14,
+      "module": "api-calculator",
+      "symbols": [],
+      "imports": []
+    },
+    "api-calculator/src/contract.ts": {
+      "lang": "typescript",
+      "hash": "e83c45b5e1d61deedec5b4af6f25385ea52ef0501d48af483b68ca9827e246a5",
+      "loc": 26,
+      "module": "api-calculator",
+      "symbols": [],
+      "imports": []
+    },
+    "api-calculator/src/ledger.test.ts": {
+      "lang": "typescript",
+      "hash": "7553d54681bbd44b052b314aef4501a1ec0f3e10bd3dece44fd1982c544f2dd1",
+      "loc": 39,
+      "module": "api-calculator",
+      "symbols": [],
+      "imports": []
+    },
+    "api-calculator/src/ledger.ts": {
+      "lang": "typescript",
+      "hash": "87f07ff6d32857c28d5672e0e79a3ab7291c9ad274d5727dbb4e7bc5350de9a9",
+      "loc": 17,
+      "module": "api-calculator",
+      "symbols": [],
+      "imports": []
+    },
+    "api-calculator/src/normalize.test.ts": {
+      "lang": "typescript",
+      "hash": "5f22c45d28cd47efc6f4a708ba9d0c17e8cac2874fd51e0f4ac8038a4e430e2c",
+      "loc": 49,
+      "module": "api-calculator",
+      "symbols": [],
+      "imports": []
+    },
+    "api-calculator/src/normalize.ts": {
+      "lang": "typescript",
+      "hash": "006c6538bf1e091bcf983ec7c92eb4950e8e882f660b7850cc433f8ebc32e2c6",
+      "loc": 34,
+      "module": "api-calculator",
+      "symbols": [],
+      "imports": []
+    },
+    "api-calculator/src/pricing.test.ts": {
+      "lang": "typescript",
+      "hash": "b9aa3210e64727ddc3ae9bd1c67fc698c7083ffa07117e248d0d9a9f16ffd054",
+      "loc": 27,
+      "module": "api-calculator",
+      "symbols": [],
+      "imports": []
+    },
+    "api-calculator/src/pricing.ts": {
+      "lang": "typescript",
+      "hash": "75c7121019d57baf87993ccdd98136d5294c0edd5111c53fb50eaac105fae082",
+      "loc": 25,
+      "module": "api-calculator",
+      "symbols": [],
+      "imports": []
+    },
+    "api-calculator/src/report.test.ts": {
+      "lang": "typescript",
+      "hash": "ddabfefa23734a1fa620a438a8532f95cf8dfaabbeda160e5d33aadd3f6d6cc9",
+      "loc": 48,
+      "module": "api-calculator",
+      "symbols": [],
+      "imports": []
+    },
+    "api-calculator/src/report.ts": {
+      "lang": "typescript",
+      "hash": "424694d2099d9aa36501341de07f45cfd7f794b1ef4f6aefbf0cd85cabd15ab3",
+      "loc": 39,
+      "module": "api-calculator",
+      "symbols": [],
+      "imports": []
+    },
+    "api-calculator/src/types.ts": {
+      "lang": "typescript",
+      "hash": "cf4ac1bd47e587d55c156ddf44d98b89fe0fb30d3889537d2ec02db5086d3daf",
+      "loc": 39,
+      "module": "api-calculator",
+      "symbols": [],
+      "imports": []
+    },
+    "bin/athena.js": {
+      "lang": "javascript",
+      "hash": "f3cf8ad7a092474c9ba3a190fa0f853362f227b8fdc24900fdd1168c3ceca204",
+      "loc": 11,
+      "module": "bin",
+      "symbols": [],
+      "imports": []
+    },
+    "eslint.config.js": {
+      "lang": "javascript",
+      "hash": "550335f846cf1478faab1fd9bb004e57e3cf7ed146ccb58221b4ae68e92045ea",
+      "loc": 15,
+      "module": ".",
+      "symbols": [],
+      "imports": []
+    },
+    "src/auth/wizard.ts": {
+      "lang": "typescript",
+      "hash": "f1210cb6998b86bcca64e0de7fba7272503321073558b07a333a4ac644eed307",
+      "loc": 213,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/brain/credential-vault.ts": {
+      "lang": "typescript",
+      "hash": "2b8b0bc0ac2fdac90f3d6ff6afae90fd6583ef2f94d892f889bed845f0b33ca4",
+      "loc": 464,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/brain/credentials.ts": {
+      "lang": "typescript",
+      "hash": "3ccc963ace557b9eb23237dd791222240ee67900b09aa33883992a1ebdcd8a38",
+      "loc": 271,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/brain/import.ts": {
+      "lang": "typescript",
+      "hash": "bbb42d839a033367e4ecf33b94d481ffc0a6e7b770405a23668f02aac6d7f8aa",
+      "loc": 150,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/brain/index.ts": {
+      "lang": "typescript",
+      "hash": "32f6e3d2dd92a83aeb2030fba3dc7b124a93322caca128e539605c6ba1fde642",
+      "loc": 4,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/brain/loader.ts": {
+      "lang": "typescript",
+      "hash": "ad74269db1ccb386e021ec641c8d7c43da0b1cbf1eb582a0d2b98e1b4c3a016e",
+      "loc": 227,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/brain/models.ts": {
+      "lang": "typescript",
+      "hash": "fdafeac5b7b9337d9bb15990e273223348bd0433fdc5c9c98fc7edfd0dd1f6cc",
+      "loc": 285,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/brain/paths.ts": {
+      "lang": "typescript",
+      "hash": "f28f20428f2c3bb1b17ea85834d36fd4e2a3afa81d184872a74f5e61c2e6d92b",
+      "loc": 67,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/brain/plugin-state.ts": {
+      "lang": "typescript",
+      "hash": "89ffe72aa02aae36d8d0058b9b51db7d9d69ac9d0b3dcf8ab56910bb2372f215",
+      "loc": 39,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/brain/plugins.ts": {
+      "lang": "typescript",
+      "hash": "b5e6879e893c2fb214f701a549f798eb7d1c699f985dd3a08eb33e640f2febe1",
+      "loc": 280,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/brain/settings.ts": {
+      "lang": "typescript",
+      "hash": "a5968a58af6d8622c3bb7fe616e802db58b4323731c20041d28ecc6bda7f1869",
+      "loc": 353,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/brain/vmp-ledger.ts": {
+      "lang": "typescript",
+      "hash": "06caa56fc7ad48eecb3120b1ea798aabf857307615743222972dab09011441c1",
+      "loc": 74,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/cli.ts": {
+      "lang": "typescript",
+      "hash": "50bf14a88762a2de5297736a3faceb83319184c8d964f5aa7da060d3efe16939",
+      "loc": 2385,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/engine/client-holder.ts": {
+      "lang": "typescript",
+      "hash": "07b7092d7f0a80344969babbb6f4e731a6876bbb5a3b728d9bd30f54fa44609c",
+      "loc": 42,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/engine/client.ts": {
+      "lang": "typescript",
+      "hash": "3e948e5aea5c662fbc491519120b5083e09154fe3f491493b468d011366619ed",
+      "loc": 246,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/engine/context.ts": {
+      "lang": "typescript",
+      "hash": "ad1789fc91b1ff9836ae43ebb7c122558e9043a132331a9b33ed9c63b0f66241",
+      "loc": 123,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/engine/events.ts": {
+      "lang": "typescript",
+      "hash": "9cfa9f2d6d4613632515e290ede5020ba651f22877aeb67e8200c8953b87b388",
+      "loc": 18,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/engine/fixture-client.ts": {
+      "lang": "typescript",
+      "hash": "4e803d831372a4be40f99fb4734fe7999daa851e8babc4bf46a083362836620c",
+      "loc": 72,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/engine/index.ts": {
+      "lang": "typescript",
+      "hash": "cfd10fe52c590a4b0aebfbc9ebeb5c548817b8f4199579af2878e916b6a68efa",
+      "loc": 6,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/engine/loop.ts": {
+      "lang": "typescript",
+      "hash": "d6f895758c82a69294fa2fa56c279c3f0fd7eefdb2948da3bf2ab09f18401995",
+      "loc": 892,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/engine/output-schema.ts": {
+      "lang": "typescript",
+      "hash": "308b41fd521e8c5ac4b556fba2966d90419aba724c1f1e36da1637556a13f318",
+      "loc": 106,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/engine/prompt.ts": {
+      "lang": "typescript",
+      "hash": "41b124b03ba6f8f6f19285cd4445d6a8d9dd90d086640684ad4e2b3bc398c556",
+      "loc": 73,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/engine/run.ts": {
+      "lang": "typescript",
+      "hash": "3bc35bddbb0092a07bb3fce30792bb31856c9cf3b1e8de5f865c99fd76c9f5a5",
+      "loc": 122,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/engine/telemetry.ts": {
+      "lang": "typescript",
+      "hash": "2595a3f066d7276908c3b76d0cfbc930c84ab91ee15fb693eda149b86732fd29",
+      "loc": 55,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/engine/types.ts": {
+      "lang": "typescript",
+      "hash": "96f243405ab55ba65acdd4702e8b1c6881a7e97e28b826a173cb78079a41fe51",
+      "loc": 212,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/experience/capture.ts": {
+      "lang": "typescript",
+      "hash": "d07671f92aa8406ac49eaf7bd2d1a2a0d57e5d3eec22ea8d2f51d9387deb98e0",
+      "loc": 31,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/experience/compiler.ts": {
+      "lang": "typescript",
+      "hash": "87816acb4a4fdbbbff07b6bdf452bbf5c25446e6a1dd1cd7a2dac289e791bc89",
+      "loc": 109,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/experience/index.ts": {
+      "lang": "typescript",
+      "hash": "1b02c5a252b7d2936ed6f5751297b010feac762a71c3212765c22a75bfed460e",
+      "loc": 6,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/experience/retrieval.ts": {
+      "lang": "typescript",
+      "hash": "771a621ac69b4a4a73ffd2fecbc5e8dcdcbf10ac0129c001c6bfd1a1638744fd",
+      "loc": 74,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/experience/schemas.ts": {
+      "lang": "typescript",
+      "hash": "ea8ad27d3084f7f3e54ebf23f09bdb74efcfc2d5eb40e883568ec97df8025ed0",
+      "loc": 27,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/experience/store.ts": {
+      "lang": "typescript",
+      "hash": "efe08e3c85cda47aa98d2d043835405a66162c9aef74d19e543cf79a0d968eef",
+      "loc": 154,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/experience/types.ts": {
+      "lang": "typescript",
+      "hash": "40e37b144ec0be6894ceb176aeab4a342af2c215afd0089b19653cbae0f97df2",
+      "loc": 22,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/harness/agents.ts": {
+      "lang": "typescript",
+      "hash": "765d43ac139e6a6d36ceff760cdbfb681f2e6af795bdc249131f10178200d774",
+      "loc": 476,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/harness/bootstrap.ts": {
+      "lang": "typescript",
+      "hash": "6b4ccb6653daeec4cc132acfa2ffc14fcb291847a971a28376490387a751489a",
+      "loc": 118,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/harness/controller.ts": {
+      "lang": "typescript",
+      "hash": "b5c3453ab396af45f86fdc3d9b5140bec5c7aab76974f6c8308e93eaed932c6f",
+      "loc": 496,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/harness/diagnostics.ts": {
+      "lang": "typescript",
+      "hash": "15f0ed1176abd94d4f18629732b1a6da54dffa279f704e27f1e27a1db46ea2ab",
+      "loc": 195,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/harness/hooks.ts": {
+      "lang": "typescript",
+      "hash": "f3dd0e513bfd150531cdcace6de8bc83203079c74145b3ebd81dc76c94f7329b",
+      "loc": 306,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/harness/index.ts": {
+      "lang": "typescript",
+      "hash": "08f43067aec1eded09472db476bc33a82e805de1086b6bddb8f6a668a5833293",
+      "loc": 18,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/harness/mcp.ts": {
+      "lang": "typescript",
+      "hash": "c8b407d269b3884eff5eb49c9cac154be228110a29906f9b74403fbfc233c21c",
+      "loc": 510,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/harness/permissions.ts": {
+      "lang": "typescript",
+      "hash": "d183dab556b0c288bf13c6bcd253fa196388efb996bc5bcd2df028aed297f9d1",
+      "loc": 207,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/harness/plugins.ts": {
+      "lang": "typescript",
+      "hash": "e895c893f6a0263dd5233548eb76be9c3e4f3acbce11097d64f1b771e582a5d8",
+      "loc": 361,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/harness/redaction.ts": {
+      "lang": "typescript",
+      "hash": "322d2ae9c758f84c3fc4e431af6dd9d81b55eed9814391245f6d87e932bf6297",
+      "loc": 30,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/harness/resource-policy.ts": {
+      "lang": "typescript",
+      "hash": "b0bdf41f1ebc4c103221acae2b81de49bdf48eef04887882e07212bff3bda147",
+      "loc": 75,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/harness/sessions.ts": {
+      "lang": "typescript",
+      "hash": "5a89915b3525645a0169e26ce125a15c31afbf2520275fb9b968f3c9ed3ed624",
+      "loc": 316,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/harness/staleness.ts": {
+      "lang": "typescript",
+      "hash": "9435e8960759cf038ef74427c40dc36446cdba879fe197b1f0e9082f764f85d8",
+      "loc": 371,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/harness/traces.ts": {
+      "lang": "typescript",
+      "hash": "856a8b719764a7eaed05b7615f6e301685b014e2a91d53d7caeeb39845d6c782",
+      "loc": 173,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/harness/trust.ts": {
+      "lang": "typescript",
+      "hash": "c672a3347207bcc2e55e519713455d02c78cb846f08189b58719f4b8bc2e1423",
+      "loc": 169,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/harness/vmp.ts": {
+      "lang": "typescript",
+      "hash": "6959744222db8868a999861457114350d1b8accd71431bb3c684d21d42b730b6",
+      "loc": 110,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/harness/watchers/filesystem.ts": {
+      "lang": "typescript",
+      "hash": "d8e151e18a2ea959a525d5131e31f0ae47359782548700bbc0cec651dc2641b0",
+      "loc": 125,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/harness/watchers/index.ts": {
+      "lang": "typescript",
+      "hash": "491da7d64b1cb67e456dcd8130981933e9e787d240bf73fb94a0afafbbc4e07d",
+      "loc": 21,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/harness/watchers/schemas.ts": {
+      "lang": "typescript",
+      "hash": "4550fb6eab309d2d98137935311111c3c1ead336d5c4ac6ccd1d2335d6985626",
+      "loc": 31,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/harness/watchers/store.ts": {
+      "lang": "typescript",
+      "hash": "68b6263f808193c6f5f08562170b6d479b3c9f90e79186ad2cdbed43192d7e96",
+      "loc": 136,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/harness/watchers/types.ts": {
+      "lang": "typescript",
+      "hash": "1e08b4286a1ecbeae24842162e8021d98712dc187daea77ad04c27c53c5927b7",
+      "loc": 18,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/interaction/announcement-store.ts": {
+      "lang": "typescript",
+      "hash": "1ddd138b70b57ffbeab14c45beb3013ebe65a90703d3c9306767c85d5470443e",
+      "loc": 100,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/interaction/announcements.ts": {
+      "lang": "typescript",
+      "hash": "87de1b0edbadccfcdac180e71ba514fad1a3bbfff05c94378e63e9fbae5d52de",
+      "loc": 165,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/interaction/detectors/budget.ts": {
+      "lang": "typescript",
+      "hash": "091384a7a7093341d38477e4d2dddb8dd9a4a5af4b178f85b354c60427a68f58",
+      "loc": 47,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/interaction/detectors/repeated-failure.ts": {
+      "lang": "typescript",
+      "hash": "c1ba354d768dfa1a479cd9ca7624b041998dd9211ffea7f0f3014c2149b83044",
+      "loc": 113,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/interaction/detectors/verification.ts": {
+      "lang": "typescript",
+      "hash": "b1470a3e33da85c09d7b8899cdce7f755d311fe9010c5468fe536eb160b50b50",
+      "loc": 95,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/interaction/detectors/work-aggregation.ts": {
+      "lang": "typescript",
+      "hash": "278c5e106aad35b5aa2aa8cd6e3b6205b22354baa844de8568e87dc93f16f3bf",
+      "loc": 77,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/interaction/event-adapter.ts": {
+      "lang": "typescript",
+      "hash": "d206859b121640b1e3f126a3f43d6c5218fb23226bf8a204ac3ea00466dad9cb",
+      "loc": 494,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/interaction/format.ts": {
+      "lang": "typescript",
+      "hash": "d030620003365b5023fe096e30811a14703120fe2fc25a9053219c0c496cd729",
+      "loc": 72,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/interaction/index.ts": {
+      "lang": "typescript",
+      "hash": "a14c581abf8423672af2d367649ccefc6831aa27521784d9d11e0d24a3fb5d07",
+      "loc": 8,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/interaction/schemas.ts": {
+      "lang": "typescript",
+      "hash": "90c4fb49e93e6696b0d7773395bf9db4ee7ae88dd0f118d10d62e2173d9bef84",
+      "loc": 148,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/interaction/service.ts": {
+      "lang": "typescript",
+      "hash": "fb37fafb49247294f089dea3c216239c55205800db4b67bdb002534292347e79",
+      "loc": 107,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/interaction/state.ts": {
+      "lang": "typescript",
+      "hash": "25ccb94f9518045681b0d024acd71840e0619b445b4d4cef520f3db6f33789a2",
+      "loc": 162,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/interaction/types.ts": {
+      "lang": "typescript",
+      "hash": "a5e707fed4438aead756408e5714ba80863ac907b26bea09c1d759e3f707b5c1",
+      "loc": 147,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/interaction/vocabulary.ts": {
+      "lang": "typescript",
+      "hash": "96a18502f353ca923d1594602cebee640dc36e4956d431c8ca26d855a18f7e4a",
+      "loc": 34,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/learning/candidates.ts": {
+      "lang": "typescript",
+      "hash": "80014e6bb638a4210a700895c1a245a667d923c17b3ee21df5c582b6c7315f2d",
+      "loc": 180,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/learning/evaluation.ts": {
+      "lang": "typescript",
+      "hash": "2a014b277b54c442cb23015dbfbb2d8f751bffbab272936f2c7513df6d6d7401",
+      "loc": 492,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/learning/memory.ts": {
+      "lang": "typescript",
+      "hash": "2ac0a1e181ea12370cfb31c2244d351bd9a5c8cfffae7bb8ed45766f761b73c9",
+      "loc": 162,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/learning/promotion.ts": {
+      "lang": "typescript",
+      "hash": "f0a6503c2c88ce5eba889941c3c8ebbe9a42526e52c8518ed0688ed3f8e1b204",
+      "loc": 296,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/learning/types.ts": {
+      "lang": "typescript",
+      "hash": "58425cf94c3bce243a5661bfa591e1442e56f2f88bb092ce72583170df5fea4e",
+      "loc": 147,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/learning/warehouse.ts": {
+      "lang": "typescript",
+      "hash": "dfb0d434baab34c19cdf71572a70e51ef77891e69adcae2d1a872c4a7ffdabe4",
+      "loc": 121,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/presentation/diff-lines.ts": {
+      "lang": "typescript",
+      "hash": "a55f258c63510b359916098027134474dbcdc0f1b71108d56846429a7dd40463",
+      "loc": 45,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/presentation/index.ts": {
+      "lang": "typescript",
+      "hash": "b7838ff0d34f149391d09ca1897092208926b35644b1dff1418b178c0da1c113",
+      "loc": 6,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/presentation/line-input.ts": {
+      "lang": "typescript",
+      "hash": "8711df25eb3be08477065002d8f1172979b004ee2b1b0019fd2c7d9413d1c9a5",
+      "loc": 68,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/presentation/permission-diff.ts": {
+      "lang": "typescript",
+      "hash": "b8b9bdb268c7c0f942ebf3b7b60fa6e0d774ba55f08ce20ea69d9596e8a5904f",
+      "loc": 45,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/presentation/permission-format.ts": {
+      "lang": "typescript",
+      "hash": "dd40505e3c86668dc42fe9215dbb524311f83ed551ef691c7a733a368cec207f",
+      "loc": 81,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/presentation/screen-reader.ts": {
+      "lang": "typescript",
+      "hash": "a46f897fca782cf960df5ed0c75a15bca4f15aa7bc371b9221050b7c8951565d",
+      "loc": 134,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/presentation/types.ts": {
+      "lang": "typescript",
+      "hash": "6fb929c34343b7e95849f1668b15c808416d589c32939c65bef0960942f4bb27",
+      "loc": 37,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tools/agent.ts": {
+      "lang": "typescript",
+      "hash": "3c7390243d031d3196a736430ac9c856f5cedd0661138cf8d20d27d325628ad6",
+      "loc": 70,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tools/apply-patch.ts": {
+      "lang": "typescript",
+      "hash": "8df6acc6df756cbfb3a1878f7b5c5cf3f02b085c2eab0221d0b76b55ac44854b",
+      "loc": 209,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tools/diagnostics.ts": {
+      "lang": "typescript",
+      "hash": "0f73c75bf95004a7752ba9d00905a864bc882dcf72cf6bbbf27b4443318c2886",
+      "loc": 121,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tools/edit.ts": {
+      "lang": "typescript",
+      "hash": "7e9c2368debb683cc8fb38b683b1e643c69bc4f3b83782d7898fe507426498fb",
+      "loc": 76,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tools/files.ts": {
+      "lang": "typescript",
+      "hash": "94ddc212c1845718a397f2911e8fc1ca52bbd8d9fb27811a969e02866d33d730",
+      "loc": 100,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tools/glob.ts": {
+      "lang": "typescript",
+      "hash": "2585530718fded5646eb0604e27729132433d0641c4b888e66a4033ac78e0764",
+      "loc": 119,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tools/grep.ts": {
+      "lang": "typescript",
+      "hash": "ed5ffb684f1e312a73382937fb282c22ca5445191fb8fc0be00b48e295b00011",
+      "loc": 64,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tools/image.ts": {
+      "lang": "typescript",
+      "hash": "337715e59f868dbe90000410316cd6b2a7c20b124794a332014bbc36f65c1597",
+      "loc": 54,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tools/index.ts": {
+      "lang": "typescript",
+      "hash": "5982a98014babf1c3ed7d9d05d222dc189fd26c0ff94f61056f7f4593106f197",
+      "loc": 24,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tools/memory.ts": {
+      "lang": "typescript",
+      "hash": "cac3d227ef15a69d1f35ade6fd7f87ae09cefaa073f065a693fb93b13f6c4ae7",
+      "loc": 104,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tools/notebook.ts": {
+      "lang": "typescript",
+      "hash": "1fa749568b5a3d1d2e3ae88f13e6f3d5f18a5a75ae0370ba9c9865c5abf46e99",
+      "loc": 72,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tools/read.ts": {
+      "lang": "typescript",
+      "hash": "7ec45d270705e85811eec715efe87c725bfd8c8b07ccba536685bc1373e3924e",
+      "loc": 78,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tools/registry.ts": {
+      "lang": "typescript",
+      "hash": "830e90f0a4729b79919fa0dafd8a4325e1355679b31335a27c5824511ce9a568",
+      "loc": 27,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tools/shell.ts": {
+      "lang": "typescript",
+      "hash": "ce65cde59227a42a9a0beab4aafa609298b802f3f373ba1706d7e6b3a4b3abae",
+      "loc": 431,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tools/skill.ts": {
+      "lang": "typescript",
+      "hash": "246a8bda13b6a1e045584b11d080219a77bc23867a6de61f819c34fd1b4da210",
+      "loc": 101,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tools/status-update.ts": {
+      "lang": "typescript",
+      "hash": "e146dcd4db24731d75dc4bef1bc743d6305544e5788dbb2daf19aececa9ae3db",
+      "loc": 28,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tools/todo.ts": {
+      "lang": "typescript",
+      "hash": "a53370d58e3486653cd927360802485548beb9137b5c11444528c61af6a39f96",
+      "loc": 25,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tools/webfetch.ts": {
+      "lang": "typescript",
+      "hash": "1a2d36b9484d1f53468b03f84a946e6a74064623eb1eafa2deb763203b2115ea",
+      "loc": 158,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tools/websearch.ts": {
+      "lang": "typescript",
+      "hash": "1c832264190def70c185f7b17fc62aaff6bc80c2850426f8a8bb50400eba788f",
+      "loc": 63,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tools/write.ts": {
+      "lang": "typescript",
+      "hash": "09ac70c92e4e774c9e94839838036fcb5ed68d83f17adb08300989c62b81533c",
+      "loc": 36,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/App.tsx": {
+      "lang": "tsx",
+      "hash": "1e80e1be948ca03978b14ae49e02efbc38d63c1ac7905dc46619133666246968",
+      "loc": 1037,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/agentMention.ts": {
+      "lang": "typescript",
+      "hash": "0c211377606c23d09fccb3c032983af795c30d35c2690c08eecfbbb5b4f5c707",
+      "loc": 130,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/argPicker.ts": {
+      "lang": "typescript",
+      "hash": "12ea2e65b78ce28982012b1362981c6627b2f77437d05adec19520161b1329eb",
+      "loc": 78,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/components/ArgPickerPopup.tsx": {
+      "lang": "tsx",
+      "hash": "a13d944a3cff176e91867c028d1a3e4994694360b707e42391523921d373d45f",
+      "loc": 57,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/components/Banner.tsx": {
+      "lang": "tsx",
+      "hash": "396c746e0731f7ae12854701002d7c06363206800d1ff4bcebea46fc1020203b",
+      "loc": 82,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/components/BusyIndicator.tsx": {
+      "lang": "tsx",
+      "hash": "fd396693f6da560eab58efed9f1bbb6ce51bb5b225cbb78692d8dbfb5be76c43",
+      "loc": 77,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/components/DiffPreview.tsx": {
+      "lang": "tsx",
+      "hash": "4bfb75a1ad28ba37b0ef665fe363a8eb0dc3b1adb2192574e68778cc97b7a1d0",
+      "loc": 114,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/components/InputBox.tsx": {
+      "lang": "tsx",
+      "hash": "02f33b7a58d14b4f1ba3a7f857e6be0322a3da50036d66c8c312a06c368b69c6",
+      "loc": 601,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/components/MentionPopup.tsx": {
+      "lang": "tsx",
+      "hash": "92a98b0f0bf984e44aefec752478d59a382f0903c5ad603bba8d340428a62916",
+      "loc": 73,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/components/PermissionDialog.tsx": {
+      "lang": "tsx",
+      "hash": "8a6e959b8794024ee7114527e975b97770ac68a117fff638faf6d78d42ee64d7",
+      "loc": 86,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/components/SessionPicker.tsx": {
+      "lang": "tsx",
+      "hash": "da336a7ceafc5a7ca41ac036b296be0c4edf621c7e7e156a2a7a8a3789829f3b",
+      "loc": 56,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/components/SlashMenuPopup.tsx": {
+      "lang": "tsx",
+      "hash": "2d07625f9545ac143fe2fbd831009498080af90c6f0ac98c53ba157ae993d3ad",
+      "loc": 62,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/components/StatusLine.tsx": {
+      "lang": "tsx",
+      "hash": "b18c85744061f64f46d6a65e13183e18099f995b9658f44d25fd0fb40dd845db",
+      "loc": 81,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/components/TodoPanel.tsx": {
+      "lang": "tsx",
+      "hash": "2cdf8720656be8bf3f02b6cf06d1d3a0ee2e132ad13939a2f0076d348ee0837c",
+      "loc": 77,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/components/ToolCard.tsx": {
+      "lang": "tsx",
+      "hash": "f7e7d3c5c0f1f7d4067451fc1088047e058b752923d303e055100052511ee92b",
+      "loc": 81,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/components/Transcript.tsx": {
+      "lang": "tsx",
+      "hash": "d1895e00356faf24f0a7ae5b5e694507558589f2b34adeffc9b16051c9845839",
+      "loc": 103,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/cursor.ts": {
+      "lang": "typescript",
+      "hash": "f2432208f6ef2cdf5328dd50ff0b0ef3fc4474a0048959f80ad6b8b31a5da869",
+      "loc": 112,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/fileMention.ts": {
+      "lang": "typescript",
+      "hash": "e718516561625825241c7aafddffe4444292e38bb154324a9afc9b385f9cf976",
+      "loc": 115,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/fullscreen.ts": {
+      "lang": "typescript",
+      "hash": "35a0d5dd238796751cbf9df98953050844395ab8c0ed699c2ce515e217e1f1d2",
+      "loc": 98,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/index.ts": {
+      "lang": "typescript",
+      "hash": "1f50170ee29a0b871c466fbc49ca9519915af407cc0a59c393f19f027e54a2d3",
+      "loc": 13,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/popupWindow.ts": {
+      "lang": "typescript",
+      "hash": "fe8f4a7c4387950de98a7899fe6570b64b5a60f1892c6966d311aea01229e4d5",
+      "loc": 98,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/slash.ts": {
+      "lang": "typescript",
+      "hash": "37d5edc1aaa595f52085e60c14e9963dcf5a8cfd45a8eb7e1ceaae33f6c2c940",
+      "loc": 99,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/slashMenu.ts": {
+      "lang": "typescript",
+      "hash": "6dd2cf582c3e3c70157a0b5d5c4c60d0abca9f8c4ccd15d5da9497f307dd14d1",
+      "loc": 72,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/tui/viewport.ts": {
+      "lang": "typescript",
+      "hash": "322b6b480523e6ebb378a5ac1d2b7d04aa372de6c0de1460a3c1e038813e902d",
+      "loc": 239,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/version.ts": {
+      "lang": "typescript",
+      "hash": "e9215abdd0bdfd3983031aaf2eb4fe689484f3f7cb0208ca6062d0f2896414e4",
+      "loc": 27,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/voice/context.ts": {
+      "lang": "typescript",
+      "hash": "99a6672a3e97d4ab2a526652d8980032734626de219ec61957f8d6d647b77cc8",
+      "loc": 38,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/voice/credentials.ts": {
+      "lang": "typescript",
+      "hash": "c8b919719fad97c028ecc1310c48b427f40c86a2bdb9e4bf28ecf788beb60ed1",
+      "loc": 66,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/voice/daemon.ts": {
+      "lang": "typescript",
+      "hash": "11e7de33604770a14d8946647e2cba2fed88fbba0f9d72b3b21c3314fe83b1be",
+      "loc": 404,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/voice/index.ts": {
+      "lang": "typescript",
+      "hash": "8705e810e22a0797c0497bd657ceedadca9d6f44ea854950fb3dee62b98a18bd",
+      "loc": 72,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/voice/input.ts": {
+      "lang": "typescript",
+      "hash": "56fe53e36de741e7f6aa9076414614d2c1fe420cea2f41d9743a1fdd472f934e",
+      "loc": 85,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/voice/realtime.ts": {
+      "lang": "typescript",
+      "hash": "29a694adf738b462e4269eaeac4e25fe786a34e49d655197cdd9ad49e8c20be0",
+      "loc": 367,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/voice/schemas.ts": {
+      "lang": "typescript",
+      "hash": "498297eb81e9ae420f73984c7d6a16d072fc4db66232405b7bd96a54cdbb57ad",
+      "loc": 51,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/voice/session-router.ts": {
+      "lang": "typescript",
+      "hash": "b1fc4d5fb25b1f8c375cb9b6395cdacdfcf9aeb1232a1067e4dc4c92eb96fc0b",
+      "loc": 53,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/voice/speech.ts": {
+      "lang": "typescript",
+      "hash": "4f27f2ddf8542f3613a8494e8e1f092a78be0662d69b2f982415905b867c45f9",
+      "loc": 50,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/voice/types.ts": {
+      "lang": "typescript",
+      "hash": "3c2749a8451c541cceb12cc96c201d8e9422e85879eb394e8f30d13ff62ed27f",
+      "loc": 33,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "src/voice/windows-speech.ts": {
+      "lang": "typescript",
+      "hash": "1475dc3c55b39bb03443af73581f2e46f11563ed2f4a9eb9008b752a09d66480",
+      "loc": 333,
+      "module": "src",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/auth/wizard.test.ts": {
+      "lang": "typescript",
+      "hash": "099957abfb378417c3bc6ef9b614598a4ecde8081e3aacd4a08e2a21fd42b13b",
+      "loc": 191,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/brain/credential-vault-timeout.test.ts": {
+      "lang": "typescript",
+      "hash": "dd5ee47aa5aed8d473aece58e540796374352705a9ca4b6afb3848b0eab32ddc",
+      "loc": 139,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/brain/credential-vault.test.ts": {
+      "lang": "typescript",
+      "hash": "f3cf046b1e53dd7ffcafda4c66de0ea04f00d469bfecaf1d110a6eb70367a60c",
+      "loc": 497,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/brain/credentials.test.ts": {
+      "lang": "typescript",
+      "hash": "13041a0b39548d97fc24e54a3f196f67d8b5a7193c0b91dbe5a679e2ab86f680",
+      "loc": 267,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/brain/import.test.ts": {
+      "lang": "typescript",
+      "hash": "834f3bbae4d469c3d158c2db4dc5723c0eff3962def6620d99f10fa797c36e41",
+      "loc": 108,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/brain/loader.test.ts": {
+      "lang": "typescript",
+      "hash": "38a989e014c967d786cb861c49239a981b977894ca4973541ddc9599f4008264",
+      "loc": 187,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/brain/models.test.ts": {
+      "lang": "typescript",
+      "hash": "2ce274f4b0f1ee327f575497980c1c01c9df3c314b9afd148fd3600d3bc0c1ae",
+      "loc": 198,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/brain/paths.test.ts": {
+      "lang": "typescript",
+      "hash": "3d267c818baecde96b9d20b1249c7f77ac0fbd7b57c4b0520382afb7e8f2f29e",
+      "loc": 47,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/brain/plugins.test.ts": {
+      "lang": "typescript",
+      "hash": "4990f714ed3ef45d0fad694f1c3a2b7102915809ee1f0c51156985fbbc838561",
+      "loc": 234,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/brain/settings.test.ts": {
+      "lang": "typescript",
+      "hash": "47b04f3688aaad89e303c5623485a783b3e224380da7a95facc255632cb452a8",
+      "loc": 347,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/brain/vmp-ledger.test.ts": {
+      "lang": "typescript",
+      "hash": "3891b15d117bf4b60cd5e11a66b908388e6c92fffbb2cde7e5858cc4fe58d41e",
+      "loc": 67,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/cli/accessibility-commands.test.ts": {
+      "lang": "typescript",
+      "hash": "d66fb080adaebefdeabf9b843377ea41b8f2cc3786545116881d188f1310b0eb",
+      "loc": 49,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/cli/args.test.ts": {
+      "lang": "typescript",
+      "hash": "41ea72859ceb259696b273ba9d27c98109da0509ba15c273989de06e8ac0acbb",
+      "loc": 298,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/cli/bootstrap.test.ts": {
+      "lang": "typescript",
+      "hash": "fdca0caf4e6ef608dc6489e128f1c3d61da38d373f174881e255b93653e13a9a",
+      "loc": 114,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/cli/exec.integration.test.ts": {
+      "lang": "typescript",
+      "hash": "9f4511792bfbf004a068e2d4690d65004c442fd5a6b788c492bfd00b5d0f82c9",
+      "loc": 224,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/cli/provider-vault-warn.test.ts": {
+      "lang": "typescript",
+      "hash": "516ad9c3f680b1120092ddef61feefcd919cf2578693d40a59beaa73c62f2f48",
+      "loc": 97,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/engine/client-holder.test.ts": {
+      "lang": "typescript",
+      "hash": "36b0efaa7503af746be9e84bf16a9ff8b7408d9b851410c5926243c550adcc82",
+      "loc": 104,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/engine/client.test.ts": {
+      "lang": "typescript",
+      "hash": "b4e793fcb9a3f1789e72a4c88944066d4eee2ee3dee0b29b9205fa541400210c",
+      "loc": 99,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/engine/context.test.ts": {
+      "lang": "typescript",
+      "hash": "99b78f120ffc7374c92e2c94c700aa4c0a0fd06b6e37722dae62028561337e59",
+      "loc": 160,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/engine/events.test.ts": {
+      "lang": "typescript",
+      "hash": "8ec08a4ee360a273b8a6105918dc8c2e86d73cfa70096752e82d8190fba80316",
+      "loc": 34,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/engine/loop.test.ts": {
+      "lang": "typescript",
+      "hash": "81e4832279ca5915270a87607ad265c2dae77f0bd04c87c18e51cef8e4e71b69",
+      "loc": 880,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/engine/output-schema.test.ts": {
+      "lang": "typescript",
+      "hash": "482bf1e4d3fe08c0c151b40ed374845bdcc82b8111205183f349cadc361f332a",
+      "loc": 30,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/engine/prompt.test.ts": {
+      "lang": "typescript",
+      "hash": "b542818a54be20fb3c21f23efb78b8036fe58843e30316168efd4b47e2f9eba8",
+      "loc": 119,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/engine/run.test.ts": {
+      "lang": "typescript",
+      "hash": "aae1dd5d1020e1d3914d0d9f741a91817499883cf0050fff361452878454ad05",
+      "loc": 176,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/experience/compiler.test.ts": {
+      "lang": "typescript",
+      "hash": "913fd82523145144bb6f965af2d88dcdc6b28c8a9942f2a361beff7315aaac2a",
+      "loc": 91,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/experience/store.test.ts": {
+      "lang": "typescript",
+      "hash": "e08027c677fb8eb65fd7147dc1a554aa54d068afaf311d3fc3fbc79e0584c1d7",
+      "loc": 150,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/fixtures/mcp-echo-server.mjs": {
+      "lang": "javascript",
+      "hash": "def936cc540bf272f2a4278b59b441c661b8a6fccb9ad3e2a342bc3abed2f549",
+      "loc": 37,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/harness/agents-abort.test.ts": {
+      "lang": "typescript",
+      "hash": "11924de641c93cb2853a3185bc6ee5e60b8d2a49f0dc0ad0b22ad881762562d3",
+      "loc": 79,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/harness/agents.test.ts": {
+      "lang": "typescript",
+      "hash": "5bddda2ee4235b85b0c15d1a72495308cbd95554f09f70c2635b1db99f66e0c7",
+      "loc": 412,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/harness/controller.test.ts": {
+      "lang": "typescript",
+      "hash": "8d737a21c02b967d139b19aea54c91bd1b59542383e1ebd7d7b1d4a848ab665b",
+      "loc": 98,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/harness/diagnostics.test.ts": {
+      "lang": "typescript",
+      "hash": "29eb230a720f5eb4714162c609bce50ada4f507af4fed1a51e972ffef5a192bd",
+      "loc": 76,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/harness/hooks.test.ts": {
+      "lang": "typescript",
+      "hash": "d91201dac25c37ee2c667eaddac30594a8d589403d36dff937ad6a417eae993e",
+      "loc": 137,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/harness/mcp.test.ts": {
+      "lang": "typescript",
+      "hash": "267c8e628ec8c8877e4a185bb9f12a1819997e541ed1cb7afb5f239ed4763e14",
+      "loc": 81,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/harness/permissions.test.ts": {
+      "lang": "typescript",
+      "hash": "7035cb1a9dea76db6c32e5fdd6fbca417c45a4f0af9b2f45b111130d86d344b0",
+      "loc": 201,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/harness/plugins.test.ts": {
+      "lang": "typescript",
+      "hash": "f993b8a83e12d5f6c2515f1fb88487f711a69e2207c484562d375b6cb51448aa",
+      "loc": 132,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/harness/provider-switch.test.ts": {
+      "lang": "typescript",
+      "hash": "5605c2cb5a5e13cc9dc00e0b14340a84f6ff1b7243502842e2ea959e9caf6efb",
+      "loc": 83,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/harness/resource-policy.test.ts": {
+      "lang": "typescript",
+      "hash": "7d0c19f938e644597d6e873d28d05e0af1ebaba4852ffef7043a00006268895d",
+      "loc": 46,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/harness/sessions-atomic.test.ts": {
+      "lang": "typescript",
+      "hash": "584326088f4faf90ceb02f72d79a18a855f1d928621af7c6ec9a75abe72e54cb",
+      "loc": 51,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/harness/sessions-rewrite-failure.test.ts": {
+      "lang": "typescript",
+      "hash": "e3dda465c90981db42cda9c3590d08eeedf1e29bc32f84212ed4739a68ee2b03",
+      "loc": 30,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/harness/sessions.test.ts": {
+      "lang": "typescript",
+      "hash": "4476b7bdb7a8430d5c1acf3b7dc445a0f14b18f5d0d629a5eb306dc6dcb8e6b2",
+      "loc": 234,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/harness/staleness.test.ts": {
+      "lang": "typescript",
+      "hash": "7aca98ee885c2b9929a96bc3f3cd1c8d301aa6cf38f7bfc16bfc4c7e7987cba1",
+      "loc": 220,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/harness/traces.test.ts": {
+      "lang": "typescript",
+      "hash": "1fbacfb7dfa9d89faed982252d7695f800bbe2c122ccd5924780a5644acd7249",
+      "loc": 226,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/harness/trust.test.ts": {
+      "lang": "typescript",
+      "hash": "0a858f0eed4ef4192151fd0aea67364363eeebc46d11f1fc68c1dcc3c5df00f8",
+      "loc": 55,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/harness/watchers.integration.test.ts": {
+      "lang": "typescript",
+      "hash": "7a15edc1bf57949aa626a73673b7dc51693cf7b19757ca0a4726aa6ce966b8c8",
+      "loc": 96,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/harness/watchers/store.test.ts": {
+      "lang": "typescript",
+      "hash": "0c8cf3c845cd592c2bc879d1435720b5fea8a5c9462049a103c6212427d34305",
+      "loc": 84,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/helpers/mock-client.ts": {
+      "lang": "typescript",
+      "hash": "35feff1b8367238a1db9b623b096ff7ed1179eb3411fb8b735ad6a4ddd0adce8",
+      "loc": 63,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/helpers/tool-ctx.ts": {
+      "lang": "typescript",
+      "hash": "096873f9d210a599c8421d0e249f8787ce6641bcc4edf5106822b34e3b8ec5fd",
+      "loc": 19,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/interaction/announcement-store.test.ts": {
+      "lang": "typescript",
+      "hash": "69ce69a7800be3b498c5568178df622d1f85e42bcbacd4c68878944d3db745bb",
+      "loc": 83,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/interaction/announcements.test.ts": {
+      "lang": "typescript",
+      "hash": "ab712b4d7785573383491e8ec7e491f37615449ce17703cd317304be33bb0e2d",
+      "loc": 134,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/interaction/attention-quality.test.ts": {
+      "lang": "typescript",
+      "hash": "3401c689ef1bda0226a483f31c0ee18b4b958f463df6a08b931fe50ffee97160",
+      "loc": 69,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/interaction/budget-detector.test.ts": {
+      "lang": "typescript",
+      "hash": "d29cca420bebfaae744e615e0807de55177cba9b55b8503dca0b1c978eb15e3b",
+      "loc": 50,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/interaction/event-adapter.test.ts": {
+      "lang": "typescript",
+      "hash": "eb2d3107b0c96f16f3ad859bea1948bc8abbd404bc0b612208b0d6073ffe74fb",
+      "loc": 506,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/interaction/format.test.ts": {
+      "lang": "typescript",
+      "hash": "e05e13a14bd94234447362672bd3534beaa2141cd95a1518948966ac7da6c33b",
+      "loc": 84,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/interaction/journeys.test.ts": {
+      "lang": "typescript",
+      "hash": "66f87b1378712cf71bd20b7b8ecafe9629e35940dd3cd01ee1aeca789331e750",
+      "loc": 70,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/interaction/performance.test.ts": {
+      "lang": "typescript",
+      "hash": "6d293bc040c1b27199e783654df443029bc570b2258245693f470ac7787b901b",
+      "loc": 88,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/interaction/repeated-failure-detector.test.ts": {
+      "lang": "typescript",
+      "hash": "fcd32df9e67fcac467eb6d8df15f646fa898c1ba97d0f43dcdfe8044fd23caed",
+      "loc": 73,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/interaction/service.test.ts": {
+      "lang": "typescript",
+      "hash": "4d9652f9fc0844cbe5f283d4cd9d0e4ecc0613b0dc4a708c60cc768e75a58753",
+      "loc": 101,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/interaction/state-property.test.ts": {
+      "lang": "typescript",
+      "hash": "a64b83dc57a2facabb924af31ace202eaedc73b87215dd1b0ed3bc4399a640cf",
+      "loc": 52,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/interaction/state.test.ts": {
+      "lang": "typescript",
+      "hash": "278943a018381b5e6d29c6be833a7fc2efdd0a07ffdd9abaa472b03d2ae2feb0",
+      "loc": 191,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/interaction/types.test.ts": {
+      "lang": "typescript",
+      "hash": "86e2d0a0ea7c1d929003cd872638bceb03f0b7bc578d3e6411928c9fd89b302a",
+      "loc": 104,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/interaction/verification-detector.test.ts": {
+      "lang": "typescript",
+      "hash": "cd14edad8d904bd16aaa623630765e662d779b6d1bd604e955db905c0c2f475d",
+      "loc": 59,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/interaction/work-aggregation-detector.test.ts": {
+      "lang": "typescript",
+      "hash": "1e7e78fcd5d25d90f23eedd926537becf88265ad9ca9f1af570a80d4f3e910a4",
+      "loc": 39,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/learning/eval-assets.test.ts": {
+      "lang": "typescript",
+      "hash": "a7963be3cc38514944e46125e7b5c9069725ef18517322a1606aad389007dcd6",
+      "loc": 37,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/learning/evaluation.test.ts": {
+      "lang": "typescript",
+      "hash": "2297aba7f823317e58ec8ac64456c99960fc59978bade5cd8893b4269c47a862",
+      "loc": 118,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/learning/memory.test.ts": {
+      "lang": "typescript",
+      "hash": "1444a8d011fd641014cc5506db955bf5b0eeeed7d06f4e0d3e896f3e78ac6b58",
+      "loc": 107,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/learning/warehouse.test.ts": {
+      "lang": "typescript",
+      "hash": "d7d14b9c88807a910454243d25cfa7a8f54c4b43a6dde97e4dc2448e7d8f9534",
+      "loc": 62,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/presentation/keyboard-parity.test.ts": {
+      "lang": "typescript",
+      "hash": "e42319d2f8c4d93cb2ed34e01877ea870147929fbbb857a953b85a32942c8908",
+      "loc": 128,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/presentation/line-input.test.ts": {
+      "lang": "typescript",
+      "hash": "da2603df5e0cb3fa72d9d7405b40136b2643ffca7f4c6d17b55c62b8ba8374cb",
+      "loc": 32,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/presentation/permission-diff.test.ts": {
+      "lang": "typescript",
+      "hash": "839abf00f9a17eb3361f6f1836f0cc7a3d333a072bbb85ac078733bb55170cde",
+      "loc": 23,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/presentation/permission-format.test.ts": {
+      "lang": "typescript",
+      "hash": "cb03dd58be6969d8874ec7e9512087890aa4c7b6c22b0a96c1985c2bebf968f5",
+      "loc": 53,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/presentation/screen-reader.test.ts": {
+      "lang": "typescript",
+      "hash": "1a7892899171a6fd5c24fc4d29d4b28eee66f4b4b5033d1de949d91c368dcbc0",
+      "loc": 184,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/scaffold.test.ts": {
+      "lang": "typescript",
+      "hash": "6d67944ec77a36c73ed22830266b669c043da519f2046e2fbc6eaf6c30eeb79f",
+      "loc": 7,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tools/apply-patch.test.ts": {
+      "lang": "typescript",
+      "hash": "b3eb2056c5942ac28be8415634d358459a47f1a6462f8c2bbf94973b5f8c17dd",
+      "loc": 91,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tools/edit.test.ts": {
+      "lang": "typescript",
+      "hash": "0d697dd36ac1f1bf40455229de266b141bd7ec40d1bd4a9c39b65f30dfeafaa5",
+      "loc": 93,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tools/glob.test.ts": {
+      "lang": "typescript",
+      "hash": "d66528cf6400592edca45e0339fca6ed3715c834ec2607f6a7d6088c75f40dd9",
+      "loc": 46,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tools/grep.test.ts": {
+      "lang": "typescript",
+      "hash": "fa85c611f40281b329d60ae050f786b2dd31aa84db1f0ff2f0f6458f191139ce",
+      "loc": 50,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tools/memory.test.ts": {
+      "lang": "typescript",
+      "hash": "3e642660769116a926262b22b0f93e5f8f98424bae6d7f7d6b6cfecc285fdf6d",
+      "loc": 104,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tools/read.test.ts": {
+      "lang": "typescript",
+      "hash": "0d6b894e479a89790e1063339294b461e55c5eaf067a6b117eddb1d7b4f6d422",
+      "loc": 57,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tools/richer-tools.test.ts": {
+      "lang": "typescript",
+      "hash": "a8563a0103e7eaff38848e59e5107264ed6767dc47aaab2cf3a99b3892af064c",
+      "loc": 102,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tools/shell.test.ts": {
+      "lang": "typescript",
+      "hash": "3767ec393e6c0882dbfcb7ad603617395b56162e30f7cc6c8aa3f34612ffa4aa",
+      "loc": 290,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tools/skill.test.ts": {
+      "lang": "typescript",
+      "hash": "8fc077b1492a1cb26486d0a1d5d56ea8f2037b2f6c2f79fb4e67c97b9e13f5a5",
+      "loc": 91,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tools/status-update.test.ts": {
+      "lang": "typescript",
+      "hash": "51e9140f577e6d69bbb8b809e4416b7f32c544b2dcccbaf1b842b900a80b0b09",
+      "loc": 30,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tools/todo.test.ts": {
+      "lang": "typescript",
+      "hash": "8df37ece9970004f6faf40a5795db51f84b7558366ec406348dcd52a00bb0e96",
+      "loc": 48,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tools/webfetch.test.ts": {
+      "lang": "typescript",
+      "hash": "6b57b5b4d7f70d1c2f977ccfdf237841300853cf443845dd118f82d7235b958b",
+      "loc": 181,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tools/websearch.test.ts": {
+      "lang": "typescript",
+      "hash": "5183c200b5cf3ee9060ca76a3a0bbe1744e5192054eb568fbcc5315d64ebc793",
+      "loc": 85,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tools/write.test.ts": {
+      "lang": "typescript",
+      "hash": "cb75cc4d5788dbfe94b33b90cf73dadf421ddd35003881d06afb11cec6a89d09",
+      "loc": 45,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/agent-mention.test.ts": {
+      "lang": "typescript",
+      "hash": "1555fbb3c55c8982cd26c530f3a41b0dfdcc1358816f25898291445009d68f97",
+      "loc": 174,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/app-arg-picker.test.tsx": {
+      "lang": "tsx",
+      "hash": "04e6642eb53df03181a8877db5ac40e1d62ca47277d071706984d9b79d470874",
+      "loc": 233,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/app-scroll.test.tsx": {
+      "lang": "tsx",
+      "hash": "de2f308ab3a1efdc392396e50b52f13f147b5402d61a1acc31c5f3a652c6545f",
+      "loc": 280,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/app.test.tsx": {
+      "lang": "tsx",
+      "hash": "750e06054db31f5168d9c4bcb393b6ea9b01948f4099837128cefc9eb55a943a",
+      "loc": 113,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/apply-slash-chars.test.ts": {
+      "lang": "typescript",
+      "hash": "63b7b51ec33ac80e15cdeda8bb85a7c2bbada4f71a0cc060ca8da9c9bf7cccc4",
+      "loc": 33,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/apply-typed-chars.test.ts": {
+      "lang": "typescript",
+      "hash": "62416ac8e8d19c311eecf5a67490834bf25df7ead4c620fd081a8d5204153757",
+      "loc": 47,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/argPicker.test.ts": {
+      "lang": "typescript",
+      "hash": "26b3d2882b1330cc770bacf6c37035269924844ca044ab3292ebbbfae574ea7e",
+      "loc": 79,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/busy-indicator.test.tsx": {
+      "lang": "tsx",
+      "hash": "e1a32764bf635d038ab6f22e6ab1993c6ee971e6e1149fbe9c5aea886e5f7bb6",
+      "loc": 188,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/busy-slash-guard.test.tsx": {
+      "lang": "tsx",
+      "hash": "dbfdac3459f3fba32207373a1e352a0dbf45ed6ccec589d3f73056fd9326109f",
+      "loc": 72,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/cursor.test.ts": {
+      "lang": "typescript",
+      "hash": "08b3b14c5785f01311d652423b84f85b9ec1200a0a8401316ce4b054e2f90146",
+      "loc": 188,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/diff-guard.test.ts": {
+      "lang": "typescript",
+      "hash": "3bf696e447afa5851bae2ddc089d2580deab0d5e783c254543ea52a8faab9706",
+      "loc": 26,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/file-mention.test.ts": {
+      "lang": "typescript",
+      "hash": "26285a0fc879dee084bd0a1523a2767f3263ac4d9b4c6991f54c68945903d918",
+      "loc": 137,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/fullscreen-default.test.tsx": {
+      "lang": "tsx",
+      "hash": "319277c7003b36aaa0f0c3cd11db05c5dae678f10ae5d67d73ddcd408a55b737",
+      "loc": 135,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/fullscreen-overflow.test.tsx": {
+      "lang": "tsx",
+      "hash": "c81285001d9564aea0d0ce79d6c6c02e42d1e39b6205ed6adce84a63827c50db",
+      "loc": 286,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/fullscreen-popup-overflow.test.tsx": {
+      "lang": "tsx",
+      "hash": "589c63f8c1c59cbb8a5a5e35fd374c96f2b68af3f44042495f349c13d0137404",
+      "loc": 467,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/fullscreen.test.ts": {
+      "lang": "typescript",
+      "hash": "5939113ad7dc77aa3d665c9162e7a28299c692545f8cfce4c2851f5cb1ff125b",
+      "loc": 58,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/input-box-agent-mention.test.tsx": {
+      "lang": "tsx",
+      "hash": "68017dbb910e3cd073d17d2243ce003e708473dadf0cf1e00bc27c6f50d1fa1e",
+      "loc": 138,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/input-box-arg-picker.test.tsx": {
+      "lang": "tsx",
+      "hash": "d2ac89af08200d42e7dc058b12333cf0944db7a3f5c7d325ef47118a441629db",
+      "loc": 184,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/input-box-cursor.test.tsx": {
+      "lang": "tsx",
+      "hash": "d48bc4d71aaf898015886f7e943b7876a3edbf9cac79c0dcf832257acbace3ce",
+      "loc": 309,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/input-box-mention.test.tsx": {
+      "lang": "tsx",
+      "hash": "28f83e01c6ebe792a7b9cb36968c0e3be266f6447255b06245225f274d7f72df",
+      "loc": 112,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/input-box-slash-menu.test.tsx": {
+      "lang": "tsx",
+      "hash": "4ae88bffc15c6e756473df1019f1877078ef0a2d90ceafeef16c1e785f9e3e57",
+      "loc": 233,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/permission-dialog.test.tsx": {
+      "lang": "tsx",
+      "hash": "981589e41ea5d21d64eaeaae6b6e38be5d8cd2ae8761a246acdf9d683e40fa36",
+      "loc": 71,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/permission-queue.test.ts": {
+      "lang": "typescript",
+      "hash": "8bbe4e6d15bb4270886acdba3390aa7f56f9881aa42f4a4927e7de347feed4d5",
+      "loc": 60,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/popup-window.test.ts": {
+      "lang": "typescript",
+      "hash": "ce70b14f8bd7ab636cbc0edb5baaf3d670d415c7e62f7ea90e5953f952e5576a",
+      "loc": 119,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/resume-history.test.ts": {
+      "lang": "typescript",
+      "hash": "e74b84b216f7d59f69d33a8e1e7a9950bb7b79b6436c4935cf2cbb4ea11bf9b7",
+      "loc": 43,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/slash-menu.test.ts": {
+      "lang": "typescript",
+      "hash": "a9c661ef5e08deaabe4ae566d3569b558c35824ccaa7eb46bf220e2d56ac50a8",
+      "loc": 93,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/slash.test.ts": {
+      "lang": "typescript",
+      "hash": "85e71f8bc148a35a08e1d2bdbc1092c769c3d1ee8bed52e3f7009e95bebad440",
+      "loc": 134,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/tui-mode.test.tsx": {
+      "lang": "tsx",
+      "hash": "a3ee6cf85b53ed1edc278a7f295f150c89787dfd9dc9efd14cbee3d230ada721",
+      "loc": 67,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/tui/viewport.test.ts": {
+      "lang": "typescript",
+      "hash": "574259482170f486862723812a8642d22b6907e0a965403a0d40b3c409098b71",
+      "loc": 272,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/version.test.ts": {
+      "lang": "typescript",
+      "hash": "83d601910960f5280ede256776aa6d85481e52c535b83b7363c282e688f7a2f3",
+      "loc": 17,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/voice/adapters.test.ts": {
+      "lang": "typescript",
+      "hash": "cf73e2a5178185b24a16bc105e91ba74410b6a43a750a55ff3372d9e3f0d500f",
+      "loc": 84,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/voice/context.test.ts": {
+      "lang": "typescript",
+      "hash": "ccf8ed99bac1815b888661a17b3038c072c9df63104a4a36b678bcd425f46267",
+      "loc": 45,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/voice/credentials.test.ts": {
+      "lang": "typescript",
+      "hash": "421e726fa3f466ab14ff54e2d4584f833d620f53ec457ffd523dc4ec7d1d1d04",
+      "loc": 56,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/voice/daemon.test.ts": {
+      "lang": "typescript",
+      "hash": "88fd41fdb3f202dc24974912e7066add12d8e8281db4235e62d9d83496855f08",
+      "loc": 205,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/voice/realtime.test.ts": {
+      "lang": "typescript",
+      "hash": "ea4331e32cdf074c7aad99f02dc22d136fd7a3153b9e54c94e34f4834b36615a",
+      "loc": 139,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/voice/router.test.ts": {
+      "lang": "typescript",
+      "hash": "fb150dc2e15851ee073276e81b1ca93eecbe15c40282296a355ddd910e48e215",
+      "loc": 28,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tests/voice/windows-speech.test.ts": {
+      "lang": "typescript",
+      "hash": "4ca40925ed0503de48fe464aa843ce9721a7394ea7fe5d3a97c6f9cd2a519b69",
+      "loc": 101,
+      "module": "tests",
+      "symbols": [],
+      "imports": []
+    },
+    "tsup.config.ts": {
+      "lang": "typescript",
+      "hash": "dfbf6388d1727d2179c6bf06f9a2a9136764495666b46aba1cca585f61e9a16a",
+      "loc": 10,
+      "module": ".",
+      "symbols": [],
+      "imports": []
+    },
+    "vitest.config.ts": {
+      "lang": "typescript",
+      "hash": "6e25b42ffe32d5fbf1e21bf06e046067824dbe0d779ebcbabfb39d7a5da2ac25",
+      "loc": 9,
+      "module": ".",
+      "symbols": [],
+      "imports": []
+    }
+  },
+  "edges": [],
+  "modules": {
+    ".": {
+      "files": [
+        "eslint.config.js",
+        "tsup.config.ts",
+        "vitest.config.ts"
+      ]
+    },
+    "api-calculator": {
+      "files": [
+        "api-calculator/adapters/memory-ledger.ts",
+        "api-calculator/adapters/next-report-route.test.ts",
+        "api-calculator/adapters/next-report-route.ts",
+        "api-calculator/src/auth.test.ts",
+        "api-calculator/src/auth.ts",
+        "api-calculator/src/contract.ts",
+        "api-calculator/src/ledger.test.ts",
+        "api-calculator/src/ledger.ts",
+        "api-calculator/src/normalize.test.ts",
+        "api-calculator/src/normalize.ts",
+        "api-calculator/src/pricing.test.ts",
+        "api-calculator/src/pricing.ts",
+        "api-calculator/src/report.test.ts",
+        "api-calculator/src/report.ts",
+        "api-calculator/src/types.ts"
+      ]
+    },
+    "bin": {
+      "files": [
+        "bin/athena.js"
+      ]
+    },
+    "src": {
+      "files": [
+        "src/auth/wizard.ts",
+        "src/brain/credential-vault.ts",
+        "src/brain/credentials.ts",
+        "src/brain/import.ts",
+        "src/brain/index.ts",
+        "src/brain/loader.ts",
+        "src/brain/models.ts",
+        "src/brain/paths.ts",
+        "src/brain/plugin-state.ts",
+        "src/brain/plugins.ts",
+        "src/brain/settings.ts",
+        "src/brain/vmp-ledger.ts",
+        "src/cli.ts",
+        "src/engine/client-holder.ts",
+        "src/engine/client.ts",
+        "src/engine/context.ts",
+        "src/engine/events.ts",
+        "src/engine/fixture-client.ts",
+        "src/engine/index.ts",
+        "src/engine/loop.ts",
+        "src/engine/output-schema.ts",
+        "src/engine/prompt.ts",
+        "src/engine/run.ts",
+        "src/engine/telemetry.ts",
+        "src/engine/types.ts",
+        "src/experience/capture.ts",
+        "src/experience/compiler.ts",
+        "src/experience/index.ts",
+        "src/experience/retrieval.ts",
+        "src/experience/schemas.ts",
+        "src/experience/store.ts",
+        "src/experience/types.ts",
+        "src/harness/agents.ts",
+        "src/harness/bootstrap.ts",
+        "src/harness/controller.ts",
+        "src/harness/diagnostics.ts",
+        "src/harness/hooks.ts",
+        "src/harness/index.ts",
+        "src/harness/mcp.ts",
+        "src/harness/permissions.ts",
+        "src/harness/plugins.ts",
+        "src/harness/redaction.ts",
+        "src/harness/resource-policy.ts",
+        "src/harness/sessions.ts",
+        "src/harness/staleness.ts",
+        "src/harness/traces.ts",
+        "src/harness/trust.ts",
+        "src/harness/vmp.ts",
+        "src/harness/watchers/filesystem.ts",
+        "src/harness/watchers/index.ts",
+        "src/harness/watchers/schemas.ts",
+        "src/harness/watchers/store.ts",
+        "src/harness/watchers/types.ts",
+        "src/interaction/announcement-store.ts",
+        "src/interaction/announcements.ts",
+        "src/interaction/detectors/budget.ts",
+        "src/interaction/detectors/repeated-failure.ts",
+        "src/interaction/detectors/verification.ts",
+        "src/interaction/detectors/work-aggregation.ts",
+        "src/interaction/event-adapter.ts",
+        "src/interaction/format.ts",
+        "src/interaction/index.ts",
+        "src/interaction/schemas.ts",
+        "src/interaction/service.ts",
+        "src/interaction/state.ts",
+        "src/interaction/types.ts",
+        "src/interaction/vocabulary.ts",
+        "src/learning/candidates.ts",
+        "src/learning/evaluation.ts",
+        "src/learning/memory.ts",
+        "src/learning/promotion.ts",
+        "src/learning/types.ts",
+        "src/learning/warehouse.ts",
+        "src/presentation/diff-lines.ts",
+        "src/presentation/index.ts",
+        "src/presentation/line-input.ts",
+        "src/presentation/permission-diff.ts",
+        "src/presentation/permission-format.ts",
+        "src/presentation/screen-reader.ts",
+        "src/presentation/types.ts",
+        "src/tools/agent.ts",
+        "src/tools/apply-patch.ts",
+        "src/tools/diagnostics.ts",
+        "src/tools/edit.ts",
+        "src/tools/files.ts",
+        "src/tools/glob.ts",
+        "src/tools/grep.ts",
+        "src/tools/image.ts",
+        "src/tools/index.ts",
+        "src/tools/memory.ts",
+        "src/tools/notebook.ts",
+        "src/tools/read.ts",
+        "src/tools/registry.ts",
+        "src/tools/shell.ts",
+        "src/tools/skill.ts",
+        "src/tools/status-update.ts",
+        "src/tools/todo.ts",
+        "src/tools/webfetch.ts",
+        "src/tools/websearch.ts",
+        "src/tools/write.ts",
+        "src/tui/App.tsx",
+        "src/tui/agentMention.ts",
+        "src/tui/argPicker.ts",
+        "src/tui/components/ArgPickerPopup.tsx",
+        "src/tui/components/Banner.tsx",
+        "src/tui/components/BusyIndicator.tsx",
+        "src/tui/components/DiffPreview.tsx",
+        "src/tui/components/InputBox.tsx",
+        "src/tui/components/MentionPopup.tsx",
+        "src/tui/components/PermissionDialog.tsx",
+        "src/tui/components/SessionPicker.tsx",
+        "src/tui/components/SlashMenuPopup.tsx",
+        "src/tui/components/StatusLine.tsx",
+        "src/tui/components/TodoPanel.tsx",
+        "src/tui/components/ToolCard.tsx",
+        "src/tui/components/Transcript.tsx",
+        "src/tui/cursor.ts",
+        "src/tui/fileMention.ts",
+        "src/tui/fullscreen.ts",
+        "src/tui/index.ts",
+        "src/tui/popupWindow.ts",
+        "src/tui/slash.ts",
+        "src/tui/slashMenu.ts",
+        "src/tui/viewport.ts",
+        "src/version.ts",
+        "src/voice/context.ts",
+        "src/voice/credentials.ts",
+        "src/voice/daemon.ts",
+        "src/voice/index.ts",
+        "src/voice/input.ts",
+        "src/voice/realtime.ts",
+        "src/voice/schemas.ts",
+        "src/voice/session-router.ts",
+        "src/voice/speech.ts",
+        "src/voice/types.ts",
+        "src/voice/windows-speech.ts"
+      ]
+    },
+    "tests": {
+      "files": [
+        "tests/auth/wizard.test.ts",
+        "tests/brain/credential-vault-timeout.test.ts",
+        "tests/brain/credential-vault.test.ts",
+        "tests/brain/credentials.test.ts",
+        "tests/brain/import.test.ts",
+        "tests/brain/loader.test.ts",
+        "tests/brain/models.test.ts",
+        "tests/brain/paths.test.ts",
+        "tests/brain/plugins.test.ts",
+        "tests/brain/settings.test.ts",
+        "tests/brain/vmp-ledger.test.ts",
+        "tests/cli/accessibility-commands.test.ts",
+        "tests/cli/args.test.ts",
+        "tests/cli/bootstrap.test.ts",
+        "tests/cli/exec.integration.test.ts",
+        "tests/cli/provider-vault-warn.test.ts",
+        "tests/engine/client-holder.test.ts",
+        "tests/engine/client.test.ts",
+        "tests/engine/context.test.ts",
+        "tests/engine/events.test.ts",
+        "tests/engine/loop.test.ts",
+        "tests/engine/output-schema.test.ts",
+        "tests/engine/prompt.test.ts",
+        "tests/engine/run.test.ts",
+        "tests/experience/compiler.test.ts",
+        "tests/experience/store.test.ts",
+        "tests/fixtures/mcp-echo-server.mjs",
+        "tests/harness/agents-abort.test.ts",
+        "tests/harness/agents.test.ts",
+        "tests/harness/controller.test.ts",
+        "tests/harness/diagnostics.test.ts",
+        "tests/harness/hooks.test.ts",
+        "tests/harness/mcp.test.ts",
+        "tests/harness/permissions.test.ts",
+        "tests/harness/plugins.test.ts",
+        "tests/harness/provider-switch.test.ts",
+        "tests/harness/resource-policy.test.ts",
+        "tests/harness/sessions-atomic.test.ts",
+        "tests/harness/sessions-rewrite-failure.test.ts",
+        "tests/harness/sessions.test.ts",
+        "tests/harness/staleness.test.ts",
+        "tests/harness/traces.test.ts",
+        "tests/harness/trust.test.ts",
+        "tests/harness/watchers.integration.test.ts",
+        "tests/harness/watchers/store.test.ts",
+        "tests/helpers/mock-client.ts",
+        "tests/helpers/tool-ctx.ts",
+        "tests/interaction/announcement-store.test.ts",
+        "tests/interaction/announcements.test.ts",
+        "tests/interaction/attention-quality.test.ts",
+        "tests/interaction/budget-detector.test.ts",
+        "tests/interaction/event-adapter.test.ts",
+        "tests/interaction/format.test.ts",
+        "tests/interaction/journeys.test.ts",
+        "tests/interaction/performance.test.ts",
+        "tests/interaction/repeated-failure-detector.test.ts",
+        "tests/interaction/service.test.ts",
+        "tests/interaction/state-property.test.ts",
+        "tests/interaction/state.test.ts",
+        "tests/interaction/types.test.ts",
+        "tests/interaction/verification-detector.test.ts",
+        "tests/interaction/work-aggregation-detector.test.ts",
+        "tests/learning/eval-assets.test.ts",
+        "tests/learning/evaluation.test.ts",
+        "tests/learning/memory.test.ts",
+        "tests/learning/warehouse.test.ts",
+        "tests/presentation/keyboard-parity.test.ts",
+        "tests/presentation/line-input.test.ts",
+        "tests/presentation/permission-diff.test.ts",
+        "tests/presentation/permission-format.test.ts",
+        "tests/presentation/screen-reader.test.ts",
+        "tests/scaffold.test.ts",
+        "tests/tools/apply-patch.test.ts",
+        "tests/tools/edit.test.ts",
+        "tests/tools/glob.test.ts",
+        "tests/tools/grep.test.ts",
+        "tests/tools/memory.test.ts",
+        "tests/tools/read.test.ts",
+        "tests/tools/richer-tools.test.ts",
+        "tests/tools/shell.test.ts",
+        "tests/tools/skill.test.ts",
+        "tests/tools/status-update.test.ts",
+        "tests/tools/todo.test.ts",
+        "tests/tools/webfetch.test.ts",
+        "tests/tools/websearch.test.ts",
+        "tests/tools/write.test.ts",
+        "tests/tui/agent-mention.test.ts",
+        "tests/tui/app-arg-picker.test.tsx",
+        "tests/tui/app-scroll.test.tsx",
+        "tests/tui/app.test.tsx",
+        "tests/tui/apply-slash-chars.test.ts",
+        "tests/tui/apply-typed-chars.test.ts",
+        "tests/tui/argPicker.test.ts",
+        "tests/tui/busy-indicator.test.tsx",
+        "tests/tui/busy-slash-guard.test.tsx",
+        "tests/tui/cursor.test.ts",
+        "tests/tui/diff-guard.test.ts",
+        "tests/tui/file-mention.test.ts",
+        "tests/tui/fullscreen-default.test.tsx",
+        "tests/tui/fullscreen-overflow.test.tsx",
+        "tests/tui/fullscreen-popup-overflow.test.tsx",
+        "tests/tui/fullscreen.test.ts",
+        "tests/tui/input-box-agent-mention.test.tsx",
+        "tests/tui/input-box-arg-picker.test.tsx",
+        "tests/tui/input-box-cursor.test.tsx",
+        "tests/tui/input-box-mention.test.tsx",
+        "tests/tui/input-box-slash-menu.test.tsx",
+        "tests/tui/permission-dialog.test.tsx",
+        "tests/tui/permission-queue.test.ts",
+        "tests/tui/popup-window.test.ts",
+        "tests/tui/resume-history.test.ts",
+        "tests/tui/slash-menu.test.ts",
+        "tests/tui/slash.test.ts",
+        "tests/tui/tui-mode.test.tsx",
+        "tests/tui/viewport.test.ts",
+        "tests/version.test.ts",
+        "tests/voice/adapters.test.ts",
+        "tests/voice/context.test.ts",
+        "tests/voice/credentials.test.ts",
+        "tests/voice/daemon.test.ts",
+        "tests/voice/realtime.test.ts",
+        "tests/voice/router.test.ts",
+        "tests/voice/windows-speech.test.ts"
+      ]
+    }
+  }
+}
