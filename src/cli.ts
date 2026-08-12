@@ -8,7 +8,7 @@ import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
 import { render } from 'ink'
 import React from 'react'
 import { resolveBrainPaths } from './brain/paths.js'
-import { loadSettings, readProjectSettingsCapabilities } from './brain/settings.js'
+import { loadSettings, readProjectSettingsCapabilities, type Settings } from './brain/settings.js'
 import { FileLedgerStore } from './brain/vmp-ledger.js'
 import {
   normalizeModel,
@@ -46,7 +46,7 @@ import {
 } from './brain/plugins.js'
 import { importBrain } from './brain/import.js'
 import { ensureBrainScaffold } from './harness/bootstrap.js'
-import { PermissionEngine } from './harness/permissions.js'
+import { PermissionEngine, resolveTrustBootstrap } from './harness/permissions.js'
 import { ResourcePolicy } from './harness/resource-policy.js'
 import {
   ProjectTrustStore,
@@ -1084,6 +1084,26 @@ function resolveStoredProjectTrust(
   }
 }
 
+/** Explicit-registry trust only: the defaulted `trusted=true` a project without
+ *  `.athena/` receives must never bootstrap trusted mode (that would make every
+ *  directory shell-trusted). */
+function explicitProjectTrust(paths: BrainPaths, cwd: string): boolean {
+  if (!paths.projectBrainDir) return false
+  return new ProjectTrustStore(paths.trustFile).isTrusted(cwd)
+}
+
+/** Fold the trust bootstrap into loaded settings; the notice is loud on purpose. */
+function applyTrustBootstrap(settings: Settings, paths: BrainPaths, cwd: string): void {
+  const bootstrap = resolveTrustBootstrap({
+    permissionMode: settings.permissionMode,
+    sandboxMode: settings.sandboxMode,
+    explicitlyTrusted: explicitProjectTrust(paths, cwd),
+  })
+  settings.permissionMode = bootstrap.permissionMode
+  settings.sandboxMode = bootstrap.sandboxMode
+  if (bootstrap.notice) console.error(bootstrap.notice)
+}
+
 function finalAssistantText(messages: MessageParam[]): string {
   const message = [...messages].reverse().find((item) => item.role === 'assistant')
   if (!message) return ''
@@ -1524,6 +1544,7 @@ async function main(): Promise<void> {
         allowProjectHooks: projectTrust.allowProjectHooks,
         allowProjectMcp: projectTrust.allowProjectMcp,
       })
+      applyTrustBootstrap(settings, paths, cwd)
       const voiceVmpLedger = settings.vmp.enabled ? FileLedgerStore.forPaths(paths) : undefined
       const voiceVmpRecorder = makeTelemetryRecorder(voiceVmpLedger)
       const resolvedKey = resolveApiKey(provider, credentials, process.env, credentialVault, () => {})
@@ -1768,6 +1789,9 @@ async function main(): Promise<void> {
     allowProjectHooks: projectTrust.allowProjectHooks,
     allowProjectMcp: projectTrust.allowProjectMcp,
   })
+  // Trusted-project bootstrap: effective trusted mode (+ unrestricted shell on win32).
+  // exec keeps its explicit flag-driven defaults instead (headless contract).
+  if (!isExec) applyTrustBootstrap(settings, paths, cwd)
   const vmpLedger = settings.vmp.enabled ? FileLedgerStore.forPaths(paths) : undefined
   const vmpRecorder = makeTelemetryRecorder(vmpLedger)
   const pluginExtensions = loadPluginRuntimeExtensions(

@@ -7,6 +7,7 @@ import {
   parseRule,
   globToRegExp,
   normalizePathTarget,
+  resolveTrustBootstrap,
 } from '../../src/harness/permissions.js'
 import { ruleFor } from '../../src/engine/loop.js'
 import type { PermissionMode, PermissionRequest } from '../../src/engine/types.js'
@@ -197,5 +198,58 @@ describe('PermissionEngine precedence and modes', () => {
     const engine = new PermissionEngine({ mode: 'normal', allow: [], deny: [] })
     engine.setMode('plan')
     expect(engine.check(req('Write', { file_path: 'x', content: '' }, false)).decision).toBe('deny')
+  })
+})
+
+describe('resolveTrustBootstrap', () => {
+  it('trusted project with the default mode starts trusted, and win32 lifts the sandbox', () => {
+    const result = resolveTrustBootstrap({
+      permissionMode: 'normal',
+      sandboxMode: 'workspace-write',
+      explicitlyTrusted: true,
+      platform: 'win32',
+    })
+    expect(result.permissionMode).toBe('trusted')
+    expect(result.sandboxMode).toBe('unrestricted')
+    expect(result.notice).toContain('trusted')
+    expect(result.notice).toContain('unrestricted')
+  })
+
+  it('trusted project keeps the workspace-write sandbox where a backend exists', () => {
+    const result = resolveTrustBootstrap({
+      permissionMode: 'normal',
+      sandboxMode: 'workspace-write',
+      explicitlyTrusted: true,
+      platform: 'linux',
+    })
+    expect(result).toMatchObject({ permissionMode: 'trusted', sandboxMode: 'workspace-write' })
+  })
+
+  it('respects an explicit restrictive mode and never fires without explicit trust', () => {
+    const restrictive = resolveTrustBootstrap({
+      permissionMode: 'acceptEdits',
+      sandboxMode: 'workspace-write',
+      explicitlyTrusted: true,
+      platform: 'win32',
+    })
+    expect(restrictive).toEqual({ permissionMode: 'acceptEdits', sandboxMode: 'workspace-write' })
+    const untrusted = resolveTrustBootstrap({
+      permissionMode: 'normal',
+      sandboxMode: 'workspace-write',
+      explicitlyTrusted: false,
+      platform: 'win32',
+    })
+    expect(untrusted).toEqual({ permissionMode: 'normal', sandboxMode: 'workspace-write' })
+    expect(untrusted.notice).toBeUndefined()
+  })
+
+  it('an explicit non-default sandbox choice is respected even on win32', () => {
+    const result = resolveTrustBootstrap({
+      permissionMode: 'normal',
+      sandboxMode: 'read-only',
+      explicitlyTrusted: true,
+      platform: 'win32',
+    })
+    expect(result).toMatchObject({ permissionMode: 'trusted', sandboxMode: 'read-only' })
   })
 })

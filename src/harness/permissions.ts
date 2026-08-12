@@ -205,3 +205,46 @@ export class PermissionEngine implements PermissionGate {
     return { decision: 'ask', reason: `${req.toolName} is mutating; no rule matched in ${this.mode} mode` }
   }
 }
+
+export interface TrustBootstrapInput {
+  permissionMode: PermissionMode
+  sandboxMode: SandboxMode
+  /** True only from an explicit record in the user's trust registry — never from the
+   *  defaulted `trust=true` a project without `.athena/` gets at boot. */
+  explicitlyTrusted: boolean
+  platform?: NodeJS.Platform
+}
+
+export interface TrustBootstrap {
+  permissionMode: PermissionMode
+  sandboxMode: SandboxMode
+  /** One sentence naming the effective values; undefined when nothing changed. */
+  notice?: string
+}
+
+/**
+ * The owner's explicit project-trust decision selects the effective permission
+ * bootstrap: a trusted project starts in 'trusted' mode (the mode that auto-approves
+ * mutating tools, shell included), and on Windows — where Athena has no OS-backed
+ * sandbox backend and the shell tool otherwise fails closed — the default
+ * 'workspace-write' sandbox resolves to 'unrestricted' so trusted mode can actually
+ * execute. One-way by design: only the user's stored trust record raises the mode
+ * here, and project files can never select trusted mode or an unrestricted sandbox
+ * (loadSettings strips both). An explicit non-'normal' mode or non-default sandbox in
+ * the user's own settings is respected as-is. Hard deny rules, resource-policy
+ * checks, and PermissionRequest hooks keep precedence inside the engine at every mode.
+ */
+export function resolveTrustBootstrap(input: TrustBootstrapInput): TrustBootstrap {
+  if (!input.explicitlyTrusted || input.permissionMode !== 'normal') {
+    return { permissionMode: input.permissionMode, sandboxMode: input.sandboxMode }
+  }
+  const liftWindowsSandbox =
+    (input.platform ?? process.platform) === 'win32' && input.sandboxMode === 'workspace-write'
+  return {
+    permissionMode: 'trusted',
+    sandboxMode: liftWindowsSandbox ? 'unrestricted' : input.sandboxMode,
+    notice: liftWindowsSandbox
+      ? 'Trusted project: permission mode is trusted; the shell runs unrestricted (Athena has no Windows sandbox backend). Deny rules and hooks still apply.'
+      : 'Trusted project: permission mode is trusted. Deny rules and hooks still apply.',
+  }
+}
