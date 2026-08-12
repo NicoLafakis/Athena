@@ -1,12 +1,13 @@
 // src/tui/components/Transcript.tsx
 import { Box, Text } from 'ink'
 import { ToolCard } from './ToolCard.js'
-import { estimateEntryRows, sliceToRows } from '../viewport.js'
+import { estimateEntryRows, sliceToRows, thinkingDisplayText } from '../viewport.js'
 
 export type TranscriptEntry =
   | { kind: 'user'; text: string }
   | { kind: 'assistant'; text: string }
   | { kind: 'system'; text: string; id?: string }
+  | { kind: 'thinking'; text: string }
   | { kind: 'tool'; id: string; name: string; input: unknown; output: string | null; isError: boolean }
 
 /** Lightweight markdown degradation: bold headings, dim code fences. No external md lib. */
@@ -84,6 +85,14 @@ export function Transcript({
             return (
               <Text key={idx} dimColor italic>
                 {entry.text}
+              </Text>
+            )
+          case 'thinking':
+            // thinkingDisplayText owns the `· ` prefix and the tail cap; the row
+            // estimator measures this same string, so height and budget always agree.
+            return (
+              <Text key={idx} dimColor italic>
+                {thinkingDisplayText(entry.text, columns ?? 80)}
               </Text>
             )
           case 'tool':

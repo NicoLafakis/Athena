@@ -240,6 +240,7 @@ export function transcriptEntriesFromMessages(messages: MessageParam[]): Transcr
       const block = raw as {
         type: string
         text?: string
+        thinking?: string
         id?: string
         name?: string
         input?: unknown
@@ -252,6 +253,10 @@ export function transcriptEntriesFromMessages(messages: MessageParam[]): Transcr
           kind: message.role === 'assistant' ? 'assistant' : 'user',
           text: block.text,
         })
+      } else if (block.type === 'thinking' && block.thinking) {
+        entries.push({ kind: 'thinking', text: block.thinking })
+      } else if (block.type === 'redacted_thinking') {
+        entries.push({ kind: 'thinking', text: '[redacted thinking]' })
       } else if (block.type === 'tool_use' && block.id && block.name) {
         toolEntries.set(block.id, entries.length)
         entries.push({
@@ -963,6 +968,12 @@ export function reduceEvent(prev: TranscriptEntry[], e: EngineEvent): Transcript
       if (last?.kind === 'assistant')
         return [...prev.slice(0, -1), { ...last, text: last.text + e.delta }]
       return [...prev, { kind: 'assistant', text: e.delta }]
+    }
+    case 'assistant-thinking': {
+      const last = prev.at(-1)
+      if (last?.kind === 'thinking')
+        return [...prev.slice(0, -1), { ...last, text: last.text + e.delta }]
+      return [...prev, { kind: 'thinking', text: e.delta }]
     }
     case 'tool-request':
       return [...prev, { kind: 'tool', id: e.id, name: e.name, input: e.input, output: null, isError: false }]

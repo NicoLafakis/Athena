@@ -7,6 +7,7 @@ import {
   shiftWindowEnd,
   estimateEntryRows,
   displayWidth,
+  tailTextToRows,
   truncateTextToRows,
   wrappedRowCount,
 } from '../../src/tui/viewport.js'
@@ -268,5 +269,27 @@ describe('estimateEntryRows', () => {
       isError: false,
     }
     expect(estimateEntryRows(entry)).toBe(3) // 1 header + 2 output lines
+  })
+
+  it('a thinking entry measures its prefixed, tail-capped display text', () => {
+    expect(estimateEntryRows({ kind: 'thinking', text: 'short' })).toBe(1)
+    // 20 distinct lines tail-cap to 8 rows (7 kept + the … indicator).
+    const long = Array.from({ length: 20 }, (_, i) => `reasoning step ${i}`).join('\n')
+    expect(estimateEntryRows({ kind: 'thinking', text: long })).toBe(8)
+    // The prefix columns count: a line that fills the width still wraps after the prefix.
+    const wide = 'x'.repeat(78) // + 2-col prefix = 80 -> exactly 1 row at 80 columns
+    expect(estimateEntryRows({ kind: 'thinking', text: wide }, 80)).toBe(1)
+    const wider = 'x'.repeat(79) // + prefix wraps to 2
+    expect(estimateEntryRows({ kind: 'thinking', text: wider }, 80)).toBe(2)
+  })
+
+  it('tailTextToRows keeps the tail within budget and flags the cut head', () => {
+    const text = Array.from({ length: 10 }, (_, i) => `line-${i}`).join('\n')
+    const result = tailTextToRows(text, 80, 4)
+    const rows = result.split('\n')
+    expect(rows).toHaveLength(4)
+    expect(rows[0]).toBe('…')
+    expect(rows.slice(1)).toEqual(['line-7', 'line-8', 'line-9'])
+    expect(tailTextToRows('fits', 80, 4)).toBe('fits')
   })
 })

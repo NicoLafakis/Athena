@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render } from 'ink-testing-library'
-import { App, PermissionBridge, reduceEvent } from '../../src/tui/App.js'
+import { App, PermissionBridge, reduceEvent, transcriptEntriesFromMessages } from '../../src/tui/App.js'
 import type { TranscriptEntry } from '../../src/tui/components/Transcript.js'
 import { EngineEventBus } from '../../src/engine/events.js'
 
@@ -109,5 +109,42 @@ describe('reduceEvent', () => {
     const next = reduceEvent(prev, { type: 'status', patch: { mode: 'trusted', contextPct: 42 } })
     expect(next).toBe(prev) // same reference: status is purely a status-line concern
     expect(next).toEqual([{ kind: 'assistant', text: 'hi' }])
+  })
+
+  it('opens a thinking entry and merges consecutive thinking deltas into it', () => {
+    let entries = reduceEvent([], { type: 'assistant-thinking', delta: 'let me ' })
+    entries = reduceEvent(entries, { type: 'assistant-thinking', delta: 'check…' })
+    expect(entries).toEqual([{ kind: 'thinking', text: 'let me check…' }])
+  })
+
+  it('keeps thinking and assistant text as separate chronological entries', () => {
+    let entries = reduceEvent([], { type: 'assistant-thinking', delta: 'hmm' })
+    entries = reduceEvent(entries, { type: 'assistant-text', delta: 'the answer' })
+    entries = reduceEvent(entries, { type: 'assistant-thinking', delta: 'wait' })
+    entries = reduceEvent(entries, { type: 'assistant-text', delta: ' — no' })
+    expect(entries).toEqual([
+      { kind: 'thinking', text: 'hmm' },
+      { kind: 'assistant', text: 'the answer' },
+      { kind: 'thinking', text: 'wait' },
+      { kind: 'assistant', text: ' — no' },
+    ])
+  })
+
+  it('rebuilds thinking blocks from resumed session messages', () => {
+    const entries = transcriptEntriesFromMessages([
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'reasoned here', signature: 'sig' } as never,
+          { type: 'redacted_thinking', data: 'opaque' } as never,
+          { type: 'text', text: 'spoken here' },
+        ],
+      },
+    ])
+    expect(entries).toEqual([
+      { kind: 'thinking', text: 'reasoned here' },
+      { kind: 'thinking', text: '[redacted thinking]' },
+      { kind: 'assistant', text: 'spoken here' },
+    ])
   })
 })

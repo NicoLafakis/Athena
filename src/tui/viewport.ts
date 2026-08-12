@@ -66,6 +66,45 @@ export function wrappedRowCount(text: string, columns: number): number {
   return total
 }
 
+/** Physical rows of `text` wrapped to `columns` — the exact same wrap math
+ *  wrappedRowCount measures with, returned as slices so callers can clip by row. */
+export function wrapToRows(text: string, columns: number): string[] {
+  const width = Math.max(columns, 1)
+  return text
+    .split('\n')
+    .flatMap((line) =>
+      displayWidth(line) <= width ? [line] : wrapAnsi(line, width, { trim: false, hard: true }).split('\n'),
+    )
+}
+
+/** Tail-keeping mirror of truncateTextToRows: when `text` wraps past `maxRows`, keep
+ *  its LAST rows and let a leading `…` say the head was cut (the `…` line counts
+ *  against the budget, so the result never exceeds `maxRows`). Used for thinking
+ *  entries, where the newest reasoning is the useful end. */
+export function tailTextToRows(text: string, columns: number, maxRows: number): string {
+  const rows = Math.max(Math.trunc(maxRows), 0)
+  if (rows <= 0) return ''
+  if (rows === 1) return '…'
+  const physical = wrapToRows(text, columns)
+  if (physical.length <= rows) return text
+  return ['…', ...physical.slice(-(rows - 1))].join('\n')
+}
+
+/** Hard row ceiling for one thinking entry; the tail is what survives the cap. */
+export const THINKING_ENTRY_MAX_ROWS = 8
+
+/** The exact string a thinking transcript entry renders: tail-capped body, every line
+ *  prefixed with `· ` (two columns — the body is measured at `columns - 2` so the
+ *  prefixed lines fit `columns`). estimateEntryRows measures THIS string, so the
+ *  virtualization window and the component can never disagree about its height. */
+export function thinkingDisplayText(text: string, columns: number): string {
+  const body = tailTextToRows(text, Math.max(columns - 2, 1), THINKING_ENTRY_MAX_ROWS)
+  return body
+    .split('\n')
+    .map((line) => `· ${line}`)
+    .join('\n')
+}
+
 /** Rough estimate of how many terminal rows one transcript entry will occupy once
  *  rendered. This is a virtualization-window heuristic, not a pixel-exact layout
  *  measurement (Ink/Yoga still does the real wrapping) — it deliberately errs toward
@@ -88,6 +127,10 @@ export function estimateEntryRows(entry: TranscriptEntry, columns = 80): number 
     case 'tool':
       // Header line (name/input) plus the (wrapped) output body, if any.
       return 1 + (entry.output ? wrappedLines(entry.output) : 0)
+    case 'thinking':
+      // The component renders thinkingDisplayText verbatim — measure that string,
+      // prefix and tail-cap included, never the raw reasoning text.
+      return wrappedLines(thinkingDisplayText(entry.text, columns))
   }
 }
 
