@@ -21,13 +21,14 @@ export const CredentialsSchema = z
   .object({
     providers: z
       .object({
+        openai: ProviderCredSchema.optional(),
         anthropic: ProviderCredSchema.optional(),
         kimi: ProviderCredSchema.optional(),
         'kimi-code': ProviderCredSchema.optional(),
       })
       .strict() // unknown providers are rejected, not silently kept
       .default({}),
-    activeProvider: z.enum(['anthropic', 'kimi', 'kimi-code']).default('anthropic'),
+    activeProvider: z.enum(['openai', 'anthropic', 'kimi', 'kimi-code']).default('openai'),
   })
   .strict() // unknown top-level keys are rejected, not silently kept
 export type Credentials = z.infer<typeof CredentialsSchema>
@@ -167,6 +168,20 @@ export function resolveApiKey(
       onWarn?.((error as Error).message)
     }
   }
+  // OpenAI bridge: one account key serves both the engine (Responses) and voice
+  // (Realtime). If `athena voice` already saved a key on this machine, adopt it
+  // rather than making the user paste the same key twice. Read-only reuse: the
+  // engine never writes to the voice entry; `athena auth` creates provider/openai.
+  if (provider === 'openai' && vault) {
+    try {
+      // Mirrors OPENAI_VOICE_VAULT_REF in src/voice/credentials.ts (kept literal to
+      // avoid a brain -> voice module dependency).
+      const key = vault.get('voice/openai')
+      if (key) return { key, source: 'vault' }
+    } catch (error) {
+      onWarn?.((error as Error).message)
+    }
+  }
   return null
 }
 
@@ -263,6 +278,19 @@ export function formatAuthStatus(
       detail = unreadable
         ? 'UNREADABLE on this machine (encrypted elsewhere?) - run `athena auth`'
         : `${stored ? redactKey(stored) : 'configured'} (OS vault)`
+    }
+    else if (p === 'openai' && vault) {
+      // The resolveApiKey bridge adopts the voice key; status must say the same thing
+      // resolution does, or the user reads "not configured" while sessions work.
+      let shared: string | null = null
+      try {
+        shared = vault.get('voice/openai')
+      } catch {
+        shared = null
+      }
+      detail = shared
+        ? `${redactKey(shared)} (OS vault, shared with \`athena voice\`)`
+        : 'not configured'
     }
     else detail = 'not configured'
     const active = p === activeProvider ? ' [active]' : ''

@@ -55,10 +55,10 @@ describe('credentials load/save', () => {
     expect(paths().credentialsFile).toBe(join(home, '.athena', 'credentials.json'))
   })
 
-  it('missing file loads schema defaults (no providers, anthropic active)', () => {
+  it('missing file loads schema defaults (no providers, openai active)', () => {
     const creds = loadCredentials(paths())
     expect(creds.providers).toEqual({})
-    expect(creds.activeProvider).toBe('anthropic')
+    expect(creds.activeProvider).toBe('openai')
   })
 
   it('save + load round-trips and setProviderKey updates activeProvider', () => {
@@ -108,10 +108,10 @@ describe('credentials load/save', () => {
     mkdirSync(join(home, '.athena'), { recursive: true })
     writeFileSync(
       p.credentialsFile,
-      JSON.stringify({ providers: { openai: { apiKey: 'x' } }, activeProvider: 'anthropic' }),
+      JSON.stringify({ providers: { azure: { apiKey: 'x' } }, activeProvider: 'anthropic' }),
       'utf8',
     )
-    expect(() => loadCredentials(p)).toThrow(/openai/)
+    expect(() => loadCredentials(p)).toThrow(/azure/)
     expect(() => loadCredentials(p)).toThrow(/athena auth/)
   })
 
@@ -217,6 +217,28 @@ describe('OS credential vault integration', () => {
     expect(migrated.providers.kimi).toEqual({ vaultRef: 'provider/kimi' })
     expect(readFileSync(p.credentialsFile, 'utf8')).not.toContain('sk-kimi-legacy')
     expect(resolveApiKey('kimi', migrated, {}, vault)?.key).toBe('sk-kimi-legacy')
+  })
+
+  it('openai adopts the saved voice key when no engine key is configured', () => {
+    const vault = memoryVault()
+    vault.set('voice/openai', 'sk-openai-voice')
+    const empty = CredentialsSchema.parse({})
+    expect(resolveApiKey('openai', empty, {}, vault)).toEqual({
+      key: 'sk-openai-voice',
+      source: 'vault',
+    })
+    // An engine-side key still wins over the bridge…
+    const withEngineKey = CredentialsSchema.parse({ providers: { openai: { apiKey: 'sk-openai-file' } } })
+    expect(resolveApiKey('openai', withEngineKey, {}, vault)).toEqual({
+      key: 'sk-openai-file',
+      source: 'file',
+    })
+    expect(resolveApiKey('openai', empty, { OPENAI_API_KEY: 'sk-openai-env' }, vault)).toEqual({
+      key: 'sk-openai-env',
+      source: 'env',
+    })
+    // …and the bridge never leaks into other providers.
+    expect(resolveApiKey('anthropic', empty, {}, vault)).toBeNull()
   })
 })
 

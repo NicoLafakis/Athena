@@ -37,7 +37,9 @@ and local slash-command handler.
 
 - `src/engine/` — provider-neutral model loop, authoritative runtime events, context and
   run limits. Permission requests receive stable IDs here before either presentation is
-  asked for a decision.
+  asked for a decision. The `ModelClient` seam is Anthropic-shaped internally;
+  `client.ts` (Anthropic + Anthropic-compatible endpoints) and `openai-client.ts`
+  (OpenAI Responses API) are the only protocol boundaries.
 - `src/interaction/` — versioned semantic envelopes, deterministic reduction,
   announcements, attention detectors, and local `status`, `repeat`, `details`, and
   verbosity controls. It derives truth from runtime evidence rather than assistant prose.

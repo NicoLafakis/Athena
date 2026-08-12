@@ -41,6 +41,33 @@ export function anthropicUsageMeters(usage: Message['usage']): Meter[] {
   return meters
 }
 
+/**
+ * Maps OpenAI Responses API usage onto normalized meters. Canonical names match
+ * api-calculator's openaiMeters: cached/reasoning are SUBSETS of the totals and must
+ * never be added on top (provider overlap rule).
+ */
+export function openaiUsageMeters(usage: {
+  input_tokens?: number
+  output_tokens?: number
+  input_tokens_details?: { cached_tokens?: number }
+  output_tokens_details?: { reasoning_tokens?: number }
+}): Meter[] {
+  const meters: Meter[] = []
+  if (typeof usage.input_tokens === 'number') {
+    meters.push({ name: 'prompt_total', value: usage.input_tokens, unit: 'token', canonical: 'prompt_total' })
+  }
+  if (typeof usage.input_tokens_details?.cached_tokens === 'number') {
+    meters.push({ name: 'cache_read', value: usage.input_tokens_details.cached_tokens, unit: 'token', canonical: 'cache_read' })
+  }
+  if (typeof usage.output_tokens === 'number') {
+    meters.push({ name: 'completion_total', value: usage.output_tokens, unit: 'token', canonical: 'completion_total' })
+  }
+  if (typeof usage.output_tokens_details?.reasoning_tokens === 'number') {
+    meters.push({ name: 'reasoning', value: usage.output_tokens_details.reasoning_tokens, unit: 'token', canonical: 'reasoning' })
+  }
+  return meters
+}
+
 export function tokenUsageMeters(usage: TokenUsage): Meter[] {
   return [
     { name: 'input_uncached', value: usage.inputTokens, unit: 'token', canonical: 'input_uncached' },

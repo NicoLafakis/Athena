@@ -22,23 +22,30 @@ the logged-in OS user, not a separate secret Athena manages.
 
 `resolveApiKey` (`src/brain/credentials.ts`) checks, per provider, in this order:
 
-1. **Env var** (e.g. `ANTHROPIC_API_KEY`) — always wins, matches prior behavior, and is
-   the documented zero-file path.
+1. **Env var** (e.g. `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) — always wins, matches prior
+   behavior, and is the documented zero-file path.
 2. **File, plaintext** — `credentials.json`'s `apiKey` field.
 3. **Vault** — `credentials.json`'s `vaultRef` field, resolved through the platform's
    `CredentialVault` (`src/brain/credential-vault.ts`).
+4. **OpenAI only: the shared voice entry** — if nothing above resolves for `openai`,
+   the fixed `voice/openai` vault reference is tried read-only. One OpenAI platform key
+   serves both the engine (Responses API) and `athena voice` (Realtime), so a machine
+   that already completed voice setup needs no second paste. `athena auth` still creates
+   the engine's own `provider/openai` entry, which then takes precedence at step 3.
 
 `resolveApiKey` never throws. A vault read failure (undecryptable blob, backend down)
 resolves as "no key from the vault" plus a warning string the caller can surface, rather
 than propagating an exception or silently falling through to the auth wizard with no
 explanation.
 
-The optional OpenAI Realtime voice credential is deliberately outside the coding-model
-provider schema. `resolveVoiceKey` checks `OPENAI_API_KEY` first and then the fixed
-`voice/openai` OS-vault reference. `athena voice auth` validates a Realtime session before
-writing, verifies the new vault value by readback, and attempts to restore the prior
-working value if replacement verification fails. It never falls back to a plaintext
-voice key: when the vault is unavailable, `OPENAI_API_KEY` is the recovery path.
+The OpenAI voice credential lives at the fixed `voice/openai` vault reference.
+`resolveVoiceKey` checks `OPENAI_API_KEY` first and then that reference; a missing key
+is set up inline at `athena voice` start (visible paste -> Realtime validation ->
+best-effort vault save), and `athena voice auth` replaces it through the same
+validate-then-save path. Every save verifies the new vault value by readback and
+attempts to restore the prior working value if replacement verification fails. It never
+falls back to a plaintext voice key: when the vault is unavailable, `OPENAI_API_KEY` is
+the recovery path.
 
 ## Plaintext vs. vault, and how the user is told which
 

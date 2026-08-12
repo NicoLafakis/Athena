@@ -73,7 +73,8 @@ Keychain, Secret Service) and carrying one to another machine fails to decrypt.
   way, and never weaken it.
 - Do not design cross-machine credential sync, a synced encrypted blob, or a startup
   passphrase or unlock prompt. Each machine runs `athena auth` once. Env vars
-  (`ANTHROPIC_API_KEY`, `MOONSHOT_API_KEY`, `KIMI_CODE_API_KEY`) are the zero-file path.
+  (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `MOONSHOT_API_KEY`, `KIMI_CODE_API_KEY`) are
+  the zero-file path.
 - An undecryptable entry is an actionable error naming `athena auth`, never a raw stack
   and never a silent "not configured".
 

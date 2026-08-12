@@ -64,6 +64,7 @@ import { HarnessSessionController } from './harness/controller.js'
 import { PluginManager } from './harness/plugins.js'
 import { Engine } from './engine/loop.js'
 import { AnthropicClient } from './engine/client.js'
+import { OpenAIClient } from './engine/openai-client.js'
 import type { ModelClient } from './engine/client.js'
 import { FixtureModelClient } from './engine/fixture-client.js'
 import { makeTelemetryRecorder, type TelemetryRecorder } from './engine/telemetry.js'
@@ -967,6 +968,9 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
 function makeClient(provider: ProviderId, key: string, recorder?: TelemetryRecorder): ModelClient {
   const fixture = process.env['ATHENA_TEST_MODEL_SCRIPT']
   if (process.env['NODE_ENV'] === 'test' && fixture) return new FixtureModelClient(fixture)
+  if (provider === 'openai') {
+    return new OpenAIClient(key, PROVIDERS[provider].baseURL ?? undefined, provider, recorder)
+  }
   return new AnthropicClient(
     key,
     PROVIDERS[provider].baseURL ?? undefined,
@@ -1660,7 +1664,7 @@ async function main(): Promise<void> {
   let resolved = resolveApiKey(provider, credentials, process.env, credentialVault, warnCredentials)
   if (!resolved && cmd.provider === undefined) {
     // The default provider has no key but another one does (e.g. no credentials file
-    // and only MOONSHOT_API_KEY set, while activeProvider defaults to anthropic):
+    // and only MOONSHOT_API_KEY set, while activeProvider defaults to openai):
     // adopt the keyed provider for the session instead of forcing the wizard.
     const withKey = PROVIDER_IDS.find((p) =>
       resolveApiKey(p, credentials, process.env, credentialVault, warnCredentials),
@@ -1668,7 +1672,8 @@ async function main(): Promise<void> {
     if (withKey) {
       provider = withKey
       resolved = resolveApiKey(provider, credentials, process.env, credentialVault, warnCredentials)!
-      console.log(`Using ${PROVIDERS[provider].label} (only provider with a configured key).`)
+      // stderr, never stdout: `athena exec --output json` must emit pure envelopes.
+      console.error(`Using ${PROVIDERS[provider].label} (only provider with a configured key).`)
     }
   }
   if (!resolved) {

@@ -9,6 +9,7 @@ import { setProviderKey } from '../brain/credentials.js'
 import type { BrainPaths } from '../brain/paths.js'
 import type { CredentialVault } from '../brain/credential-vault.js'
 import { AnthropicClient } from '../engine/client.js'
+import { OpenAIClient } from '../engine/openai-client.js'
 
 export interface WizardIO {
   say(message: string): void
@@ -28,6 +29,17 @@ export type ValidateFn = (provider: ProviderId, key: string) => Promise<string |
 /** Live check: one minimal message to the provider's cheapest model. */
 export async function validateKey(provider: ProviderId, key: string): Promise<string | null> {
   try {
+    if (provider === 'openai') {
+      // Reasoning models can burn a tiny cap before any visible text; 128 headroom
+      // keeps a valid key from being falsely rejected on an empty completion.
+      const client = new OpenAIClient(key, PROVIDERS[provider].baseURL ?? undefined)
+      await client.complete({
+        model: modelId(provider, PROVIDERS[provider].validationModel),
+        prompt: 'hi',
+        maxTokens: 128,
+      })
+      return null
+    }
     const client = new AnthropicClient(
       key,
       PROVIDERS[provider].baseURL ?? undefined,

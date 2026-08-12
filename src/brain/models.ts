@@ -5,7 +5,7 @@
 // resolveModelRequest is the ONLY place allowed to assemble effort/thinking, so those
 // landmines live in one spot.
 
-export type ProviderId = 'anthropic' | 'kimi' | 'kimi-code'
+export type ProviderId = 'openai' | 'anthropic' | 'kimi' | 'kimi-code'
 export type ModelKey = string
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
@@ -17,7 +17,7 @@ export type ThinkingParam =
   | { type: 'enabled'; budget_tokens: number }
   | { type: 'disabled' }
 
-export const PROVIDER_IDS: readonly ProviderId[] = ['anthropic', 'kimi', 'kimi-code']
+export const PROVIDER_IDS: readonly ProviderId[] = ['openai', 'anthropic', 'kimi', 'kimi-code']
 export const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
 export interface ProviderEntry {
@@ -36,6 +36,16 @@ export interface ProviderEntry {
 }
 
 export const PROVIDERS: Record<ProviderId, ProviderEntry> = {
+  openai: {
+    label: 'OpenAI',
+    baseURL: null,
+    envVar: 'OPENAI_API_KEY',
+    defaultModel: 'sol',
+    validationModel: 'luna',
+    authMode: 'bearer',
+    keyHint:
+      'Keys come from platform.openai.com/api-keys. The same key powers `athena voice` (Realtime): if voice is already set up on this machine, its saved key is reused automatically.',
+  },
   anthropic: {
     label: 'Anthropic',
     baseURL: null,
@@ -45,7 +55,7 @@ export const PROVIDERS: Record<ProviderId, ProviderEntry> = {
     authMode: 'x-api-key',
   },
   kimi: {
-    label: 'Kimi (Moonshot)',
+    label: 'Kimi pay-per-token (Moonshot AI)',
     baseURL: 'https://api.moonshot.ai/anthropic',
     envVar: 'MOONSHOT_API_KEY',
     defaultModel: 'kimi-k3',
@@ -55,7 +65,7 @@ export const PROVIDERS: Record<ProviderId, ProviderEntry> = {
       'Pay-per-token keys come from platform.kimi.ai (global; platform.moonshot.cn keys do not work here). Subscription keys from kimi.com/code/console belong to the kimi-code provider instead.',
   },
   'kimi-code': {
-    label: 'Kimi Code (subscription)',
+    label: 'Kimi Code subscription (Moonshot AI)',
     baseURL: 'https://api.kimi.com/coding/',
     envVar: 'KIMI_CODE_API_KEY',
     defaultModel: 'kimi-for-coding',
@@ -87,6 +97,41 @@ export interface ModelEntry {
 // (k2-preview lineage EOL'd 2026-05-25). Keys equal wire ids — Moonshot's Anthropic-compatible
 // endpoint accepts the same ids as the OpenAI one.
 export const MODELS: Record<ProviderId, Record<ModelKey, ModelEntry>> = {
+  // NOTE: OpenAI ids, reasoning-effort sets, and prices verified against
+  // https://platform.openai.com/docs/models and /docs/pricing on 2026-08-12.
+  // All three take reasoning effort none..max; Athena's Effort union maps 1:1 (minus
+  // 'none'). Effort is emitted by resolveModelRequest and translated to
+  // reasoning:{effort} inside OpenAIClient — supportsThinking stays false: that flag
+  // drives Anthropic's thinking param, which has no OpenAI counterpart.
+  openai: {
+    sol: {
+      id: 'gpt-5.6-sol',
+      label: 'GPT-5.6 Sol',
+      supportsEffort: true,
+      supportsThinking: false,
+      contextWindowTokens: 1_050_000,
+      maxOutputTokens: 128_000,
+      pricing: { inputPerMillionUsd: 5, outputPerMillionUsd: 30, cacheReadPerMillionUsd: 0.5, cacheWritePerMillionUsd: 6.25, metered: true, asOf: '2026-08-12' },
+    },
+    terra: {
+      id: 'gpt-5.6-terra',
+      label: 'GPT-5.6 Terra',
+      supportsEffort: true,
+      supportsThinking: false,
+      contextWindowTokens: 1_050_000,
+      maxOutputTokens: 128_000,
+      pricing: { inputPerMillionUsd: 2, outputPerMillionUsd: 12, cacheReadPerMillionUsd: 0.2, cacheWritePerMillionUsd: 2.5, metered: true, asOf: '2026-08-12' },
+    },
+    luna: {
+      id: 'gpt-5.6-luna',
+      label: 'GPT-5.6 Luna',
+      supportsEffort: true,
+      supportsThinking: false,
+      contextWindowTokens: 1_050_000,
+      maxOutputTokens: 128_000,
+      pricing: { inputPerMillionUsd: 0.2, outputPerMillionUsd: 1.2, cacheReadPerMillionUsd: 0.02, cacheWritePerMillionUsd: 0.25, metered: true, asOf: '2026-08-12' },
+    },
+  },
   anthropic: {
     haiku: {
       id: 'claude-haiku-4-5',
@@ -192,6 +237,7 @@ export const MODELS: Record<ProviderId, Record<ModelKey, ModelEntry>> = {
 export function normalizeProvider(input: string): ProviderId | null {
   const s = input.trim().toLowerCase()
   if (s === 'moonshot') return 'kimi'
+  if (s === 'gpt' || s === 'chatgpt') return 'openai'
   return PROVIDER_IDS.find((p) => p === s) ?? null
 }
 

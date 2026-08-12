@@ -21,9 +21,9 @@ describe('parseArgs — auth and --provider', () => {
     })
   })
 
-  it('auth usage names all three providers', () => {
+  it('auth usage names all four providers', () => {
     expect(AUTH_USAGE).toBe(
-      'Usage: athena auth [status] [--provider <anthropic|kimi|kimi-code>] ' +
+      'Usage: athena auth [status] [--provider <openai|anthropic|kimi|kimi-code>] ' +
       '[--accessibility screen-reader|standard]',
     )
   })
@@ -44,7 +44,7 @@ describe('parseArgs — auth and --provider', () => {
   })
 
   it('rejects auth with unknown --provider value', () => {
-    expect(parseArgs(['auth', '--provider', 'openai'])).toEqual({
+    expect(parseArgs(['auth', '--provider', 'azure'])).toEqual({
       command: 'error',
       message: PROVIDER_NEEDS,
     })
@@ -125,7 +125,7 @@ describe('parseArgs — auth and --provider', () => {
       command: 'error',
       message: PROVIDER_NEEDS,
     })
-    expect(parseArgs(['--provider', 'openai'])).toEqual({
+    expect(parseArgs(['--provider', 'azure'])).toEqual({
       command: 'error',
       message: PROVIDER_NEEDS,
     })

@@ -8,6 +8,7 @@ import {
   modelId,
   modelLabel,
   supportsEffort,
+  supportsThinking,
   normalizeProvider,
   normalizeModel,
   resolveModelRequest,
@@ -15,9 +16,23 @@ import {
 } from '../../src/brain/models.js'
 
 describe('provider registry', () => {
-  it('exposes exactly three providers and five efforts', () => {
-    expect([...PROVIDER_IDS]).toEqual(['anthropic', 'kimi', 'kimi-code'])
+  it('exposes exactly four providers and five efforts', () => {
+    expect([...PROVIDER_IDS]).toEqual(['openai', 'anthropic', 'kimi', 'kimi-code'])
     expect([...EFFORTS]).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
+  })
+
+  it('openai uses the platform default URL, bearer auth, and the verified 5.6 lineup', () => {
+    expect(PROVIDERS.openai.baseURL).toBeNull()
+    expect(PROVIDERS.openai.envVar).toBe('OPENAI_API_KEY')
+    expect(PROVIDERS.openai.authMode).toBe('bearer')
+    expect(PROVIDERS.openai.defaultModel).toBe('sol')
+    expect(PROVIDERS.openai.validationModel).toBe('luna')
+    expect(modelId('openai', 'sol')).toBe('gpt-5.6-sol')
+    expect(modelId('openai', 'terra')).toBe('gpt-5.6-terra')
+    expect(modelId('openai', 'luna')).toBe('gpt-5.6-luna')
+    // Effort maps to reasoning.effort; thinking stays off (Anthropic-only param).
+    expect(supportsEffort('openai', 'sol')).toBe(true)
+    expect(supportsThinking('openai', 'sol')).toBe(false)
   })
 
   it('anthropic uses the SDK default URL; kimi uses the Moonshot Anthropic-compatible endpoint', () => {
@@ -58,9 +73,11 @@ describe('provider registry', () => {
 
   it('normalizeProvider maps names (moonshot alias included), null otherwise', () => {
     expect(normalizeProvider('anthropic')).toBe('anthropic')
+    expect(normalizeProvider('openai')).toBe('openai')
+    expect(normalizeProvider('gpt')).toBe('openai')
     expect(normalizeProvider(' KIMI ')).toBe('kimi')
     expect(normalizeProvider('moonshot')).toBe('kimi')
-    expect(normalizeProvider('openai')).toBeNull()
+    expect(normalizeProvider('azure')).toBeNull()
     expect(normalizeProvider('')).toBeNull()
   })
 })
