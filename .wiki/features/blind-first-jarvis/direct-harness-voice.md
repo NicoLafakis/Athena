@@ -58,6 +58,9 @@ incorrect by construction.
 
 ### Startup
 
+0. First run only: if no OpenAI voice key resolves from env or vault, `athena voice`
+   asks for one inline — visible paste, provider validation, then a best-effort vault
+   save. A failed save warns and keeps the session key; it never aborts startup.
 1. The user runs `athena voice` once. Keyboard and screen-reader launch remain valid.
 2. Athena opens one persistent local wake listener and one Realtime session.
 3. Marin says a short readiness cue such as, "Athena is ready."
@@ -287,16 +290,43 @@ Rollback must never delete an Athena session, credential, trace, or usage record
 
 ## Implementation sequence
 
-- [ ] **1. Shared controller:** extract and regression-test `HarnessSessionController`
+- [x] **1. Shared controller:** extract and regression-test `HarnessSessionController`
   from the existing CLI/headless composition. `athena exec` behavior must remain stable.
-- [ ] **2. Persistent wake process:** implement supervised continuous Windows recognition,
+- [x] **2. Persistent wake process:** implement supervised continuous Windows recognition,
   JSONL framing, audio bounds, shutdown, and a real backend probe.
-- [ ] **3. Direct turn bridge:** replace `delegate` with `submit_turn`; route normal speech
+  Implemented 2026-08-12: one supervised `powershell.exe` process runs continuous
+  `RecognizeAsync(Multiple)` recognition; phrase events are emitted as JSONL by a compiled
+  C# sink (`Add-Type`) because scriptblock delegates never fire on the blocked main
+  thread and `Register-ObjectEvent` module autoload can stall for tens of seconds. The
+  Node side (`WindowsPersistentWakeInput`) gates on the ready round trip, bounds the
+  queue, restarts a crashed listener three times with one warning each, and fails loudly
+  with the `athena voice probe` recovery path. A win32-gated test drives the production
+  script with a locally synthesized WAV sentinel — no microphone needed.
+- [x] **3. Direct turn bridge:** replace `delegate` with `submit_turn`; route normal speech
   into the shared controller and return its authoritative result.
+  Upgraded 2026-08-12 after live dogfood: `submit_turn` is now non-blocking — it returns
+  at turn START (the Realtime response timeout would otherwise kill any harness turn
+  longer than two minutes), the finished result arrives as a separate serialized spoken
+  turn, and a busy harness answers "still working" instead of double-running. The session
+  advertises only `submit_turn` + `local_control`, and its instructions put Athena in
+  first person with her constitution woven in — the adapter-for-Athena wording produced
+  third-person narration and unkept "I'll pass that along" promises. The shared text
+  prompt and the voice prompt now make this unconditional: the agent identifies as
+  Athena, owns actions and answers in the first person, and distinguishes source-code
+  components only when discussing their implementation.
+  Same-day conversational fix after live dogfood: a bare wake word is now answered
+  LOCALLY (listening cue plus a ~6 s capture window) and never uploaded; the next phrase
+  in the window is the command. The listener loads wake+dictation and free-dictation
+  grammars, so a paused "Athena … <command>" works, not only fluid single utterances —
+  previously the wake-only grammar completed first and the command never crossed the
+  wire. A falling tone after each spoken reply marks the return to wake standby.
+  Ambient non-wake phrases are still dropped on-device.
 - [ ] **4. Voice permissions and controls:** connect canonical permission IDs plus local
   status/repeat/stop behavior with keyboard parity.
-- [ ] **5. Spoken lifecycle:** add Marin ready, waiting, permission, completion, failure,
+- [x] **5. Spoken lifecycle:** add Marin ready, waiting, permission, completion, failure,
   and recovery behavior under screen-reader ownership policy.
+  Partial 2026-08-12: ready, work-started acknowledgment, asynchronous spoken completion,
+  and failure reports are in. Permission announcements (item 4) remain open.
 - [ ] **6. Session renewal and recovery:** reconnect Realtime without losing the Athena
   session; make duplicate submission impossible.
 - [ ] **7. Automated verification:** protocol fakes, controller integration, microphone

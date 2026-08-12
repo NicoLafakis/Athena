@@ -27,14 +27,17 @@ export {
 export {
   OPENAI_VOICE_ENV,
   OPENAI_VOICE_VAULT_REF,
+  ensureVoiceKey,
   resolveVoiceKey,
   saveVoiceKey,
+  type EnsureVoiceKeyOptions,
   type ResolvedVoiceKey,
 } from './credentials.js'
 export {
   DEFAULT_REALTIME_MODEL,
   REALTIME_MODELS,
   RealtimeVoiceClient,
+  buildVoiceInstructions,
   sanitizeVoiceUsage,
   validateRealtimeKey,
   type RealtimeToolCall,
@@ -46,9 +49,13 @@ export {
 export {
   probeWindowsSpeech,
   recognizeWindowsPhrase,
+  spawnWindowsWakeListener,
   stripWakePhrase,
   speakWindowsText,
   playWindowsPcm,
+  playListeningCue,
+  playStandbyCue,
+  cueTonePcm,
   runPowerShell,
   type PowerShellRunner,
   type RecognizedPhrase,
@@ -56,6 +63,7 @@ export {
 } from './windows-speech.js'
 export {
   KeyboardVoiceCommandInput,
+  WindowsPersistentWakeInput,
   WindowsWakeCommandInput,
   athenaDelegateArgs,
   runAthenaDelegate,
@@ -69,4 +77,7 @@ export {
   type VoiceCommand,
   type VoiceRealtimeClient,
   type VoiceSessionOptions,
+  type WakeListenerProcess,
+  type WakeListenerSpawner,
+  type WindowsPersistentWakeOptions,
 } from './daemon.js'

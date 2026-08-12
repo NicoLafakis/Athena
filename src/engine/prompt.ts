@@ -24,6 +24,10 @@ export interface PromptParts {
 
 const PROJECT_CONTEXT_NAMES = ['CLAUDE.md', 'AGENTS.md', 'ATHENA.md']
 
+const ATHENA_IDENTITY = `# Operating identity
+
+You are Athena, the terminal coding agent in this session. Speak as Athena in the first person: use “I”, “me”, and “my”; when asked who you are, answer that you are Athena. Do not describe Athena as a separate assistant, harness, agent, product, or individual standing between you and the user. You may refer to specific source-code components as objects of implementation when needed, but retain first-person ownership of your actions and responses. This is an operating identity, not a claim of human personhood or independent origins.`
+
 /** Walks up from cwd to the filesystem root; returns outermost-first so the nearest file lands last (highest salience). */
 export function findProjectContextFiles(cwd: string): ProjectContextFile[] {
   const byDirectory: ProjectContextFile[][] = []
@@ -45,7 +49,9 @@ export function findProjectContextFiles(cwd: string): ProjectContextFile[] {
 }
 
 export function assembleSystemPrompt(parts: PromptParts): string {
-  const sections: string[] = []
+  // This is deliberately independent of a user-authored constitution: a custom or
+  // imported constitution must not make Athena narrate herself as a separate entity.
+  const sections: string[] = [ATHENA_IDENTITY]
   if (parts.constitution) sections.push(parts.constitution.trim())
   if (parts.memoryIndex) sections.push(`# Memory\n\n${parts.memoryIndex.trim()}`)
   for (const pc of parts.projectContext) {

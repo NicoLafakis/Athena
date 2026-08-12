@@ -241,6 +241,13 @@ editing under the active Global Rule.
   listener feeds ordinary turns into one Athena-owned harness session, Marin speaks only
   authoritative harness results, and the hands-free acceptance script passes.
   Shared `HarnessSessionController` encapsulates engine lifecycle, permissions, traces, and session storage. `submit_turn` and `local_control` tools send speech directly into the in-process harness session.
+- [x] **7.7 Persistent wake listener and paste-to-setup key handling** - one supervised
+  continuous-recognition process (compiled C# event sink, JSONL framing, bounded restart,
+  real WAV-sentinel round trip) replaces per-listen PowerShell churn, and a missing
+  OpenAI voice key is resolved inline at `athena voice` start via visible paste ->
+  validate -> best-effort vault save instead of a separate hidden-input command - done
+  when the mic opens once per session, a missing key never dead-ends into a second
+  command, and a failed vault save warns without aborting the session.
 
 ## Documentation and release closure for every phase
 

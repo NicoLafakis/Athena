@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { CredentialVault, CredentialVaultStatus } from '../../src/brain/credential-vault.js'
 import {
   OPENAI_VOICE_VAULT_REF,
+  ensureVoiceKey,
   resolveVoiceKey,
   saveVoiceKey,
 } from '../../src/voice/credentials.js'
@@ -52,5 +53,78 @@ describe('OpenAI voice credentials', () => {
     vault.failReadback = true
     expect(() => saveVoiceKey(vault, 'new-key')).toThrow(/not saved/)
     expect(vault.values.get(OPENAI_VOICE_VAULT_REF)).toBe('old-key')
+  })
+
+  describe('ensureVoiceKey inline setup', () => {
+    it('returns env/vault keys without prompting or validating', async () => {
+      const vault = new FakeVault()
+      vault.values.set(OPENAI_VOICE_VAULT_REF, 'vault-key')
+      const prompt = vi.fn(async () => 'unused')
+      const validate = vi.fn(async () => {})
+      await expect(ensureVoiceKey({ env: { OPENAI_API_KEY: 'env-key' }, vault, prompt, validate }))
+        .resolves.toEqual({ key: 'env-key', source: 'env' })
+      await expect(ensureVoiceKey({ env: {}, vault, prompt, validate }))
+        .resolves.toEqual({ key: 'vault-key', source: 'vault' })
+      expect(prompt).not.toHaveBeenCalled()
+      expect(validate).not.toHaveBeenCalled()
+    })
+
+    it('pastes, validates, then saves in one step', async () => {
+      const vault = new FakeVault()
+      const order: string[] = []
+      const resolved = await ensureVoiceKey({
+        env: {},
+        vault,
+        prompt: async () => {
+          order.push('prompt')
+          return '  pasted-key  '
+        },
+        validate: async (key) => {
+          order.push(`validate:${key}`)
+        },
+      })
+      expect(resolved).toEqual({ key: 'pasted-key', source: 'prompt' })
+      expect(order).toEqual(['prompt', 'validate:pasted-key'])
+      expect(vault.values.get(OPENAI_VOICE_VAULT_REF)).toBe('pasted-key')
+    })
+
+    it('warns but keeps the working session key when the vault save fails', async () => {
+      const vault = new FakeVault()
+      vault.statusValue = { backend: 'unavailable', available: false, detail: 'no backend' }
+      const warnings: string[] = []
+      const resolved = await ensureVoiceKey({
+        env: {},
+        vault,
+        prompt: async () => 'pasted-key',
+        validate: async () => {},
+        onWarn: (message) => warnings.push(message),
+      })
+      expect(resolved).toEqual({ key: 'pasted-key', source: 'prompt' })
+      expect(warnings.some((message) => message.includes('session only'))).toBe(true)
+    })
+
+    it('returns null without a prompt seam and rejects an empty paste', async () => {
+      await expect(ensureVoiceKey({ env: {}, validate: async () => {} })).resolves.toBeNull()
+      const validate = vi.fn(async () => {})
+      await expect(ensureVoiceKey({
+        env: {},
+        prompt: async () => '   ',
+        validate,
+      })).rejects.toThrow(/No OpenAI voice key entered/)
+      expect(validate).not.toHaveBeenCalled()
+    })
+
+    it('propagates provider validation failure without saving anything', async () => {
+      const vault = new FakeVault()
+      await expect(ensureVoiceKey({
+        env: {},
+        vault,
+        prompt: async () => 'bad-key',
+        validate: async () => {
+          throw new Error('provider rejected the key')
+        },
+      })).rejects.toThrow(/provider rejected the key/)
+      expect(vault.values.get(OPENAI_VOICE_VAULT_REF)).toBeUndefined()
+    })
   })
 })

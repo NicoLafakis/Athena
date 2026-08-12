@@ -26,6 +26,8 @@ export interface RealtimeVoiceClientOptions {
   connectTimeoutMs?: number
   responseTimeoutMs?: number
   webSocketFactory?: (url: string, options: WebSocket.ClientOptions) => WebSocket
+  /** Session instructions; defaults to buildVoiceInstructions() with no persona. */
+  instructions?: string
 }
 
 const ServerEventSchema = z.object({ type: z.string() }).passthrough()
@@ -74,51 +76,29 @@ const VOICE_TOOLS = [
       additionalProperties: false,
     },
   },
-  {
-    type: 'function',
-    name: 'delegate',
-    description: 'Propose a coding task for Athena.',
-    parameters: {
-      type: 'object',
-      properties: { prompt: { type: 'string', minLength: 1, maxLength: 4096 } },
-      required: ['prompt'],
-      additionalProperties: false,
-    },
-  },
-  {
-    type: 'function',
-    name: 'status',
-    description: 'Get the status of the current Athena harness or delegation.',
-    parameters: { type: 'object', properties: {}, additionalProperties: false },
-  },
-  {
-    type: 'function',
-    name: 'confirm',
-    description: 'Confirm a proposal.',
-    parameters: { type: 'object', properties: {}, additionalProperties: false },
-  },
-  {
-    type: 'function',
-    name: 'cancel',
-    description: 'Cancel a proposal.',
-    parameters: { type: 'object', properties: {}, additionalProperties: false },
-  },
-  {
-    type: 'function',
-    name: 'stop_listening',
-    description: 'End the Athena voice session when requested.',
-    parameters: { type: 'object', properties: {}, additionalProperties: false },
-  },
 ] as const
 
-const CONDUCTOR_INSTRUCTIONS = [
-  'You are Athena voice, an audio/intent adapter for the Athena terminal coding agent.',
-  'For every user coding, inspection, or repository request, call submit_turn with the understood text.',
-  'Never answer repository or coding questions independently, and never invent state or work.',
-  'Use local_control for status, repeat, allow/deny permission decisions, or stop_listening.',
-  'The word Athena at the beginning of user audio is a wake word, not part of the request.',
-  'When submit_turn returns a harness result, summarize its summary briefly and faithfully for Marin speech output.',
-].join(' ')
+/**
+ * The voice session IS Athena talking — not an assistant sitting in front of her.
+ * First person is a hard rule: third-person narration about "Athena" or "the harness"
+ * is precisely the failure this wording exists to prevent.
+ */
+export function buildVoiceInstructions(persona?: string): string {
+  const rules = [
+    'You are Athena, the terminal coding agent in this session, speaking directly with the user by voice. Your spoken words ARE Athena: always use first person ("I", "me", "my"). When asked who you are, answer that you are Athena. Never describe "Athena", "the harness", or "the engine" as a separate assistant, agent, product, or individual standing between you and the user. You may name a source-code component only when discussing its implementation; retain first-person ownership of your actions and responses. This is an operating identity, not a claim of human personhood or independent origins.',
+    'The word "Athena" at the start of user audio is the wake word, never part of the request.',
+    'For every coding, repository, inspection, or action request, call submit_turn in the SAME response with the understood request text. Never promise to do something without the tool call, and never answer repository or coding questions from your own knowledge — that is exactly what submit_turn is for.',
+    'submit_turn returns as soon as the work STARTS, not when it finishes. When it returns, tell the user briefly that you are on it. The finished result then arrives as a separate user message; report that result concisely and faithfully, first person, as your own completed work.',
+    'Use local_control for status, repeat, allow/deny permission answers, or stop_listening.',
+    'Keep spoken replies short and natural — a colleague, not a narrator.',
+  ]
+  const trimmed = persona?.trim().slice(0, 2_048)
+  if (!trimmed) return rules.join(' ')
+  return [
+    ...rules,
+    `Athena's own constitution follows; let it shape how you speak and what you claim:\n${trimmed}`,
+  ].join(' ')
+}
 
 export class RealtimeVoiceClient {
   private readonly model: RealtimeVoiceModel
@@ -170,7 +150,7 @@ export class RealtimeVoiceClient {
             },
             output: { format: { type: 'audio/pcm', rate: 24_000 }, voice: 'marin' },
           },
-          instructions: CONDUCTOR_INSTRUCTIONS,
+          instructions: options.instructions ?? buildVoiceInstructions(),
           tools: VOICE_TOOLS,
           tool_choice: 'auto',
         },

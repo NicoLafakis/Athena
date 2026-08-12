@@ -189,5 +189,8 @@ Keyboard input, vault/env auth, usage-only records, fake-server protocol tests, 
 interactive device/account probe are present; the raw microphone -> Realtime -> Marin
 probe passed on Nico's laptop on 2026-07-29. The conductor is explicitly intermediate:
 the [next upgrade](direct-harness-voice.md) makes voice a direct adapter over one Athena
-harness session. Persistent wake behavior, latency/cost and false-positive measurements,
-retention review, and manual AT/voice validation remain.
+harness session. The direct-harness controller, the persistent wake listener (one
+supervised continuous-recognition process with a compiled C# event sink, replacing
+per-listen subprocess churn), and paste-to-setup inline key handling are now implemented.
+Latency/cost and false-positive measurements, retention review, and manual AT/voice
+validation remain.

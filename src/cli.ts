@@ -35,7 +35,7 @@ import {
   formatCredentialVaultStatus,
   type CredentialVault,
 } from './brain/credential-vault.js'
-import { promptMasked, runAuthWizard, terminalIO } from './auth/wizard.js'
+import { runAuthWizard, terminalIO } from './auth/wizard.js'
 import { ClientHolder } from './engine/client-holder.js'
 import { loadConstitution, loadMemoryIndex } from './brain/loader.js'
 import {
@@ -622,10 +622,10 @@ Usage:
   athena --accessibility <screen-reader|standard>  session-only presentation override
   athena auth            add/replace API keys, switch the default provider
   athena auth status     show configured providers and redacted keys
-  athena voice           listen locally for “Athena”, then use the OpenAI Realtime conductor
+  athena voice           hands-free “Athena” wake conversation (pastes/sets up the OpenAI key on first run)
   athena voice --keyboard  equivalent stable-text input for keyboard/Braille use
   athena voice probe     round-trip local speech and verify the Realtime connection
-  athena voice auth      securely save the per-machine OpenAI voice key
+  athena voice auth      replace the saved per-machine OpenAI voice key
   athena doctor          inspect credentials, trust, dependencies, sandbox, and update status
   athena vmp status      show Vibe Monitor Plus connector configuration
   athena vmp report      print the current usage report JSON for VMP
@@ -1422,13 +1422,27 @@ async function main(): Promise<void> {
   if (cmd.command === 'voice') {
     const {
       KeyboardVoiceCommandInput,
-      WindowsWakeCommandInput,
-      resolveVoiceKey,
+      WindowsPersistentWakeInput,
+      ensureVoiceKey,
+      playListeningCue,
+      playStandbyCue,
       runVoiceProbe,
       runVoiceSession,
       saveVoiceKey,
       validateRealtimeKey,
     } = await import('./voice/index.js')
+    const promptVisibleLine = async (question: string): Promise<string> => {
+      const { createInterface } = await import('node:readline/promises')
+      const reader = createInterface({ input: process.stdin, output: process.stdout })
+      try {
+        return (await reader.question(question)).trim()
+      } finally {
+        reader.close()
+      }
+    }
+    const VOICE_KEY_PROMPT =
+      'Paste your OpenAI API key and press Enter ' +
+      '(visible while pasting; validated, then stored in your OS credential vault): '
     if (process.env['ATHENA_VOICE_CHILD'] === '1') {
       console.error('Nested Athena voice processes are not allowed.')
       process.exitCode = CLI_EXIT.usage
@@ -1441,9 +1455,7 @@ async function main(): Promise<void> {
         return
       }
       try {
-        const key = (await promptMasked('OpenAI API key for Athena voice (input hidden): ', {
-          echoMask: false,
-        })).trim()
+        const key = await promptVisibleLine(VOICE_KEY_PROMPT)
         if (!key) throw new Error('No key entered; nothing was changed.')
         console.log(`Validating OpenAI Realtime access with ${cmd.model}…`)
         await validateRealtimeKey(key, { model: cmd.model })
@@ -1455,13 +1467,34 @@ async function main(): Promise<void> {
       }
       return
     }
-    const resolvedVoice = resolveVoiceKey(
-      process.env,
-      credentialVault,
-      (message) => console.error(message),
-    )
+    let resolvedVoice
+    try {
+      resolvedVoice = await ensureVoiceKey({
+        env: process.env,
+        vault: credentialVault,
+        onWarn: (message) => console.error(message),
+        validate: (key) => {
+          console.log(`Validating OpenAI Realtime access with ${cmd.model}…`)
+          return validateRealtimeKey(key, { model: cmd.model })
+        },
+        ...(process.stdin.isTTY && process.stdout.isTTY
+          ? {
+            prompt: () => promptVisibleLine(
+              `No OpenAI voice key is configured on this machine yet.\n${VOICE_KEY_PROMPT}`,
+            ),
+          }
+          : {}),
+      })
+    } catch (error) {
+      console.error((error as Error).message)
+      process.exitCode = CLI_EXIT.provider
+      return
+    }
     if (!resolvedVoice) {
-      console.error('No OpenAI voice key found. Run `athena voice auth` or set OPENAI_API_KEY.')
+      console.error(
+        'No OpenAI voice key found. Set OPENAI_API_KEY, or run `athena voice` ' +
+        'in an interactive terminal to paste one.',
+      )
       process.exitCode = CLI_EXIT.provider
       return
     }
@@ -1516,7 +1549,22 @@ async function main(): Promise<void> {
           apiKey: resolvedVoice.key,
           model: cmd.model,
           controller,
-          input: cmd.keyboard ? new KeyboardVoiceCommandInput() : new WindowsWakeCommandInput(),
+          persona: loadConstitution(paths) ?? undefined,
+          input: cmd.keyboard
+            ? new KeyboardVoiceCommandInput()
+            : new WindowsPersistentWakeInput({
+              onWarn: (message) => console.error(message),
+              onListening: () => {
+                console.log('Athena: listening…')
+                void playListeningCue().catch(() => {})
+              },
+            }),
+          onStandby: cmd.keyboard
+            ? undefined
+            : () => {
+              console.log('Athena: wake standby')
+              void playStandbyCue().catch(() => {})
+            },
           onUsage: (usage) => appendFileSync(
             usageFile,
             JSON.stringify({ schemaVersion: 1, timestamp: new Date().toISOString(), model: cmd.model, usage }) + '\n',

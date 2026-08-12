@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,6 +7,32 @@ const POWERSHELL_TIMEOUT_MS = 45_000
 
 function encodedPowerShell(script: string): string {
   return Buffer.from(script, 'utf16le').toString('base64')
+}
+
+const ARGUMENT_PRELUDE = String.raw`
+$athenaVoiceArgsJson=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:ATHENA_VOICE_PS_ARGS))
+$args=[string[]]($athenaVoiceArgsJson|ConvertFrom-Json)
+`
+
+function powerShellInvocation(script: string, args: readonly string[]): {
+  command: string
+  commandArgs: string[]
+  env: NodeJS.ProcessEnv
+} {
+  return {
+    command: 'powershell.exe',
+    commandArgs: [
+      '-NoLogo',
+      '-NoProfile',
+      '-NonInteractive',
+      '-EncodedCommand',
+      encodedPowerShell(`${ARGUMENT_PRELUDE}\n${script}`),
+    ],
+    env: {
+      ...process.env,
+      ATHENA_VOICE_PS_ARGS: Buffer.from(JSON.stringify(args), 'utf8').toString('base64'),
+    },
+  }
 }
 
 export interface SpeechBackendProbe {
@@ -38,25 +64,15 @@ export function runPowerShell(
   timeoutMs = POWERSHELL_TIMEOUT_MS,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    const encodedArgs = Buffer.from(JSON.stringify(args), 'utf8').toString('base64')
-    const argumentPrelude = String.raw`
-$athenaVoiceArgsJson=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:ATHENA_VOICE_PS_ARGS))
-$args=[string[]]($athenaVoiceArgsJson|ConvertFrom-Json)
-`
+    const invocation = powerShellInvocation(script, args)
     execFile(
-      'powershell.exe',
-      [
-        '-NoLogo',
-        '-NoProfile',
-        '-NonInteractive',
-        '-EncodedCommand',
-        encodedPowerShell(`${argumentPrelude}\n${script}`),
-      ],
+      invocation.command,
+      invocation.commandArgs,
       {
         timeout: timeoutMs,
         windowsHide: true,
         maxBuffer: 1024 * 1024,
-        env: { ...process.env, ATHENA_VOICE_PS_ARGS: encodedArgs },
+        env: invocation.env,
       },
       (error, stdout, stderr) => {
         if (error) {
@@ -70,6 +86,22 @@ $args=[string[]]($athenaVoiceArgsJson|ConvertFrom-Json)
         resolve(stdout.trim())
       },
     )
+  })
+}
+
+/**
+ * Spawn the long-lived wake listener process (streaming stdout, open stdin).
+ * Shares the encoded-command transport with `runPowerShell`; the caller owns the
+ * child's lifecycle (read JSONL from stdout, write `exit` and/or kill to stop).
+ * `wavePath` feeds the recognizer a WAV file instead of the microphone — the
+ * sentinel seam the real-subprocess test uses to prove the continuous pipeline.
+ */
+export function spawnWindowsWakeListener(wavePath?: string): ChildProcess {
+  const invocation = powerShellInvocation(PERSISTENT_LISTEN_SCRIPT, wavePath ? [wavePath] : [])
+  return spawn(invocation.command, invocation.commandArgs, {
+    windowsHide: true,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: invocation.env,
   })
 }
 
@@ -131,6 +163,112 @@ try {
     }|ConvertTo-Json -Compress))
   } finally { $audio.Dispose() }
 } finally { $recognizer.Dispose() }
+`
+
+const PERSISTENT_LISTEN_SCRIPT = String.raw`
+$ErrorActionPreference='Stop'
+Add-Type -AssemblyName System.Speech
+# The phrase sink is compiled C#: it runs natively on the recognizer's raising thread.
+# A scriptblock event delegate never fires reliably while the main thread blocks on
+# stdin (and can tear the process down when it does), and Register-ObjectEvent depends
+# on module autoload that can stall for tens of seconds under process churn.
+Add-Type -TypeDefinition @'
+using System;
+using System.Globalization;
+using System.IO;
+using System.Speech.Recognition;
+
+public static class AthenaWakeSink
+{
+    public static void Recognized(object sender, SpeechRecognizedEventArgs e)
+    {
+        try
+        {
+            var result = e.Result;
+            if (result == null || result.Audio == null) return;
+            using (var ms = new MemoryStream())
+            {
+                result.Audio.WriteToWaveStream(ms);
+                Console.Out.WriteLine("{\"text\":" + Quote(result.Text)
+                    + ",\"confidence\":" + result.Confidence.ToString("R", CultureInfo.InvariantCulture)
+                    + ",\"wave\":\"" + Convert.ToBase64String(ms.ToArray()) + "\"}");
+                Console.Out.Flush();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex.Message);
+            Console.Error.Flush();
+        }
+    }
+
+    private static string Quote(string value)
+    {
+        var builder = new System.Text.StringBuilder("\"");
+        foreach (var c in value)
+        {
+            switch (c)
+            {
+                case '\"': builder.Append("\\\""); break;
+                case '\\': builder.Append("\\\\"); break;
+                case '\b': builder.Append("\\b"); break;
+                case '\f': builder.Append("\\f"); break;
+                case '\n': builder.Append("\\n"); break;
+                case '\r': builder.Append("\\r"); break;
+                case '\t': builder.Append("\\t"); break;
+                default:
+                    if (c < ' ') builder.Append("\\u" + ((int)c).ToString("x4"));
+                    else builder.Append(c);
+                    break;
+            }
+        }
+        builder.Append("\"");
+        return builder.ToString();
+    }
+}
+'@ -ReferencedAssemblies 'System.Speech'
+$recognizer=New-Object System.Speech.Recognition.SpeechRecognitionEngine
+try {
+  # Grammars: 'Athena' + dictation carries a fluid wake-and-command phrase; free
+  # dictation carries the command that follows a bare wake word. The Node side owns
+  # the wake/listen state machine — pre-wake audio still never leaves the machine.
+  $wakeCommand=New-Object System.Speech.Recognition.GrammarBuilder
+  $wakeCommand.Culture=$recognizer.RecognizerInfo.Culture
+  $wakeCommand.Append('Athena')
+  $wakeCommand.AppendDictation()
+  $recognizer.LoadGrammar((New-Object System.Speech.Recognition.Grammar -ArgumentList $wakeCommand))
+  $freeDictation=New-Object System.Speech.Recognition.GrammarBuilder
+  $freeDictation.Culture=$recognizer.RecognizerInfo.Culture
+  $freeDictation.AppendDictation()
+  $recognizer.LoadGrammar((New-Object System.Speech.Recognition.Grammar -ArgumentList $freeDictation))
+  # Optional sentinel input: a WAV file exercises the identical continuous pipeline in
+  # tests without a microphone. Production passes no argument and opens the real device.
+  if ($args.Count -gt 0 -and $args[0]) {
+    $stream=[IO.File]::OpenRead($args[0])
+    $recognizer.SetInputToWaveStream($stream)
+  } else {
+    $recognizer.SetInputToDefaultAudioDevice()
+  }
+  # Readiness is a real open of the capture input, never a platform guess.
+  [Console]::Out.WriteLine((@{
+    ready=$true;recognizer=$recognizer.RecognizerInfo.Description
+  }|ConvertTo-Json -Compress))
+  [Console]::Out.Flush()
+  $handlerType=[System.EventHandler[System.Speech.Recognition.SpeechRecognizedEventArgs]]
+  $handler=[Delegate]::CreateDelegate($handlerType, [AthenaWakeSink].GetMethod('Recognized'))
+  $recognizer.add_SpeechRecognized($handler)
+  # One continuous recognition: the microphone opens once and stays open while the
+  # parent voice session is alive. stdin EOF (parent exit) or an 'exit' line stops it.
+  $recognizer.RecognizeAsync([System.Speech.Recognition.RecognizeMode]::Multiple)
+  while ($true) {
+    $line=[Console]::In.ReadLine()
+    if ($null -eq $line -or $line.Trim() -eq 'exit') { break }
+  }
+} finally {
+  try { $recognizer.RecognizeAsyncStop() } catch {}
+  $recognizer.Dispose()
+  if ($null -ne $stream) { try { $stream.Dispose() } catch {} }
+}
 `
 
 const SPEAK_TEXT_SCRIPT = String.raw`
@@ -330,4 +468,42 @@ export async function playWindowsPcm(
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
+}
+
+/**
+ * Synthesize a short cue tone sequence as 24 kHz mono PCM (the same format
+ * playWindowsPcm wraps). Soft amplitude and 5 ms edge fades keep it click-free.
+ */
+export function cueTonePcm(
+  frequencies: readonly number[],
+  toneMs = 90,
+  sampleRate = 24_000,
+): Buffer {
+  const amplitude = 0.22
+  const fadeFrames = Math.floor(sampleRate * 0.005)
+  const framesPerTone = Math.floor(sampleRate * toneMs / 1_000)
+  const gapFrames = Math.floor(sampleRate * 0.03)
+  const totalFrames = frequencies.length * framesPerTone + (frequencies.length - 1) * gapFrames
+  const pcm = Buffer.alloc(totalFrames * 2)
+  let frame = 0
+  frequencies.forEach((frequency, index) => {
+    for (let i = 0; i < framesPerTone; i++) {
+      const edge = Math.min(1, i / fadeFrames, (framesPerTone - 1 - i) / fadeFrames)
+      const sample = Math.sin(2 * Math.PI * frequency * i / sampleRate) * amplitude * Math.max(0, edge)
+      pcm.writeInt16LE(Math.round(sample * 32_767), frame * 2)
+      frame++
+    }
+    if (index < frequencies.length - 1) frame += gapFrames
+  })
+  return pcm
+}
+
+/** Rising pair: the wake word landed and Athena is capturing the command. */
+export async function playListeningCue(runner: PowerShellRunner = runPowerShell): Promise<void> {
+  await playWindowsPcm(cueTonePcm([880, 1_320]), runner)
+}
+
+/** Falling pair: Marin finished speaking; Athena is back at wake standby. */
+export async function playStandbyCue(runner: PowerShellRunner = runPowerShell): Promise<void> {
+  await playWindowsPcm(cueTonePcm([660, 440], 70), runner)
 }

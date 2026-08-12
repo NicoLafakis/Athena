@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 import WebSocket from 'ws'
-import { RealtimeVoiceClient } from '../../src/voice/realtime.js'
+import { RealtimeVoiceClient, buildVoiceInstructions } from '../../src/voice/realtime.js'
 
 class FakeSocket extends EventEmitter {
   readyState: number = WebSocket.CONNECTING
@@ -21,6 +21,19 @@ class FakeSocket extends EventEmitter {
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve))
 
 describe('OpenAI Realtime voice transport', () => {
+  it('builds first-person voice instructions, weaving in the persona when present', () => {
+    const bare = buildVoiceInstructions()
+    expect(bare).toContain('You are Athena')
+    expect(bare).toContain('first person')
+    expect(bare).toContain('When asked who you are, answer that you are Athena')
+    expect(bare).toContain('not a claim of human personhood or independent origins')
+    expect(bare).not.toContain('constitution')
+    const withPersona = buildVoiceInstructions('I am Athena. I am concise.')
+    expect(withPersona).toContain('constitution')
+    expect(withPersona).toContain('I am Athena. I am concise.')
+    expect(withPersona).toContain('submit_turn')
+  })
+
   it('configures the current audio/tool session and completes function-call continuation', async () => {
     const socket = new FakeSocket()
     let authorization = ''

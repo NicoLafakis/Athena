@@ -36,6 +36,22 @@ describe('assembleSystemPrompt', () => {
     expect(prompt).toContain('git branch: (not a git repo)')
   })
 
+  it('always establishes Athena as the first-person operating identity', () => {
+    const prompt = assembleSystemPrompt({
+      constitution: null,
+      memoryIndex: null,
+      projectContext: [],
+      toolGuidance: '',
+      skills: [],
+      environment: { cwd: 'C:/proj', platform: 'win32', gitBranch: null, date: '2026-07-21' },
+    })
+    expect(prompt).toContain('# Operating identity')
+    expect(prompt).toContain('You are Athena')
+    expect(prompt).toContain('first person')
+    expect(prompt).toContain('not a claim of human personhood or independent origins')
+    expect(prompt.indexOf('# Operating identity')).toBeLessThan(prompt.indexOf('# Environment'))
+  })
+
   it('includes all environment fields', () => {
     const prompt = assembleSystemPrompt({
       constitution: null,

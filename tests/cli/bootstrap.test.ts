@@ -35,7 +35,9 @@ describe('ensureBrainScaffold', () => {
     ]) {
       expect(existsSync(dir)).toBe(true)
     }
-    expect(readFileSync(paths.constitutionFile, 'utf8')).toContain('# Athena')
+    const constitution = readFileSync(paths.constitutionFile, 'utf8')
+    expect(constitution).toContain('# Athena')
+    expect(constitution).toContain('speak as Athena in the first person')
     expect(JSON.parse(readFileSync(paths.settingsFile, 'utf8'))).toMatchObject({
       permissionMode: 'normal',
     })
