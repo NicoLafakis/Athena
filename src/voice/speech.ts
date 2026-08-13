@@ -1,12 +1,36 @@
 import { plainBounded } from '../interaction/format.js'
-import type { Announcement } from '../interaction/types.js'
+import type { Announcement, AnnouncementPriority } from '../interaction/types.js'
 
 export type SpeechOwnership = 'off' | 'exclusive' | 'supplemental'
+
+export type SpeechDecisionReason =
+  | 'disabled'
+  | 'screen-reader-owner'
+  | 'routine-suppressed'
+  | 'direct-speech-owner'
 
 export interface SpeechDecision {
   speak: boolean
   text?: string
-  reason: 'disabled' | 'screen-reader-owner' | 'routine-suppressed' | 'direct-speech-owner'
+  reason: SpeechDecisionReason
+}
+
+/**
+ * The ownership rule itself, by priority alone, so callers holding semantic-plane text
+ * that is not an `Announcement` — a canonical permission record, say — decide the same
+ * way instead of re-deriving the policy.
+ */
+export function speechOwnershipReason(
+  priority: AnnouncementPriority,
+  ownership: SpeechOwnership,
+  screenReaderActive: boolean,
+): SpeechDecisionReason {
+  if (ownership === 'off') return 'disabled'
+  if (screenReaderActive && ownership === 'exclusive') return 'screen-reader-owner'
+  if (screenReaderActive && ownership === 'supplemental' && priority !== 'blocking') {
+    return 'routine-suppressed'
+  }
+  return 'direct-speech-owner'
 }
 
 export function speechDecision(
@@ -14,17 +38,12 @@ export function speechDecision(
   ownership: SpeechOwnership,
   screenReaderActive: boolean,
 ): SpeechDecision {
-  if (ownership === 'off') return { speak: false, reason: 'disabled' }
-  if (screenReaderActive && ownership === 'exclusive') {
-    return { speak: false, reason: 'screen-reader-owner' }
-  }
-  if (screenReaderActive && ownership === 'supplemental' && announcement.priority !== 'blocking') {
-    return { speak: false, reason: 'routine-suppressed' }
-  }
+  const reason = speechOwnershipReason(announcement.priority, ownership, screenReaderActive)
+  if (reason !== 'direct-speech-owner') return { speak: false, reason }
   return {
     speak: true,
     text: plainBounded(announcement.text, 1_024),
-    reason: 'direct-speech-owner',
+    reason,
   }
 }
 

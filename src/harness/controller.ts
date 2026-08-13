@@ -12,7 +12,7 @@ import { assembleSystemPrompt, findProjectContextFiles } from '../engine/prompt.
 import { ClientHolder } from '../engine/client-holder.js'
 import type { ModelClient } from '../engine/client.js'
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
-import { Engine } from '../engine/loop.js'
+import { Engine, type AskUserFn } from '../engine/loop.js'
 import { EngineEventBus } from '../engine/events.js'
 import { ContextManager } from '../engine/context.js'
 import type { ToolContext, ToolDefinition, PermissionMode, SandboxMode, RunLimits } from '../engine/types.js'
@@ -81,6 +81,11 @@ export interface HarnessSessionControllerOptions {
   resumeId?: string
   persistSession?: boolean
   sessionStore?: SessionStore
+  /**
+   * Approver for `ask` permission decisions. Left undefined the engine auto-denies, which
+   * is the deliberate `athena exec` contract; an interactive owner (voice, TUI) wires one.
+   */
+  askUser?: AskUserFn
   onAnnouncement?: (announcement: Announcement) => void
   onEnvelope?: (envelope: InteractionEventEnvelope) => void
 }
@@ -148,6 +153,7 @@ export class HarnessSessionController {
       resumeId,
       persistSession = false,
       sessionStore,
+      askUser,
       onAnnouncement,
       onEnvelope,
     } = options
@@ -360,6 +366,7 @@ export class HarnessSessionController {
       systemPrompt,
       maxTokens: settings.maxOutputTokens ?? activeCapabilities.maxOutputTokens,
       preflightContext: true,
+      ...(askUser ? { askUser } : {}),
       limits: limits ?? {
         maxModelCalls: 200,
         maxToolCalls: 1_000,
@@ -485,6 +492,11 @@ export class HarnessSessionController {
 
   public getSnapshot(): InteractionSnapshot | undefined {
     return this.interactionService.snapshot(this.trace.runId)
+  }
+
+  /** Latest material announcement for this run, or undefined when nothing was announced. */
+  public lastAnnouncement(): Announcement | undefined {
+    return this.interactionService.latestAnnouncement(this.trace.runId)
   }
 
   public async close(reason = 'shutdown'): Promise<void> {

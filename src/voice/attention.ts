@@ -1,0 +1,276 @@
+import type { AskUserFn } from '../engine/loop.js'
+import type { PermissionAnswer } from '../engine/types.js'
+import { plainBounded } from '../interaction/format.js'
+import type { Announcement } from '../interaction/types.js'
+import { permissionDiff, permissionDiffStats } from '../presentation/permission-diff.js'
+import {
+  createAccessiblePermissionRequest,
+  formatSpokenPermission,
+} from '../presentation/permission-format.js'
+import type { AccessiblePermissionRequest } from '../presentation/types.js'
+import { speechDecision, speechOwnershipReason, type SpeechOwnership } from './speech.js'
+
+export type VoicePermissionAction = 'allow' | 'deny'
+
+export type VoicePermissionRefusal =
+  | 'none-pending'
+  | 'stale'
+  | 'unknown'
+  | 'ambiguous'
+  | 'same-turn'
+
+export type VoicePermissionResolution =
+  | { ok: true; id: string; action: VoicePermissionAction; answer: PermissionAnswer }
+  | {
+    ok: false
+    reason: VoicePermissionRefusal
+    clarification: string
+    pendingIds: string[]
+  }
+
+export interface PendingVoicePermission {
+  id: string
+  summary: string
+}
+
+/** What the voice session hands back so semantic-plane text can reach the user. */
+export interface VoiceAttentionSpeaker {
+  /** Voice turn currently in flight; 0 before the first Realtime turn. */
+  currentTurn(): number
+  /** `spoken: false` means stable text only — something else already owns saying it. */
+  present(item: { text: string; spoken: boolean }): void
+}
+
+export interface VoiceAttentionBridgeOptions {
+  cwd: string
+  /**
+   * Speech ownership relative to a screen reader. `athena voice` is itself an explicit
+   * request for spoken output, so callers pass `supplemental` rather than the `off`
+   * default of `accessibility.directSpeech`, which describes the TUI.
+   */
+  ownership?: SpeechOwnership
+  screenReaderActive?: boolean
+  /** Resolved permission IDs remembered so a repeat answer reads as stale, not unknown. */
+  maxRemembered?: number
+  /** Semantic-plane text buffered before the session attaches its speaker. */
+  maxQueued?: number
+}
+
+interface PendingRecord {
+  id: string
+  request: AccessiblePermissionRequest
+  spoken: string
+  /** Voice turn in flight when this was announced; a same-turn answer is refused. */
+  announcedAtTurn: number
+  resolve: (answer: PermissionAnswer) => void
+}
+
+const REFUSALS: Record<VoicePermissionRefusal, string> = {
+  'none-pending': 'Nothing is waiting for a permission decision, so nothing was changed.',
+  stale: 'That permission was already decided, so nothing was changed.',
+  unknown: 'I do not have a pending permission with that identity, so nothing was changed.',
+  ambiguous: 'More than one permission is waiting. Tell me which one. Nothing was changed.',
+  'same-turn': 'I have only just asked for that permission. ' +
+    'Say allow or deny again so I know you heard it. Nothing was changed.',
+}
+
+/**
+ * The seam between the harness attention plane (canonical permission records and
+ * `Announcement`s) and the spoken voice session.
+ *
+ * It exists as a separate object because of a construction order problem: the controller
+ * needs `askUser` before it is created, and the speaker only exists once the voice
+ * session is running. The bridge is created first, handed to both, and buffers anything
+ * the semantic plane produces in between.
+ *
+ * It is also the single place that decides whether a spoken word authorizes anything.
+ * Model-produced text never reaches it; only a locally validated control call does.
+ */
+export class VoiceAttentionBridge {
+  private readonly cwd: string
+  private readonly ownership: SpeechOwnership
+  private readonly screenReaderActive: boolean
+  private readonly maxRemembered: number
+  private readonly maxQueued: number
+  private readonly pending = new Map<string, PendingRecord>()
+  private readonly resolved: string[] = []
+  private readonly queued: Array<{ text: string; spoken: boolean }> = []
+  private speaker: VoiceAttentionSpeaker | null = null
+  private closed = false
+
+  constructor(options: VoiceAttentionBridgeOptions) {
+    this.cwd = options.cwd
+    this.ownership = options.ownership ?? 'supplemental'
+    this.screenReaderActive = options.screenReaderActive ?? false
+    this.maxRemembered = Math.max(1, options.maxRemembered ?? 64)
+    this.maxQueued = Math.max(1, options.maxQueued ?? 16)
+  }
+
+  /**
+   * The `AskUserFn` handed to `HarnessSessionController`. Bound as a field so it can be
+   * passed by value into the engine composition.
+   */
+  readonly askUser: AskUserFn = (request) => new Promise<PermissionAnswer>((resolve) => {
+    if (this.closed) {
+      resolve('deny')
+      return
+    }
+    const diff = permissionDiff(request, this.cwd)
+    const accessible = createAccessiblePermissionRequest({
+      ...request,
+      ...(diff ? { diff: permissionDiffStats(diff) } : {}),
+    })
+    const spoken = formatSpokenPermission(accessible)
+    this.pending.set(accessible.id, {
+      id: accessible.id,
+      request: accessible,
+      spoken,
+      announcedAtTurn: this.speaker?.currentTurn() ?? 0,
+      resolve,
+    })
+    // Spoken straight from the canonical record: routing a blocker through a model round
+    // trip both delays it and lets a paraphrase change what the user thinks they allowed.
+    // It is blocking, so it survives routine suppression; only an explicit `exclusive`
+    // ownership hands it to the screen reader, which still gets it as stable text.
+    this.emit(
+      spoken,
+      speechOwnershipReason('blocking', this.ownership, this.screenReaderActive)
+        === 'direct-speech-owner',
+    )
+  })
+
+  /** The controller's `onAnnouncement` sink. */
+  announce(announcement: Announcement): void {
+    // The permission itself is spoken from its canonical record above; the plane's short
+    // "Permission: ..." line would be the same blocker said twice, less usefully.
+    if (announcement.category === 'permission') return
+    const decision = speechDecision(announcement, this.ownership, this.screenReaderActive)
+    const text = plainBounded(announcement.text, 1_024)
+    if (!text) return
+    // Marin already narrates the result of every turn. Speaking polite chatter on top of
+    // that is noise rather than access, so it stays stable text for Braille and review.
+    this.emit(text, decision.speak && announcement.priority !== 'polite')
+  }
+
+  attach(speaker: VoiceAttentionSpeaker): void {
+    this.speaker = speaker
+    for (const item of this.queued.splice(0)) speaker.present(item)
+  }
+
+  detach(): void {
+    this.speaker = null
+  }
+
+  /**
+   * Shutdown denies every outstanding request. Leaving one unresolved parks the engine
+   * on a decision nobody is left to give, and a silent hang is worse than a clean refusal.
+   */
+  close(): void {
+    this.closed = true
+    for (const record of [...this.pending.values()]) {
+      this.pending.delete(record.id)
+      this.remember(record.id)
+      record.resolve('deny')
+    }
+    this.speaker = null
+  }
+
+  pendingIds(): string[] {
+    return [...this.pending.keys()]
+  }
+
+  pendingPermissions(): PendingVoicePermission[] {
+    return [...this.pending.values()].map((record) => ({
+      id: record.id,
+      summary: plainBounded(record.request.summary, 512),
+    }))
+  }
+
+  hasPending(): boolean {
+    return this.pending.size > 0
+  }
+
+  /** The exact text last announced for a request, for a deterministic repeat. */
+  spokenFor(id: string): string | undefined {
+    return this.pending.get(id)?.spoken
+  }
+
+  /**
+   * The only path from a spoken or typed answer to a harness permission answer.
+   * `answeringTurn` is the voice turn the answer arrived on; anything announced on that
+   * same turn is refused, because the user cannot have heard it before answering.
+   */
+  resolve(
+    action: VoicePermissionAction,
+    permissionId: string | undefined,
+    answeringTurn: number,
+  ): VoicePermissionResolution {
+    const pendingIds = this.pendingIds()
+    if (permissionId !== undefined) {
+      const record = this.pending.get(permissionId)
+      if (!record) {
+        return this.refuse(this.resolved.includes(permissionId) ? 'stale' : 'unknown', pendingIds)
+      }
+      return this.settle(record, action, answeringTurn, pendingIds)
+    }
+    if (pendingIds.length === 0) return this.refuse('none-pending', pendingIds)
+    if (pendingIds.length > 1) return this.refuse('ambiguous', pendingIds)
+    return this.settle(this.pending.get(pendingIds[0]!)!, action, answeringTurn, pendingIds)
+  }
+
+  private settle(
+    record: PendingRecord,
+    action: VoicePermissionAction,
+    answeringTurn: number,
+    pendingIds: string[],
+  ): VoicePermissionResolution {
+    if (record.announcedAtTurn >= answeringTurn) return this.refuse('same-turn', pendingIds)
+    // Voice grants exactly one action. `allow-always` widens the session gate for every
+    // later tool call, and nothing in this contract distinguishes "yes to this" from "yes
+    // to all of these", so voice never reaches it; the keyboard path still can.
+    const answer: PermissionAnswer = action === 'allow' ? 'allow-once' : 'deny'
+    this.pending.delete(record.id)
+    this.remember(record.id)
+    record.resolve(answer)
+    return { ok: true, id: record.id, action, answer }
+  }
+
+  private refuse(reason: VoicePermissionRefusal, pendingIds: string[]): VoicePermissionResolution {
+    return { ok: false, reason, clarification: REFUSALS[reason], pendingIds }
+  }
+
+  private remember(id: string): void {
+    this.resolved.push(id)
+    while (this.resolved.length > this.maxRemembered) this.resolved.shift()
+  }
+
+  private emit(text: string, spoken: boolean): void {
+    const item = { text, spoken }
+    if (this.speaker) {
+      this.speaker.present(item)
+      return
+    }
+    this.queued.push(item)
+    while (this.queued.length > this.maxQueued) this.queued.shift()
+  }
+}
+
+/**
+ * Keyboard parity for a permission answer, without a model in the path (FR-006).
+ *
+ * A bare `allow` is only taken as an answer when something is actually waiting: with an
+ * empty queue it is far more likely to be the first word of an ordinary request, and
+ * letting it fall through costs nothing because the model path authorizes nothing either.
+ */
+export function parseVoicePermissionCommand(
+  text: string,
+  pendingIds: readonly string[],
+): { action: VoicePermissionAction; permissionId?: string } | null {
+  const tokens = text.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  const action = tokens[0]
+  if (action !== 'allow' && action !== 'deny') return null
+  if (tokens.length === 1) return pendingIds.length > 0 ? { action } : null
+  if (tokens.length !== 2) return null
+  const match = pendingIds.find((pending) => pending.toLowerCase() === tokens[1])
+  return match ? { action, permissionId: match } : null
+}

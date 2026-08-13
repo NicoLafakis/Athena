@@ -90,6 +90,11 @@ export class InteractionService {
     return this.announcements.latest(runId)?.text ?? 'No material announcement is available. Use /status.'
   }
 
+  /** The record behind `repeat`, for presenters that need its priority or provenance. */
+  latestAnnouncement(runId: string): Announcement | undefined {
+    return this.announcements.latest(runId)
+  }
+
   details(runId: string): string {
     const announcement = this.announcements.latest(runId)
     return announcement

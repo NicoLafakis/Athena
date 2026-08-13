@@ -63,6 +63,29 @@ function count(value: number, singular: string): string {
   return `${value} ${singular}${value === 1 ? '' : 's'}`
 }
 
+/**
+ * Spoken sibling of `formatAccessiblePermission`, from the same canonical record.
+ * A heard decision cannot use the screen affordances: `/details permission <id>` and the
+ * `[y] [a] [n]` legend are unreachable by voice and read as noise, so the spoken line
+ * carries the target, the consequence, and the two words that answer it. It names
+ * "allow once" deliberately — the voice contract never reaches `allow-always`.
+ */
+export function formatSpokenPermission(request: AccessiblePermissionRequest): string {
+  const parts = [
+    `Permission needed: ${safe(request.toolName, 256, 'a tool')}` +
+    ` on ${safe(request.target, 512, 'the current workspace operation')}.`,
+    safe(request.consequence, 1_024, 'Allow the requested operation.'),
+  ]
+  if (request.diff) {
+    parts.push(
+      `${count(request.diff.addedLines, 'added line')}, ` +
+      `${count(request.diff.removedLines, 'removed line')}.`,
+    )
+  }
+  parts.push('Say Athena allow to permit this one action, or Athena deny to refuse it.')
+  return plainBounded(parts.join(' '), 1_024)
+}
+
 export function formatAccessiblePermission(request: AccessiblePermissionRequest): string {
   const lines = [
     `Permission: ${safe(request.toolName, 256, 'Tool')} requires a decision.`,

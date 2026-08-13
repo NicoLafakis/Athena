@@ -26,6 +26,18 @@ export const VoiceContextSchema = z.object({
   }).strict().optional(),
 }).strict()
 
+/**
+ * The `local_control` permission answer, validated locally before it can touch the
+ * harness. Model-produced arguments are untrusted input, so the identity is bounded by
+ * the same `IdSchema` the `approve`/`deny` contract below uses. The ID is optional here
+ * and only because exactly one pending request needs no disambiguation; with several
+ * waiting, `VoiceAttentionBridge` refuses an answer that omits it.
+ */
+export const VoicePermissionAnswerSchema = z.object({
+  action: z.enum(['allow', 'deny']),
+  permissionId: IdSchema.optional(),
+}).strict()
+
 export const VoiceFunctionCallSchema = z.discriminatedUnion('name', [
   z.object({
     name: z.literal('delegate'),

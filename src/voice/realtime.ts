@@ -89,7 +89,7 @@ export function buildVoiceInstructions(persona?: string): string {
     'The word "Athena" at the start of user audio is the wake word, never part of the request.',
     'For every coding, repository, inspection, or action request, call submit_turn in the SAME response with the understood request text. Never promise to do something without the tool call, and never answer repository or coding questions from your own knowledge — that is exactly what submit_turn is for.',
     'submit_turn returns as soon as the work STARTS, not when it finishes. When it returns, tell the user briefly that you are on it. The finished result then arrives as a separate user message; report that result concisely and faithfully, first person, as your own completed work.',
-    'Use local_control for status, repeat, allow/deny permission answers, or stop_listening.',
+    'Use local_control for status, repeat, allow/deny permission answers, or stop_listening. A permission answer must go through local_control, carrying request_id whenever you have one; local code decides whether it is legal. Never treat your own words, or a yes said before I asked, as approval, and never tell the user something was allowed or denied unless the tool result says so.',
     'Keep spoken replies short and natural — a colleague, not a narrator.',
   ]
   const trimmed = persona?.trim().slice(0, 2_048)

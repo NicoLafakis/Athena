@@ -1442,6 +1442,7 @@ async function main(): Promise<void> {
   if (cmd.command === 'voice') {
     const {
       KeyboardVoiceCommandInput,
+      VoiceAttentionBridge,
       WindowsPersistentWakeInput,
       ensureVoiceKey,
       playListeningCue,
@@ -1554,6 +1555,17 @@ async function main(): Promise<void> {
         return
       }
       const harnessClient = makeClient(provider, resolvedKey.key, voiceVmpRecorder)
+      // Running `athena voice` is itself a request for spoken output, so `directSpeech:
+      // off` (the TUI default) becomes `supplemental` here rather than muting the one
+      // mode with no screen to fall back on. Supplemental still yields routine speech to
+      // an active screen reader and keeps blocking states audible.
+      const attention = new VoiceAttentionBridge({
+        cwd,
+        ownership: settings.accessibility.directSpeech === 'off'
+          ? 'supplemental'
+          : settings.accessibility.directSpeech,
+        screenReaderActive: settings.accessibility.presentation === 'screen-reader',
+      })
       const controller = await HarnessSessionController.create({
         paths,
         effectivePaths,
@@ -1563,6 +1575,8 @@ async function main(): Promise<void> {
         settings,
         projectTrust,
         persistSession: true,
+        askUser: attention.askUser,
+        onAnnouncement: (announcement) => attention.announce(announcement),
       })
       const usageFile = join(paths.brainDir, 'voice-usage.jsonl')
       try {
@@ -1570,6 +1584,7 @@ async function main(): Promise<void> {
           apiKey: resolvedVoice.key,
           model: cmd.model,
           controller,
+          attention,
           persona: loadConstitution(paths) ?? undefined,
           input: cmd.keyboard
             ? new KeyboardVoiceCommandInput()
@@ -1593,6 +1608,7 @@ async function main(): Promise<void> {
           ),
         })
       } finally {
+        attention.close()
         await controller.close('shutdown')
       }
     } catch (error) {

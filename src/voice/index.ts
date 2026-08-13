@@ -1,4 +1,18 @@
-export { VoiceContextSchema, VoiceFunctionCallSchema } from './schemas.js'
+export {
+  VoiceContextSchema,
+  VoiceFunctionCallSchema,
+  VoicePermissionAnswerSchema,
+} from './schemas.js'
+export {
+  VoiceAttentionBridge,
+  parseVoicePermissionCommand,
+  type PendingVoicePermission,
+  type VoiceAttentionBridgeOptions,
+  type VoiceAttentionSpeaker,
+  type VoicePermissionAction,
+  type VoicePermissionRefusal,
+  type VoicePermissionResolution,
+} from './attention.js'
 export type {
   VoiceContext,
   VoiceFunctionCall,
@@ -20,8 +34,10 @@ export {
 export {
   VoiceSpeechOutput,
   speechDecision,
+  speechOwnershipReason,
   type SpeechOwnership,
   type SpeechDecision,
+  type SpeechDecisionReason,
   type VoiceSpeechOutputOptions,
 } from './speech.js'
 export {

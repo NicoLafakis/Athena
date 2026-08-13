@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { HarnessSessionController } from '../../src/harness/controller.js'
+import type { PermissionAnswer } from '../../src/engine/types.js'
+import { VoiceAttentionBridge } from '../../src/voice/attention.js'
 import type {
   RealtimeToolCall,
   RealtimeTurnResult,
@@ -304,6 +306,261 @@ describe('voice conductor composition', () => {
     expect(outcomes[0]).toMatchObject({ status: 'started' })
     expect(outcomes[1]).toMatchObject({ error: expect.stringContaining('still working') })
     expect(controller.submitTurn).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('voice permissions and local controls', () => {
+  interface PermissionHarness {
+    bridge: VoiceAttentionBridge
+    controller: HarnessSessionController
+    /** Resolves with whatever the harness permission callback was finally answered. */
+    answerFor(id: string): Promise<PermissionAnswer>
+    raise(): string
+  }
+
+  interface PermissionHarnessOptions {
+    snapshotPhase?: string
+    /** Permission requests the harness turn raises, mirroring parallel tool dispatch. */
+    raiseOnSubmit?: number
+  }
+
+  function permissionHarness(options: PermissionHarnessOptions = {}): PermissionHarness {
+    const bridge = new VoiceAttentionBridge({ cwd: process.cwd() })
+    const answers = new Map<string, Promise<PermissionAnswer>>()
+    let issued = 0
+    const raise = (): string => {
+      issued += 1
+      const id = `permission:write-${issued}`
+      const file = issued === 1 ? 'x.txt' : `x${issued}.txt`
+      answers.set(id, bridge.askUser({
+        id,
+        toolName: 'Write',
+        input: { file_path: file, content: 'y' },
+        summary: `Write ${file}`,
+        reason: 'Write is mutating; no rule matched in normal mode',
+      }))
+      return id
+    }
+    const controller = {
+      // The harness turn stays in flight for as long as the decisions are outstanding.
+      submitTurn: vi.fn(() => {
+        for (let index = 0; index < (options.raiseOnSubmit ?? 1); index++) raise()
+        return new Promise(() => {})
+      }),
+      getSnapshot: vi.fn(() => options.snapshotPhase
+        ? {
+          phase: { value: options.snapshotPhase },
+          objective: { value: 'Write the file.' },
+          activity: { value: null },
+          attention: [],
+        }
+        : undefined),
+      lastAnnouncement: vi.fn(() => undefined),
+    } as unknown as HarnessSessionController
+    return {
+      bridge,
+      controller,
+      raise,
+      answerFor: (id) => answers.get(id)!,
+    }
+  }
+
+  /** Fake Realtime that issues one scripted tool call per turn and records the results. */
+  function scriptedClient(
+    script: Array<RealtimeToolCall | null>,
+    results: unknown[],
+  ): VoiceRealtimeClient {
+    let turn = 0
+    return {
+      connect: vi.fn(async () => {}),
+      close: vi.fn(),
+      ask: vi.fn(async (_text, handler): Promise<RealtimeTurnResult> => {
+        const call = script[turn++]
+        if (call) results.push(await handler(call))
+        return { transcript: 'ok', audio: Buffer.alloc(0), usage: [] }
+      }),
+      askAudio: vi.fn(async () => ({ transcript: '', audio: Buffer.alloc(0), usage: [] })),
+    }
+  }
+
+  function control(callId: string, args: Record<string, unknown>): RealtimeToolCall {
+    return { name: 'local_control', callId, arguments: args }
+  }
+
+  async function drive(
+    harness: PermissionHarness,
+    commands: string[],
+    script: Array<RealtimeToolCall | null>,
+  ): Promise<{ results: unknown[]; spoken: string[]; client: VoiceRealtimeClient }> {
+    const results: unknown[] = []
+    const spoken: string[] = []
+    const client = scriptedClient(script, results)
+    await runVoiceSession({
+      apiKey: 'test',
+      model: 'gpt-realtime-2.1-mini',
+      input: new ScriptedInput(commands),
+      client,
+      controller: harness.controller,
+      attention: harness.bridge,
+      speakFallback: async (text) => {
+        spoken.push(text)
+      },
+      play: async () => {},
+      onStatus: () => {},
+    })
+    return { results, spoken, client }
+  }
+
+  it('speaks the canonical request and lets an allow with its exact identity through', async () => {
+    const harness = permissionHarness()
+    const { results, spoken } = await drive(
+      harness,
+      ['write x', 'athena allow', 'exit'],
+      [
+        { name: 'submit_turn', callId: '1', arguments: { text: 'write x' } },
+        control('2', { action: 'allow', request_id: 'permission:write-1' }),
+      ],
+    )
+    expect(results[0]).toMatchObject({ status: 'started' })
+    expect(results[1]).toMatchObject({
+      status: 'allowed-once',
+      permission_id: 'permission:write-1',
+    })
+    await expect(harness.answerFor('permission:write-1')).resolves.toBe('allow-once')
+    // Spoken from the semantic plane, not paraphrased by the model.
+    expect(spoken.join('\n')).toContain('Permission needed: Write on x.txt.')
+    expect(spoken.join('\n')).toContain('Say Athena allow')
+  })
+
+  it('changes nothing when a stale identity is answered a second time', async () => {
+    const harness = permissionHarness()
+    const { results } = await drive(
+      harness,
+      ['write x', 'athena allow', 'athena allow again', 'exit'],
+      [
+        { name: 'submit_turn', callId: '1', arguments: { text: 'write x' } },
+        control('2', { action: 'allow', request_id: 'permission:write-1' }),
+        control('3', { action: 'deny', request_id: 'permission:write-1' }),
+      ],
+    )
+    expect(results[1]).toMatchObject({ status: 'allowed-once' })
+    expect(results[2]).toMatchObject({ reason: 'stale' })
+    // The harness saw exactly one answer, and it was the first one.
+    await expect(harness.answerFor('permission:write-1')).resolves.toBe('allow-once')
+  })
+
+  it('asks for clarification instead of guessing when several requests are waiting', async () => {
+    const harness = permissionHarness({ raiseOnSubmit: 2 })
+    const { results } = await drive(
+      harness,
+      ['write both', 'athena allow', 'exit'],
+      [
+        { name: 'submit_turn', callId: '1', arguments: { text: 'write both' } },
+        control('2', { action: 'allow' }),
+      ],
+    )
+    const refusal = results[1] as { reason: string; error: string; pending_ids: string[] }
+    expect(refusal.reason).toBe('ambiguous')
+    expect(refusal.error).toContain('which one')
+    expect(refusal.pending_ids).toHaveLength(2)
+    // Neither request was authorized; shutdown denies both.
+    await expect(harness.answerFor('permission:write-1')).resolves.toBe('deny')
+    await expect(harness.answerFor('permission:write-2')).resolves.toBe('deny')
+  })
+
+  it('authorizes nothing when a conversational yes arrives with no request pending', async () => {
+    const harness = permissionHarness()
+    const { results } = await drive(
+      harness,
+      ['yes go ahead', 'exit'],
+      [control('1', { action: 'allow' })],
+    )
+    expect(results[0]).toMatchObject({ reason: 'none-pending' })
+    expect(harness.controller.submitTurn).not.toHaveBeenCalled()
+  })
+
+  it('refuses an identity it never issued and names what is actually waiting', async () => {
+    const harness = permissionHarness()
+    const { results } = await drive(
+      harness,
+      ['write x', 'athena allow', 'exit'],
+      [
+        { name: 'submit_turn', callId: '1', arguments: { text: 'write x' } },
+        control('2', { action: 'allow', request_id: 'permission:invented' }),
+      ],
+    )
+    expect(results[1]).toMatchObject({
+      reason: 'unknown',
+      pending_ids: ['permission:write-1'],
+    })
+    await expect(harness.answerFor('permission:write-1')).resolves.toBe('deny')
+  })
+
+  it('reports waiting-permission from the semantic plane while a decision is outstanding', async () => {
+    const harness = permissionHarness({ snapshotPhase: 'acting' })
+    const { results } = await drive(
+      harness,
+      ['write x', 'athena status', 'exit'],
+      [
+        { name: 'submit_turn', callId: '1', arguments: { text: 'write x' } },
+        control('2', { action: 'status' }),
+      ],
+    )
+    expect(results[1]).toMatchObject({
+      status: 'waiting-permission',
+      summary: 'Write the file.',
+      awaiting_permission: [{ id: 'permission:write-1', summary: 'Write x.txt' }],
+    })
+  })
+
+  it('repeats the last thing actually spoken, not the objective', async () => {
+    const harness = permissionHarness({ snapshotPhase: 'acting' })
+    harness.bridge.announce({
+      schemaVersion: 1,
+      id: 'announcement:1',
+      runId: 'run-1',
+      priority: 'assertive',
+      category: 'error',
+      text: 'Attention: Athena encountered a recoverable error.',
+      dedupeKey: 'run-1:error:1',
+      requiresAcknowledgement: false,
+      provenance: [],
+      createdAt: '2026-08-13T00:00:00.000Z',
+    })
+    const { results, spoken } = await drive(
+      harness,
+      ['athena repeat', 'exit'],
+      [control('1', { action: 'repeat' })],
+    )
+    expect(spoken).toContain('Attention: Athena encountered a recoverable error.')
+    expect(results[0]).toMatchObject({
+      summary: 'Attention: Athena encountered a recoverable error.',
+    })
+  })
+
+  it('answers a typed allow on the same controller path without consulting the model', async () => {
+    const harness = permissionHarness()
+    const { results, spoken, client } = await drive(
+      harness,
+      ['write x', 'allow', 'exit'],
+      [{ name: 'submit_turn', callId: '1', arguments: { text: 'write x' } }],
+    )
+    expect(results).toHaveLength(1)
+    // Keyboard parity: the second command never reached Realtime at all.
+    expect(client.ask).toHaveBeenCalledOnce()
+    await expect(harness.answerFor('permission:write-1')).resolves.toBe('allow-once')
+    expect(spoken).toContain('Permission allowed once.')
+  })
+
+  it('stops treating a bare typed answer as a decision once nothing is pending', async () => {
+    const harness = permissionHarness()
+    harness.raise()
+    const { spoken, client } = await drive(harness, ['deny', 'deny', 'exit'], [])
+    expect(spoken).toContain('Permission denied.')
+    await expect(harness.answerFor('permission:write-1')).resolves.toBe('deny')
+    // With an empty queue the same word is far more likely an ordinary request, so it
+    // goes to the model — which cannot authorize anything either way.
+    expect(client.ask).toHaveBeenCalledOnce()
   })
 })
 

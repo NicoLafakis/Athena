@@ -2,6 +2,8 @@ import { execFile } from 'node:child_process'
 import { createInterface } from 'node:readline/promises'
 import { plainBounded } from '../interaction/format.js'
 import type { HarnessSessionController } from '../harness/controller.js'
+import { parseVoicePermissionCommand, type VoiceAttentionBridge } from './attention.js'
+import { VoicePermissionAnswerSchema } from './schemas.js'
 import {
   RealtimeVoiceClient,
   buildVoiceInstructions,
@@ -580,6 +582,11 @@ export interface VoiceSessionOptions {
   model: RealtimeVoiceModel
   input: VoiceCommandInput
   controller?: HarnessSessionController
+  /**
+   * Permission approver and announcement sink shared with the controller. Without it the
+   * harness keeps its headless auto-deny and voice can only do read-only work.
+   */
+  attention?: VoiceAttentionBridge
   delegate?: DelegateRunner
   client?: VoiceRealtimeClient
   play?: (audio: Buffer) => Promise<void>
@@ -614,6 +621,12 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
   let commands = 0
   let stopRequested = false
   let harnessBusy = false
+  // What Athena last actually said out loud, so `repeat` replays speech rather than the
+  // objective. The announcement plane is the fallback when nothing has been spoken yet.
+  let lastSpoken: string | null = null
+  // Monotonic Realtime turn counter. A permission announced on the same turn as the
+  // utterance answering it was never heard by the user, so the two must be tellable apart.
+  let turnSeq = 0
   // The Realtime session allows one active response at a time, and a harness turn can
   // finish at the same moment the user wakes Athena. Serialize every response turn
   // (user-driven or completion-driven) through this chain.
@@ -633,13 +646,61 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
     options.onUsage?.(turn.usage)
     if (turn.audio.length > 0) await play(turn.audio)
     else if (turn.transcript) await speakFallback(turn.transcript)
-    if (turn.transcript) status(`Athena: ${turn.transcript}`)
+    if (turn.transcript) {
+      lastSpoken = turn.transcript
+      status(`Athena: ${turn.transcript}`)
+    }
+  }
+
+  /**
+   * Semantic-plane text goes out as stable text always and as local speech when the
+   * ownership policy says Athena owns saying it. It rides the same turn chain as Marin so
+   * a permission landing mid-turn cannot talk over her, and it never calls the model:
+   * asking Realtime to voice a blocker would both delay it and license a paraphrase.
+   */
+  options.attention?.attach({
+    currentTurn: () => turnSeq,
+    present: ({ text, spoken }) => {
+      status(`Athena: ${text}`)
+      if (!spoken) return
+      void enqueueTurn(async () => {
+        lastSpoken = text
+        await speakFallback(text)
+      }).catch((error: unknown) => {
+        status(`Athena: could not speak an announcement: ${(error as Error).message}`)
+      })
+    },
+  })
+
+  const lastSpokenText = (): string =>
+    lastSpoken
+    ?? options.controller?.lastAnnouncement()?.text
+    ?? 'I have not said anything yet in this session.'
+
+  /** Deterministic runtime state, never a model-authored guess. */
+  const semanticStatus = (): Record<string, unknown> => {
+    const snapshot = options.controller?.getSnapshot()
+    const awaiting = options.attention?.pendingPermissions() ?? []
+    return {
+      // A canonical permission record outranks the reduced phase: while a decision is
+      // outstanding the harness is blocked on the user, whatever else has been reduced.
+      status: awaiting.length > 0
+        ? 'waiting-permission'
+        : snapshot?.phase.value ?? lastDelegate?.status ?? 'idle',
+      summary: snapshot?.objective.value ?? lastDelegate?.summary ?? 'Athena voice is ready.',
+      activity: snapshot?.activity.value?.label ?? null,
+      attention: (snapshot?.attention ?? [])
+        .slice(0, 8)
+        .map((item) => plainBounded(item.summary, 256)),
+      awaiting_permission: awaiting,
+    }
   }
 
   /** Spoken completion for a harness turn that outlived its submit_turn response. */
   const deliverHarnessResult = (result: { status: string; summary: string }): void => {
     const summary = plainBounded(result.summary, 8_192)
     void enqueueTurn(async () => {
+      turnSeq += 1
       const turn = await client.ask(
         `The work you started has finished with status ${result.status}. ` +
         'Report it to the user now: concise, faithful, first person, as your own completed work. ' +
@@ -656,6 +717,7 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
   const handleTool = async (
     call: RealtimeToolCall,
     pendingAtTurnStart: boolean,
+    answeringTurn: number,
   ): Promise<unknown> => {
     if (call.name === 'submit_turn') {
       const args = call.arguments as { text?: unknown } | null
@@ -697,21 +759,54 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
     if (call.name === 'local_control') {
       const args = call.arguments as { action?: unknown; request_id?: unknown } | null
       const action = typeof args?.action === 'string' ? args.action : ''
-      if (action === 'status') {
-        const snap = options.controller?.getSnapshot()
-        return {
-          status: snap?.phase.value ?? lastDelegate?.status ?? 'idle',
-          summary: snap?.objective.value ?? lastDelegate?.summary ?? 'Athena voice is ready.',
-        }
-      }
+      if (action === 'status') return semanticStatus()
       if (action === 'stop_listening') {
         stopRequested = true
         return { status: 'stopping', summary: 'Athena voice is stopping.' }
       }
       if (action === 'repeat') {
-        const snap = options.controller?.getSnapshot()
         return {
-          summary: snap?.objective.value ?? lastDelegate?.summary ?? 'Athena is ready.',
+          summary: lastSpokenText(),
+          instruction: 'Say this back to the user unchanged; it is what you last said.',
+        }
+      }
+      if (action === 'allow' || action === 'deny') {
+        const attention = options.attention
+        if (!attention) {
+          return { error: 'No permission approver is wired into this voice session.' }
+        }
+        // Model output is untrusted input: the identity is bounded and validated here
+        // before anything can be matched against a real pending harness request.
+        const parsed = VoicePermissionAnswerSchema.safeParse({
+          action,
+          ...(typeof args?.request_id === 'string' && args.request_id.trim()
+            ? { permissionId: args.request_id.trim() }
+            : {}),
+        })
+        if (!parsed.success) {
+          return {
+            error: 'That permission identity is not well formed, so nothing was changed.',
+            pending_ids: attention.pendingIds(),
+            instruction: 'Ask the user which pending permission they mean. Nothing was authorized.',
+          }
+        }
+        const outcome = attention.resolve(parsed.data.action, parsed.data.permissionId, answeringTurn)
+        if (!outcome.ok) {
+          status(`Athena: permission answer refused (${outcome.reason}).`)
+          return {
+            error: outcome.clarification,
+            reason: outcome.reason,
+            pending_ids: outcome.pendingIds,
+            instruction: 'Tell the user exactly this and ask for clarification. Nothing was authorized.',
+          }
+        }
+        status(`Athena: permission ${outcome.id} ${outcome.action === 'allow' ? 'allowed once' : 'denied'}.`)
+        return {
+          status: outcome.action === 'allow' ? 'allowed-once' : 'denied',
+          permission_id: outcome.id,
+          instruction: outcome.action === 'allow'
+            ? 'Tell the user you allowed that one action and are carrying on.'
+            : 'Tell the user you denied it and are carrying on.',
         }
       }
       return { error: `Unhandled local control action: ${action}` }
@@ -814,15 +909,42 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
         status('Athena: A delegation is waiting for confirm or cancel.')
         continue
       }
-      const handler = (call: RealtimeToolCall) => handleTool(call, pendingAtTurnStart)
-      const turn = await enqueueTurn(() => command.kind === 'audio'
-        ? client.askAudio(command.pcm, handler)
-        : client.ask(command.text, handler))
+      // Keyboard parity (FR-006): a typed answer resolves the same canonical request
+      // through the same matcher, with no model between the user and the decision.
+      const typedAnswer = text && options.attention
+        ? parseVoicePermissionCommand(normalized, options.attention.pendingIds())
+        : null
+      if (typedAnswer && options.attention) {
+        turnSeq += 1
+        const outcome = options.attention.resolve(
+          typedAnswer.action,
+          typedAnswer.permissionId,
+          turnSeq,
+        )
+        const spoken = outcome.ok
+          ? `Permission ${outcome.action === 'allow' ? 'allowed once' : 'denied'}.`
+          : outcome.clarification
+        lastSpoken = spoken
+        await speakFallback(spoken)
+        status(`Athena: ${spoken}`)
+        continue
+      }
+      const turn = await enqueueTurn(() => {
+        const answeringTurn = ++turnSeq
+        const handler = (call: RealtimeToolCall) =>
+          handleTool(call, pendingAtTurnStart, answeringTurn)
+        return command.kind === 'audio'
+          ? client.askAudio(command.pcm, handler)
+          : client.ask(command.text, handler)
+      })
       await present(turn)
       options.onStandby?.()
       if (stopRequested) break
     }
   } finally {
+    // Deny anything still outstanding first: a harness turn parked on a decision nobody
+    // is left to give would keep the chain below from ever draining.
+    options.attention?.close()
     // Let an already-spoken-queue harness completion reach the speaker before closing.
     await turnChain.catch(() => {})
     options.input.close()
