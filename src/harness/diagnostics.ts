@@ -7,8 +7,18 @@ import {
 import { loadCredentials, resolveApiKey } from '../brain/credentials.js'
 import { PROVIDER_IDS } from '../brain/models.js'
 import type { BrainPaths } from '../brain/paths.js'
+import type { PermissionMode, SandboxMode } from '../engine/types.js'
+import { ProtectedPaths } from './protected-paths.js'
 import { collectStaleness, type StalenessOptions } from './staleness.js'
 import { ProjectTrustStore } from './trust.js'
+
+/** The permission posture a session would actually run with, after the trust
+ *  bootstrap has been applied — not the raw settings values. */
+export interface PermissionPosture {
+  permissionMode: PermissionMode
+  sandboxMode: SandboxMode
+  protectedPaths: ProtectedPaths
+}
 
 export interface DiagnosticCheck {
   name: string
@@ -53,6 +63,7 @@ export function collectDiagnostics(
     env?: NodeJS.ProcessEnv
     vault?: CredentialVault
     staleness?: StalenessOptions
+    posture?: PermissionPosture
   } = {},
 ): AthenaDiagnostics {
   const platform = options.platform ?? process.platform
@@ -90,6 +101,41 @@ export function collectDiagnostics(
       detail: 'No project-local .athena configuration is present.',
     })
   }
+
+  // Permission posture and the OS write fence. Reported so the state is
+  // checkable rather than assumed: "no prompts" and "System32 is fenced" are
+  // both claims a user should be able to verify without reading the source.
+  if (options.posture) {
+    const { permissionMode, sandboxMode } = options.posture
+    const prompts =
+      permissionMode === 'trusted'
+        ? 'mutating tools run without a prompt'
+        : permissionMode === 'plan'
+          ? 'mutating tools are disabled'
+          : permissionMode === 'acceptEdits'
+            ? 'file edits are auto-approved; other mutating tools prompt'
+            : 'mutating tools prompt for approval'
+    const reach =
+      sandboxMode === 'unrestricted'
+        ? 'paths outside the workspace are reachable'
+        : sandboxMode === 'read-only'
+          ? 'all writes are disabled'
+          : 'writes are confined to the workspace root'
+    checks.push({
+      name: 'permission-posture',
+      status: 'ok',
+      detail: `permissionMode=${permissionMode} (${prompts}); sandboxMode=${sandboxMode} (${reach}). Deny rules, hooks, and the protected-paths fence still apply.`,
+    })
+  }
+  const fence = options.posture?.protectedPaths ?? ProtectedPaths.defaults()
+  checks.push({
+    name: 'protected-paths',
+    status: fence.roots.length > 0 ? 'ok' : 'warning',
+    detail:
+      fence.roots.length > 0
+        ? `Writes are unconditionally denied inside ${fence.roots.length} director${fence.roots.length === 1 ? 'y' : 'ies'} (reads are still allowed): ${fence.roots.join(', ')}`
+        : 'No protected directories resolved from the environment; the OS write fence is empty.',
+  })
 
   const vault = options.vault ?? createCredentialVault(paths, platform)
   const vaultStatus = vault.status()

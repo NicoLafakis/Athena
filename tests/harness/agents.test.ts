@@ -1,6 +1,14 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, beforeEach, describe, it, expect } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
@@ -13,6 +21,9 @@ import { writeTool } from '../../src/tools/write.js'
 import { bashTool, taskOutputTool } from '../../src/tools/shell.js'
 import { statusUpdateTool } from '../../src/tools/status-update.js'
 import { HookRunner } from '../../src/harness/hooks.js'
+import { PermissionEngine } from '../../src/harness/permissions.js'
+import { ProtectedPaths } from '../../src/harness/protected-paths.js'
+import { ResourcePolicy } from '../../src/harness/resource-policy.js'
 import { TraceWarehouse } from '../../src/learning/warehouse.js'
 import type { AgentDef } from '../../src/brain/loader.js'
 import type { ModelKey } from '../../src/brain/models.js'
@@ -408,5 +419,154 @@ describe('AgentOrchestrator + Agent tool', () => {
     } finally {
       rmSync(repo, { recursive: true, force: true })
     }
+  }, 30_000)
+})
+
+/**
+ * Subagent inheritance. A fence that only binds the parent is not a fence, and
+ * an unrestricted parent that silently produces a workspace-scoped child breaks
+ * the cross-directory workflow. Both directions are asserted here.
+ */
+describe('subagent permission inheritance', () => {
+  let root: string
+  let system: string
+  let work: string
+  let fence: ProtectedPaths
+
+  beforeEach(() => {
+    root = realpathSync.native(mkdtempSync(join(tmpdir(), 'athena-child-fence-')))
+    system = join(root, 'system')
+    work = join(root, 'work')
+    mkdirSync(system)
+    mkdirSync(work)
+    fence = new ProtectedPaths([system])
+  })
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  function writerDef(overrides: Partial<AgentDef> = {}): AgentDef {
+    return {
+      name: 'writer',
+      description: 'writes files',
+      tools: ['Write'],
+      model: null,
+      systemPrompt: 'Write the requested files.',
+      file: 'writer.md',
+      ...overrides,
+    }
+  }
+
+  function writeRegistry(): ToolRegistry {
+    const registry = new ToolRegistry()
+    registry.register(writeTool as ToolDefinition<never>)
+    return registry
+  }
+
+  /** Scripts a child that attempts a fenced write and then an unfenced one. */
+  function twoWriteClient(fenced: string, unfenced: string): () => ModelClient {
+    return () =>
+      new MockAnthropicClient([
+        {
+          blocks: [toolUseBlock('w1', 'Write', { file_path: fenced, content: 'pwned' })],
+          stopReason: 'tool_use',
+        },
+        {
+          blocks: [toolUseBlock('w2', 'Write', { file_path: unfenced, content: 'fine' })],
+          stopReason: 'tool_use',
+        },
+        { blocks: [textBlock('done')], stopReason: 'end_turn' },
+      ])
+  }
+
+  it('a shared child inherits the parent fence through the shared gate and resolvePath', async () => {
+    const fenced = join(system, 'kernel.bin')
+    const unfenced = join(root, 'elsewhere', 'ok.txt')
+    const policy = new ResourcePolicy(work, 'unrestricted', [], fence)
+    const gate = new PermissionEngine({
+      mode: 'trusted',
+      allow: [],
+      deny: [],
+      cwd: work,
+      sandboxMode: 'unrestricted',
+      resourcePolicy: policy,
+      protectedPaths: fence,
+    })
+    const orchestrator = makeOrchestrator(twoWriteClient(fenced, unfenced), {
+      defs: [writerDef()],
+      baseRegistry: writeRegistry(),
+      gate,
+      protectedPaths: fence,
+    })
+    const ctx = makeCtx(work, {
+      sandboxMode: 'unrestricted',
+      resolvePath: (path, access) => policy.resolvePath(path, access),
+    })
+    const result = await orchestrator.runAgent(writerDef(), 'write both', ctx)
+    expect(result.isError, result.output).toBe(false)
+    // The fence held for the child...
+    expect(existsSync(fenced)).toBe(false)
+    // ...and unrestricted reach outside the workspace is genuinely inherited,
+    // so the child can still work in another directory entirely.
+    expect(existsSync(unfenced)).toBe(true)
+    expect(readFileSync(unfenced, 'utf8')).toBe('fine')
+  })
+
+  it('a worktree-isolated child inherits BOTH the unrestricted reach and the fence', async () => {
+    execFileSync('git', ['init'], { cwd: work, windowsHide: true })
+    execFileSync('git', ['config', 'user.email', 'athena@example.invalid'], { cwd: work, windowsHide: true })
+    execFileSync('git', ['config', 'user.name', 'Athena Test'], { cwd: work, windowsHide: true })
+    writeFileSync(join(work, 'base.txt'), 'base\n')
+    execFileSync('git', ['add', '.'], { cwd: work, windowsHide: true })
+    execFileSync('git', ['commit', '-m', 'base'], { cwd: work, windowsHide: true })
+
+    const fenced = join(system, 'kernel.bin')
+    const unfenced = join(root, 'isolated-elsewhere', 'ok.txt')
+    const orchestrator = makeOrchestrator(twoWriteClient(fenced, unfenced), {
+      defs: [writerDef({ isolation: 'worktree' })],
+      baseRegistry: writeRegistry(),
+      protectedPaths: fence,
+    })
+    const ctx = makeCtx(work, { sandboxMode: 'unrestricted' })
+    ctx.brainDir = join(work, '.brain')
+    const result = await orchestrator.runAgent(writerDef({ isolation: 'worktree' }), 'write both', ctx)
+    expect(result.isError, result.output).toBe(false)
+    // The child rebuilds its own ResourcePolicy in the worktree; the fence came
+    // with it, and so did the parent's unrestricted sandbox mode.
+    expect(existsSync(fenced)).toBe(false)
+    expect(existsSync(unfenced)).toBe(true)
+  }, 30_000)
+
+  it('a worktree-isolated child of a workspace-write parent stays workspace-scoped', async () => {
+    execFileSync('git', ['init'], { cwd: work, windowsHide: true })
+    execFileSync('git', ['config', 'user.email', 'athena@example.invalid'], { cwd: work, windowsHide: true })
+    execFileSync('git', ['config', 'user.name', 'Athena Test'], { cwd: work, windowsHide: true })
+    writeFileSync(join(work, 'base.txt'), 'base\n')
+    execFileSync('git', ['add', '.'], { cwd: work, windowsHide: true })
+    execFileSync('git', ['commit', '-m', 'base'], { cwd: work, windowsHide: true })
+
+    const outside = join(root, 'scoped-elsewhere', 'nope.txt')
+    const orchestrator = makeOrchestrator(
+      () =>
+        new MockAnthropicClient([
+          {
+            blocks: [toolUseBlock('w1', 'Write', { file_path: outside, content: 'x' })],
+            stopReason: 'tool_use',
+          },
+          { blocks: [textBlock('done')], stopReason: 'end_turn' },
+        ]),
+      {
+        defs: [writerDef({ isolation: 'worktree' })],
+        baseRegistry: writeRegistry(),
+        protectedPaths: fence,
+      },
+    )
+    const ctx = makeCtx(work, { sandboxMode: 'workspace-write' })
+    ctx.brainDir = join(work, '.brain')
+    await orchestrator.runAgent(writerDef({ isolation: 'worktree' }), 'write outside', ctx)
+    // Confirms the sandbox mode is really carried down rather than defaulted:
+    // an unrestricted parent above produced an unrestricted child, this one did not.
+    expect(existsSync(outside)).toBe(false)
   }, 30_000)
 })

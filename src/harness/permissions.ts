@@ -6,7 +6,8 @@ import type {
   PermissionRequest,
   SandboxMode,
 } from '../engine/types.js'
-import type { ResourcePolicy } from './resource-policy.js'
+import { ProtectedPaths } from './protected-paths.js'
+import { realPathForAccess, type ResourcePolicy } from './resource-policy.js'
 
 export interface ParsedRule { tool: string; pattern: string | null }
 
@@ -132,6 +133,9 @@ export interface PermissionEngineOptions {
   cwd?: string
   sandboxMode?: SandboxMode
   resourcePolicy?: ResourcePolicy
+  /** Unconditional OS write fence. Defaults to the environment-derived roots so
+   *  a caller that omits it is still fenced. */
+  protectedPaths?: ProtectedPaths
 }
 
 export class PermissionEngine implements PermissionGate {
@@ -142,6 +146,7 @@ export class PermissionEngine implements PermissionGate {
   private readonly cwd: string
   private readonly sandboxMode: SandboxMode
   private readonly resourcePolicy?: ResourcePolicy
+  private readonly protectedPaths: ProtectedPaths
 
   constructor(opts: PermissionEngineOptions) {
     this.mode = opts.mode
@@ -150,12 +155,25 @@ export class PermissionEngine implements PermissionGate {
     this.cwd = opts.cwd ?? process.cwd()
     this.sandboxMode = opts.sandboxMode ?? 'unrestricted'
     this.resourcePolicy = opts.resourcePolicy
+    this.protectedPaths = opts.protectedPaths ?? ProtectedPaths.defaults()
   }
 
   setMode(mode: PermissionMode): void { this.mode = mode }
   getMode(): PermissionMode { return this.mode }
 
   grantSession(rule: string): void { this.sessionGrants.push(parseRule(rule)) }
+
+  /** Expand symlinks, junctions, and 8.3 short names before fencing, so a link
+   *  aimed into a protected directory is judged by where it lands. Falls back to
+   *  the raw path when the filesystem cannot answer — the fence's own syntactic
+   *  normalization still applies. */
+  private realPath(path: string): string {
+    try {
+      return realPathForAccess(path, this.cwd)
+    } catch {
+      return path
+    }
+  }
 
   check(req: PermissionRequest): PermissionDecision {
     const input = (req.input ?? {}) as Record<string, unknown>
@@ -165,6 +183,33 @@ export class PermissionEngine implements PermissionGate {
         : typeof input['path'] === 'string'
           ? input['path']
           : null
+    // 0. Protected OS directories. Unconditional and above everything else: no
+    //    permission mode, sandbox mode, allow rule, or session grant reaches
+    //    past it. Writes only — reads inside the fence fall through untouched.
+    if (!req.readOnly) {
+      if (path !== null) {
+        const fenced = this.protectedPaths.deniedRoot(this.realPath(path), this.cwd)
+        if (fenced !== null) {
+          return {
+            decision: 'deny',
+            reason: `Protected system directory: ${fenced} is write-fenced (reads are still allowed)`,
+          }
+        }
+      }
+      if (req.toolName === 'Bash' || req.toolName === 'PowerShell') {
+        // Best effort only — a shell command carries its target inside an opaque
+        // string. See ProtectedPaths.scanCommand for what this cannot catch.
+        const hit = this.protectedPaths.scanCommand(String(input['command'] ?? ''), this.cwd)
+        if (hit !== null) {
+          return {
+            decision: 'deny',
+            reason:
+              `Protected system directory: '${hit.token}' targets ${hit.root}, which is ` +
+              'write-fenced (reads are still allowed)',
+          }
+        }
+      }
+    }
     if (path !== null && this.resourcePolicy) {
       const access = req.readOnly ? 'read' : 'write'
       if (!this.resourcePolicy.contains(path, access)) {

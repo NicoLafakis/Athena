@@ -3,6 +3,7 @@ import {
   realpathSync,
 } from 'node:fs'
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { ProtectedPaths } from './protected-paths.js'
 
 export type SandboxMode = 'read-only' | 'workspace-write' | 'unrestricted'
 export type PathAccess = 'read' | 'write'
@@ -42,12 +43,27 @@ export class ResourcePolicy {
     cwd: string,
     readonly mode: SandboxMode = 'workspace-write',
     private readonly extraReadRoots: readonly string[] = [],
+    /** Defaults to the environment-derived OS fence so a construction site that
+     *  forgets to pass one is still fenced. Fail-safe, never fail-open. */
+    readonly protectedPaths: ProtectedPaths = ProtectedPaths.defaults(),
   ) {
     this.workspaceRoot = realPathForAccess('.', cwd)
   }
 
   resolvePath(input: string, access: PathAccess): string {
     const candidate = realPathForAccess(input, this.workspaceRoot)
+    // Unconditional OS write fence. It runs BEFORE the unrestricted early-out,
+    // so no sandbox mode reaches past it. Reads are untouched: reading inside a
+    // protected directory is legal and sometimes necessary.
+    if (access === 'write') {
+      const fenced = this.protectedPaths.deniedRoot(candidate, this.workspaceRoot)
+      if (fenced !== null) {
+        throw new ResourcePolicyError(
+          `Write denied: ${candidate} is inside the protected system directory ${fenced}. ` +
+            'Reads there are still allowed.',
+        )
+      }
+    }
     if (this.mode === 'unrestricted') return candidate
     if (access === 'write' && this.mode === 'read-only') {
       throw new ResourcePolicyError('Sandbox is read-only; writes are disabled')

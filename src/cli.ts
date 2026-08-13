@@ -8,7 +8,12 @@ import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
 import { render } from 'ink'
 import React from 'react'
 import { resolveBrainPaths } from './brain/paths.js'
-import { loadSettings, readProjectSettingsCapabilities, type Settings } from './brain/settings.js'
+import {
+  loadSettings,
+  readProjectSettingsCapabilities,
+  SettingsSchema,
+  type Settings,
+} from './brain/settings.js'
 import { FileLedgerStore } from './brain/vmp-ledger.js'
 import {
   normalizeModel,
@@ -47,6 +52,7 @@ import {
 import { importBrain } from './brain/import.js'
 import { ensureBrainScaffold } from './harness/bootstrap.js'
 import { PermissionEngine, resolveTrustBootstrap } from './harness/permissions.js'
+import { ProtectedPaths } from './harness/protected-paths.js'
 import { ResourcePolicy } from './harness/resource-policy.js'
 import {
   ProjectTrustStore,
@@ -127,7 +133,11 @@ import { LearningEvaluator } from './learning/evaluation.js'
 import { LearningMemoryStore } from './learning/memory.js'
 import { PromotionManager } from './learning/promotion.js'
 import { TraceWarehouse } from './learning/warehouse.js'
-import { collectDiagnostics, formatDiagnostics } from './harness/diagnostics.js'
+import {
+  collectDiagnostics,
+  formatDiagnostics,
+  type PermissionPosture,
+} from './harness/diagnostics.js'
 import { stalenessBootWarnings } from './harness/staleness.js'
 import { configureVmp, getVmpStatus, printVmpReport, startVmpServer } from './harness/vmp.js'
 export type AccessibilityPresentation = 'standard' | 'screen-reader'
@@ -1092,6 +1102,31 @@ function explicitProjectTrust(paths: BrainPaths, cwd: string): boolean {
   return new ProjectTrustStore(paths.trustFile).isTrusted(cwd)
 }
 
+/**
+ * The posture `athena doctor` reports: settings plus the trust bootstrap, i.e.
+ * what an interactive session in this cwd would actually run with. Never throws
+ * — a doctor command that dies on malformed settings is useless precisely when
+ * it is needed, so a load failure degrades to the schema defaults.
+ */
+function doctorPosture(paths: BrainPaths, cwd: string): PermissionPosture {
+  let settings: Settings
+  try {
+    settings = loadSettings(paths, 'anthropic', undefined, { projectTrusted: false })
+  } catch {
+    settings = SettingsSchema.parse({})
+  }
+  const bootstrap = resolveTrustBootstrap({
+    permissionMode: settings.permissionMode,
+    sandboxMode: settings.sandboxMode,
+    explicitlyTrusted: explicitProjectTrust(paths, cwd),
+  })
+  return {
+    permissionMode: bootstrap.permissionMode,
+    sandboxMode: bootstrap.sandboxMode,
+    protectedPaths: ProtectedPaths.from(settings.protectedPaths),
+  }
+}
+
 /** Fold the trust bootstrap into loaded settings; the notice is loud on purpose. */
 function applyTrustBootstrap(settings: Settings, paths: BrainPaths, cwd: string): void {
   const bootstrap = resolveTrustBootstrap({
@@ -1144,7 +1179,7 @@ async function main(): Promise<void> {
     return
   }
   if (cmd.command === 'doctor') {
-    const report = collectDiagnostics(paths, cwd, getVersion())
+    const report = collectDiagnostics(paths, cwd, getVersion(), { posture: doctorPosture(paths, cwd) })
     console.log(cmd.json ? JSON.stringify(report, null, 2) : formatDiagnostics(report))
     process.exitCode = report.checks.some((check) => check.status === 'error') ? 1 : 0
     return
@@ -1908,7 +1943,13 @@ async function main(): Promise<void> {
   const commands = new Map(
     loadCommandsIndexWithPlugins(effectivePaths, (msg) => console.error(msg)).map((c) => [c.name, c]),
   )
-  const resourcePolicy = new ResourcePolicy(cwd, settings.sandboxMode, [paths.brainDir])
+  const protectedPaths = ProtectedPaths.from(settings.protectedPaths)
+  const resourcePolicy = new ResourcePolicy(
+    cwd,
+    settings.sandboxMode,
+    [paths.brainDir],
+    protectedPaths,
+  )
   const gate = new PermissionEngine({
     mode: settings.permissionMode,
     allow: settings.allow,
@@ -1916,6 +1957,7 @@ async function main(): Promise<void> {
     cwd, // same coordinate system the tools resolve file_path against
     sandboxMode: settings.sandboxMode,
     resourcePolicy,
+    protectedPaths,
   })
   const hooks = new HookRunner(settings.hooks)
   const bus = new EngineEventBus()
@@ -2046,6 +2088,7 @@ async function main(): Promise<void> {
     clientFactory: () => client,
     baseRegistry: registry,
     gate,
+    protectedPaths,
     hooks,
     defaultModel: () => engine.getModel(), // thunk: /model mid-session reaches sub-agents
     defaultProvider: () => engine.getProvider(), // thunk: /provider mid-session reaches sub-agents

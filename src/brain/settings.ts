@@ -216,6 +216,12 @@ const baseShape = {
   sandboxMode: z.enum(['read-only', 'workspace-write', 'unrestricted']).default('workspace-write'),
   allow: z.array(z.string()).default([]),
   deny: z.array(z.string()).default([]),
+  // Extra directories added to the unconditional OS write fence. A list of path
+  // prefixes, not a rule language. Additive only: entries here extend the
+  // environment-derived defaults (see defaultProtectedRoots) and can never
+  // shrink them, so a project contributing to this list can only harden, never
+  // weaken — which is why it concatenates like `deny` instead of being stripped.
+  protectedPaths: z.array(z.string()).default([]),
   hooks: z.array(HookDefSchema).default([]),
   mcpServers: z.record(z.string(), McpServerSchema).default({}),
   accessibility: AccessibilitySettingsSchema.default({}),
@@ -256,7 +262,7 @@ function readJsonIfExists(file: string): Record<string, unknown> {
 }
 
 /** Cascade: global ~/.athena/settings.json <- project .athena/settings.json.
- *  Scalars: project wins. Rule/hook arrays: concatenated global-first. Object maps
+ *  Scalars: project wins. Rule/hook/protectedPaths arrays: concatenated global-first. Object maps
  *  (mcpServers): project wins wholesale via the base spread — a project that defines
  *  mcpServers replaces the global map entirely, rather than merging server-by-server.
  *  `provider` scopes model validation to the ACTIVE provider's keys. */
@@ -302,7 +308,7 @@ export function loadSettings(
   if (policy.allowProjectHooks === false) delete project['hooks']
   if (policy.allowProjectMcp === false) delete project['mcpServers']
   const merged: Record<string, unknown> = { ...global, ...project }
-  for (const key of ['allow', 'deny', 'hooks'] as const) {
+  for (const key of ['allow', 'deny', 'hooks', 'protectedPaths'] as const) {
     merged[key] = [...((global[key] as unknown[]) ?? []), ...((project[key] as unknown[]) ?? [])]
   }
   // A model that does not resolve under the ACTIVE provider falls back to that

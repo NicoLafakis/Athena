@@ -28,6 +28,7 @@ import type {
 } from '../engine/types.js'
 import { atomicWriteFile } from '../tools/files.js'
 import { RunTraceWriter } from './traces.js'
+import { ProtectedPaths } from './protected-paths.js'
 import { ResourcePolicy } from './resource-policy.js'
 import { redactSessionValue } from './redaction.js'
 
@@ -36,6 +37,11 @@ export interface AgentOrchestratorOptions {
   clientFactory: () => ModelClient
   baseRegistry: ToolRegistry
   gate: PermissionGate
+  /** The parent's OS write fence, so a worktree-isolated child rebuilds its
+   *  ResourcePolicy with the SAME fence rather than the bare defaults. Shared
+   *  (non-isolated) children inherit the parent's `resolvePath` closure and are
+   *  already fenced by it; both also pass through the shared `gate`. */
+  protectedPaths?: ProtectedPaths
   hooks: HookRunner
   defaultModel: () => ModelKey
   defaultProvider?: () => ProviderId
@@ -307,6 +313,7 @@ export class AgentOrchestrator {
           workspace.cwd,
           parentCtx.sandboxMode ?? 'workspace-write',
           [parentCtx.brainDir],
+          this.opts.protectedPaths ?? ProtectedPaths.defaults(),
         )
         childContext = {
           ...parentCtx,

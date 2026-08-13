@@ -123,6 +123,21 @@ describe('loadSettings', () => {
     expect(s.allow).toEqual(['Read(**)', 'Bash(git:*)'])
   })
 
+  it('protectedPaths defaults to empty and concatenates global-first', () => {
+    expect(SettingsSchema.parse({}).protectedPaths).toEqual([])
+    mkdirSync(join(home, '.athena'), { recursive: true })
+    writeFileSync(join(home, '.athena', 'settings.json'),
+      JSON.stringify({ protectedPaths: ['C:\\Golden'] }))
+    mkdirSync(join(project, '.athena'), { recursive: true })
+    writeFileSync(join(project, '.athena', 'settings.json'),
+      JSON.stringify({ protectedPaths: ['C:\\AlsoGolden'] }))
+    const s = loadSettings(resolveBrainPaths({ cwd: project, homeOverride: home }))
+    // Concatenated, not replaced: a project can only ADD to the fence. There is
+    // no shape of project settings that removes a protected directory, which is
+    // why this needs no stripping the way trusted/unrestricted do.
+    expect(s.protectedPaths).toEqual(['C:\\Golden', 'C:\\AlsoGolden'])
+  })
+
   it('safe untrusted mode ignores all project settings', () => {
     mkdirSync(join(home, '.athena'), { recursive: true })
     writeFileSync(join(home, '.athena', 'settings.json'), JSON.stringify({ model: 'haiku' }))

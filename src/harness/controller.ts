@@ -17,6 +17,7 @@ import { EngineEventBus } from '../engine/events.js'
 import { ContextManager } from '../engine/context.js'
 import type { ToolContext, ToolDefinition, PermissionMode, SandboxMode, RunLimits } from '../engine/types.js'
 import { PermissionEngine } from './permissions.js'
+import { ProtectedPaths } from './protected-paths.js'
 import { ResourcePolicy } from './resource-policy.js'
 import { HookRunner } from './hooks.js'
 import { McpManager } from './mcp.js'
@@ -160,7 +161,8 @@ export class HarnessSessionController {
 
     ensureBrainScaffold(paths)
 
-    const resourcePolicy = new ResourcePolicy(cwd, sandboxMode, [paths.brainDir])
+    const protectedPaths = ProtectedPaths.from(settings.protectedPaths)
+    const resourcePolicy = new ResourcePolicy(cwd, sandboxMode, [paths.brainDir], protectedPaths)
     const gate = new PermissionEngine({
       mode: permissionMode,
       allow: settings.allow,
@@ -168,6 +170,7 @@ export class HarnessSessionController {
       cwd,
       sandboxMode,
       resourcePolicy,
+      protectedPaths,
     })
 
     const hooks = new HookRunner(settings.hooks)
@@ -292,6 +295,7 @@ export class HarnessSessionController {
       clientFactory: () => clientHolder,
       baseRegistry: registry,
       gate,
+      protectedPaths,
       hooks,
       defaultModel: () => engine.getModel(),
       defaultProvider: () => engine.getProvider(),

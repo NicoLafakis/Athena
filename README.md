@@ -224,8 +224,18 @@ unclaimed until repeated real tasks show a durable measured gain.
 ## Configuration and credentials
 
 Global `~/.athena/settings.json` is overlaid by trusted project settings. Settings
-select model, effort, permission/sandbox modes, allow/deny rules, hooks, MCP,
-limits, and extension configuration.
+select model, effort, permission/sandbox modes, allow/deny rules, additional
+protected paths, hooks, MCP, limits, and extension configuration.
+
+Independent of every mode above, a write fence covers operating-system directories
+(`%SystemRoot%`, the Program Files trees, `%ProgramData%`, and the boot/recovery
+roots; `/boot`, `/proc`, `/sys`, `/System` on POSIX). It refuses writes only —
+reads there still work — and no permission mode, sandbox mode, allow rule, or
+session grant opens it. `protectedPaths` adds directories to it and can never
+remove one. Everywhere else, including every project root outside the current
+one, stays fully writable. See
+[`.wiki/architecture/permissions-trust.md`](.wiki/architecture/permissions-trust.md),
+which also states plainly where the shell-command scan can be defeated.
 
 Environment variables override stored provider keys:
 
@@ -234,7 +244,8 @@ Environment variables override stored provider keys:
 - `KIMI_CODE_API_KEY`
 
 `athena doctor --json` reports installation, trust, credential-vault, provider,
-dependency, process-sandbox, and update status without printing secrets. Athena
+dependency, process-sandbox, permission-posture, protected-paths, and update
+status without printing secrets. Athena
 is currently a source-installed private package and has no silent self-updater;
 updates are reviewed source revisions followed by locked install, verification,
 and rebuild.

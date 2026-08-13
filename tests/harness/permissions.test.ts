@@ -1,5 +1,14 @@
-import { describe, it, expect } from 'vitest'
-import { resolve } from 'node:path'
+import { afterEach, beforeEach, describe, it, expect } from 'vitest'
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import type { ToolUseBlock } from '@anthropic-ai/sdk/resources/messages'
 import {
   PermissionEngine,
@@ -9,6 +18,7 @@ import {
   normalizePathTarget,
   resolveTrustBootstrap,
 } from '../../src/harness/permissions.js'
+import { ProtectedPaths } from '../../src/harness/protected-paths.js'
 import { ruleFor } from '../../src/engine/loop.js'
 import type { PermissionMode, PermissionRequest } from '../../src/engine/types.js'
 
@@ -251,5 +261,156 @@ describe('resolveTrustBootstrap', () => {
       platform: 'win32',
     })
     expect(result).toMatchObject({ permissionMode: 'trusted', sandboxMode: 'read-only' })
+  })
+})
+
+/**
+ * The fence is tier 0 inside `check()`: above deny rules, above every permission
+ * mode, above allow rules and session grants. A synthetic protected directory
+ * under tmpdir stands in for C:\Windows so this runs on every platform.
+ */
+describe('protected-paths fence (tier 0, unconditional)', () => {
+  let root: string
+  let system: string
+  let work: string
+  let fence: ProtectedPaths
+
+  beforeEach(() => {
+    root = realpathSync.native(mkdtempSync(join(tmpdir(), 'athena-fence-')))
+    system = join(root, 'system')
+    work = join(root, 'work')
+    mkdirSync(system)
+    mkdirSync(work)
+    writeFileSync(join(system, 'kernel.bin'), 'critical')
+    writeFileSync(join(work, 'app.ts'), 'export {}')
+    fence = new ProtectedPaths([system])
+  })
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  /** The unrestricted, prompt-free posture: the only thing that can deny here
+   *  is the fence itself. */
+  const stewardEngine = (): PermissionEngine =>
+    new PermissionEngine({
+      mode: 'trusted',
+      allow: ['Write(**)', 'Bash(rm:*)'],
+      deny: [],
+      cwd: work,
+      sandboxMode: 'unrestricted',
+      protectedPaths: fence,
+    })
+
+  it('trusted mode does not bypass the fence', () => {
+    const decision = stewardEngine().check(
+      req('Write', { file_path: join(system, 'kernel.bin'), content: 'x' }, false),
+    )
+    expect(decision.decision).toBe('deny')
+    expect(decision.reason).toMatch(/protected system directory/i)
+  })
+
+  it.each(['normal', 'acceptEdits', 'plan', 'trusted'] as const)(
+    'denies a fenced write in %s mode, and says why',
+    (mode: PermissionMode) => {
+      const engine = new PermissionEngine({
+        mode,
+        allow: ['Write(**)', 'Edit(**)'],
+        deny: [],
+        cwd: work,
+        sandboxMode: 'unrestricted',
+        protectedPaths: fence,
+      })
+      const decision = engine.check(
+        req('Write', { file_path: join(system, 'x.bin'), content: 'x' }, false),
+      )
+      expect(decision.decision).toBe('deny')
+      // Tier 0: the fence reason wins even in plan mode, which would also deny.
+      expect(decision.reason).toMatch(/protected system directory/i)
+    },
+  )
+
+  it('a session grant cannot open the fence', () => {
+    const engine = stewardEngine()
+    engine.grantSession('Write(**)')
+    expect(
+      engine.check(req('Write', { file_path: join(system, 'x.bin'), content: 'x' }, false)).decision,
+    ).toBe('deny')
+  })
+
+  it('allows reads inside the fence', () => {
+    expect(
+      stewardEngine().check(req('Read', { file_path: join(system, 'kernel.bin') }, true)).decision,
+    ).toBe('allow')
+    expect(stewardEngine().check(req('Glob', { pattern: `${system}/**` }, true)).decision).toBe('allow')
+  })
+
+  it('blocks a symlink or junction aimed into the fence', () => {
+    const link = join(work, 'escape')
+    symlinkSync(system, link, process.platform === 'win32' ? 'junction' : 'dir')
+    expect(
+      stewardEngine().check(req('Write', { file_path: 'escape/kernel.bin', content: 'x' }, false))
+        .decision,
+    ).toBe('deny')
+    expect(
+      stewardEngine().check(req('Write', { file_path: 'escape/new.bin', content: 'x' }, false))
+        .decision,
+    ).toBe('deny')
+  })
+
+  it('blocks traversal into the fence from a relative target', () => {
+    expect(
+      stewardEngine().check(
+        req('Write', { file_path: '../system/kernel.bin', content: 'x' }, false),
+      ).decision,
+    ).toBe('deny')
+  })
+
+  it('deletes and overwrites OUTSIDE the fence are allowed with no prompt', () => {
+    const engine = stewardEngine()
+    for (const decision of [
+      engine.check(req('Write', { file_path: join(work, 'app.ts'), content: 'x' }, false)),
+      engine.check(req('Write', { file_path: join(root, 'elsewhere', 'new.txt'), content: 'x' }, false)),
+      engine.check(req('Bash', { command: `rm -rf ${join(work, 'dist')}` }, false)),
+      engine.check(req('Bash', { command: 'rm -rf node_modules' }, false)),
+      engine.check(req('PowerShell', { command: `Remove-Item -Recurse ${join(root, 'scratch')}` }, false)),
+    ]) {
+      expect(decision.decision).toBe('allow')
+    }
+  })
+
+  it('scans shell commands for mutations aimed into the fence', () => {
+    const engine = stewardEngine()
+    const denied = engine.check(req('Bash', { command: `rm -rf ${system}` }, false))
+    expect(denied.decision).toBe('deny')
+    expect(denied.reason).toMatch(/protected system directory/i)
+    expect(
+      engine.check(req('PowerShell', { command: `Remove-Item -Force "${join(system, 'kernel.bin')}"` }, false))
+        .decision,
+    ).toBe('deny')
+    expect(
+      engine.check(req('Bash', { command: `echo x > ${join(system, 'x.bin')}` }, false)).decision,
+    ).toBe('deny')
+    // Reading inside the fence from a shell is still fine.
+    expect(engine.check(req('Bash', { command: `cat ${join(system, 'kernel.bin')}` }, false)).decision).toBe(
+      'allow',
+    )
+  })
+
+  it('defaults to the environment fence when a caller omits one', () => {
+    // Fail-safe: an engine constructed without protectedPaths is still fenced,
+    // so the guarantee does not depend on every call site remembering.
+    const engine = new PermissionEngine({ mode: 'trusted', allow: [], deny: [] })
+    const target =
+      process.platform === 'win32'
+        ? join(process.env['SystemRoot'] ?? 'C:\Windows', 'System32', 'athena-probe.bin')
+        : '/proc/athena-probe'
+    const decision = engine.check(req('Write', { file_path: target, content: 'x' }, false))
+    if (process.platform === 'win32' || process.platform === 'linux') {
+      expect(decision.decision).toBe('deny')
+    } else {
+      // darwin's default fence is /System only; assert the fence exists at all.
+      expect(ProtectedPaths.defaults().roots.length).toBeGreaterThan(0)
+    }
   })
 })

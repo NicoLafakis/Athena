@@ -29,6 +29,7 @@ const defaultSettings: Settings = {
   effort: 'high',
   allow: [],
   deny: [],
+  protectedPaths: [],
   accessibility: {
     presentation: 'standard',
     verbosity: 'balanced',
