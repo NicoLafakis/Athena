@@ -17,7 +17,6 @@ import {
 import { FileLedgerStore } from './brain/vmp-ledger.js'
 import {
   normalizeModel,
-  modelCapabilities,
   modelLabel,
   modelKeys,
   supportsEffort,
@@ -58,14 +57,9 @@ import {
   ProjectTrustStore,
   capabilityDigest,
   canonicalProjectPath,
-  projectId,
   type ProjectCapability,
 } from './harness/trust.js'
-import { HookRunner } from './harness/hooks.js'
-import { McpManager } from './harness/mcp.js'
 import { Session, SessionStore, type SessionInfo } from './harness/sessions.js'
-import { RunTraceWriter } from './harness/traces.js'
-import { AgentOrchestrator } from './harness/agents.js'
 import { HarnessSessionController } from './harness/controller.js'
 import { PluginManager } from './harness/plugins.js'
 import { Engine } from './engine/loop.js'
@@ -76,45 +70,16 @@ import { FixtureModelClient } from './engine/fixture-client.js'
 import { makeTelemetryRecorder, type TelemetryRecorder } from './engine/telemetry.js'
 import { EngineEventBus } from './engine/events.js'
 import {
-  InteractionEventAdapter,
   InteractionService,
   type InteractionEventEnvelope,
 } from './interaction/index.js'
 import { createInteractionSnapshot } from './interaction/state.js'
-import {
-  captureExperienceBestEffort,
-  ExperienceStore,
-  retrieveGuidance,
-} from './experience/index.js'
+import { captureExperienceBestEffort } from './experience/index.js'
 import { ContextManager } from './engine/context.js'
-import { assembleSystemPrompt, findProjectContextFiles } from './engine/prompt.js'
 import type { BrainPaths } from './brain/paths.js'
-import type { ToolContext, ToolDefinition } from './engine/types.js'
 import type { PermissionMode, RunLimits, SandboxMode } from './engine/types.js'
 import { validateJsonOutput } from './engine/output-schema.js'
-import { ToolRegistry } from './tools/registry.js'
-import {
-  readTool,
-  writeTool,
-  editTool,
-  applyPatchTool,
-  readImageTool,
-  notebookEditTool,
-  diagnosticsTool,
-  globTool,
-  grepTool,
-  bashTool,
-  powershellTool,
-  taskOutputTool,
-  todoTool,
-  statusUpdateTool,
-  memoryTool,
-  webfetchTool,
-  websearchTool,
-  shutdownBackgroundTasks,
-} from './tools/index.js'
-import { makeSkillTool } from './tools/skill.js'
-import { makeAgentTool } from './tools/agent.js'
+import { shutdownBackgroundTasks } from './tools/index.js'
 import { App, PermissionBridge } from './tui/App.js'
 import { SessionPicker } from './tui/components/SessionPicker.js'
 import { parseSlash, type SlashCommand } from './tui/slash.js'
@@ -1943,32 +1908,6 @@ async function main(): Promise<void> {
   const commands = new Map(
     loadCommandsIndexWithPlugins(effectivePaths, (msg) => console.error(msg)).map((c) => [c.name, c]),
   )
-  const protectedPaths = ProtectedPaths.from(settings.protectedPaths)
-  const resourcePolicy = new ResourcePolicy(
-    cwd,
-    settings.sandboxMode,
-    [paths.brainDir],
-    protectedPaths,
-  )
-  const gate = new PermissionEngine({
-    mode: settings.permissionMode,
-    allow: settings.allow,
-    deny: settings.deny,
-    cwd, // same coordinate system the tools resolve file_path against
-    sandboxMode: settings.sandboxMode,
-    resourcePolicy,
-    protectedPaths,
-  })
-  const hooks = new HookRunner(settings.hooks)
-  const bus = new EngineEventBus()
-  const trace = await RunTraceWriter.create(paths.runsDir, {
-    cwd,
-    provider,
-    model: settings.model,
-    mode: settings.permissionMode,
-    sandbox: settings.sandboxMode,
-  })
-  trace.attach(bus)
   const pendingSemanticEvents: InteractionEventEnvelope[] = []
   const flushSemanticJsonl = () => {
     if (cmd.command !== 'exec' || cmd.options.output !== 'jsonl') return
@@ -1979,225 +1918,50 @@ async function main(): Promise<void> {
       }) + '\n')
     }
   }
-  const interactionService = new InteractionService({
-    verbosity: settings.accessibility.verbosity === 'concise'
-      ? 'quiet'
-      : settings.accessibility.verbosity === 'detailed'
-        ? 'verbose'
-        : 'balanced',
-    tracePath: () => trace.file,
-    onAnnouncement: (announcement) => {
-      // The richer permission prompt immediately follows its semantic blocker; reading
-      // both aloud would announce one decision twice.
-      if (announcement.category !== 'permission') screenPresentation?.announce(announcement)
-    },
-    onDiagnostic: (diagnostic) => trace.append('interaction-diagnostic', diagnostic),
-  })
-  const experienceStore = new ExperienceStore(join(paths.brainDir, 'experience'))
-  const interaction = new InteractionEventAdapter({
-    runId: trace.runId,
-    guidanceForRepeatedFailure: ({ runId, toolName }) => {
-      const objective = interactionService.snapshot(runId)?.objective.value
-        ?? interactionService.snapshot(trace.runId)?.objective.value
-        ?? ''
-      if (!objective) return []
-      return retrieveGuidance(
-        experienceStore.listExperiences(),
-        experienceStore.listGuidance(),
-        {
-          projectScope: projectId(cwd),
-          objective,
-          tags: [toolName.toLowerCase()],
-          limit: 3,
-          charBudget: 2_048,
-        },
-      )
-    },
-    onEnvelope: (event) => {
-      const result = interactionService.accept(event)
-      if (!result.accepted) return
-      trace.recordInteraction(event)
-      if (cmd.command === 'exec' && cmd.options.output === 'jsonl') {
-        pendingSemanticEvents.push(event)
-      }
-      if (result.announcement) {
-        trace.recordAnnouncement(result.announcement, {
-          coalesced: result.coalesced ?? false,
-          occurrences: result.occurrences ?? 1,
-        })
-      }
-    },
-  })
-  interaction.attach(bus)
-  const store = new SessionStore(paths.sessionsDir, cwd)
-
-  const registry = new ToolRegistry()
-  for (const t of [
-    readTool,
-    writeTool,
-    editTool,
-    applyPatchTool,
-    readImageTool,
-    notebookEditTool,
-    diagnosticsTool,
-    globTool,
-    grepTool,
-    bashTool,
-    powershellTool,
-    taskOutputTool, // read-only poll over background shell tasks; flows to sub-agents via the base registry
-    todoTool,
-    statusUpdateTool,
-    memoryTool,
-    webfetchTool,
-    websearchTool,
-  ]) {
-    registry.register(t as ToolDefinition<never>)
-  }
-  // Skill is read-only and part of the base registry so sub-agents can receive it
-  // under tool restriction; register it before Agent (which nests one level only).
-  registry.register(makeSkillTool(effectivePaths) as ToolDefinition<never>)
-
-  // MCP: connect to configured servers and mount their tools into the BASE registry
-  // BEFORE the orchestrator is built, so sub-agents inherit them under restriction.
-  // Connection failures are non-fatal (handled inside connectAll); an empty config is a no-op.
-  const mcp = new McpManager()
-  await mcp.connectAll(settings.mcpServers, registry, (m) => bus.emit({ type: 'info', message: m }))
-
-  let systemPrompt = assembleSystemPrompt({
-    constitution: loadConstitution(effectivePaths),
-    memoryIndex: loadMemoryIndex(effectivePaths),
-    projectContext: projectTrust.trusted ? findProjectContextFiles(cwd) : [],
-    toolGuidance:
-      'Use Read before Write/Edit. Prefer Grep/Glob over shell find. Keep tool outputs focused.',
-    skills: loadSkillsIndexWithPlugins(effectivePaths, (msg) => console.error(msg)),
-    environment: {
-      cwd,
-      platform: process.platform,
-      gitBranch: gitBranch(cwd),
-      date: new Date().toISOString().slice(0, 10),
-    },
-  })
-  if (outputSchema !== null) {
-    systemPrompt +=
-      '\n\nReturn the final answer as JSON only, with no Markdown fence, matching this JSON Schema:\n' +
-      JSON.stringify(outputSchema)
-  }
-  const client = new ClientHolder(makeClient(provider, resolved.key, vmpRecorder))
-  const orchestrator = new AgentOrchestrator({
-    defs: loadAgentsIndexWithPlugins(effectivePaths, (msg) => console.error(msg)),
-    clientFactory: () => client,
-    baseRegistry: registry,
-    gate,
-    protectedPaths,
-    hooks,
-    defaultModel: () => engine.getModel(), // thunk: /model mid-session reaches sub-agents
-    defaultProvider: () => engine.getProvider(), // thunk: /provider mid-session reaches sub-agents
-    defaultEffort: () => engine.getEffort(), // thunk: /effort mid-session reaches sub-agents
-    systemPromptBase: systemPrompt,
-    runStoreDir: paths.agentRunsDir,
-    traceRootDir: paths.runsDir,
-    limits: isExec
-      ? {
-          ...cmd.options.limits,
-          maxModelCalls: Math.min(cmd.options.limits.maxModelCalls ?? 50, 50),
-          maxToolCalls: Math.min(cmd.options.limits.maxToolCalls ?? 100, 100),
-          maxConcurrency: Math.min(cmd.options.limits.maxConcurrency ?? 2, 2),
-        }
-      : undefined,
-  })
-  registry.register(makeAgentTool(orchestrator) as ToolDefinition<never>)
-
-  // Session selection: run = fresh; continue = latest here (or fresh); resume = picker (or fresh).
-  let session: Session | null = null
-  let history: MessageParam[] = []
-  if (cmd.command === 'exec') {
-    if (cmd.options.resumeId) {
-      history = store.resume(cmd.options.resumeId)
-      const found = store.list().find((item) => item.id === cmd.options.resumeId)
-      if (!found) throw new Error(`No session ${cmd.options.resumeId}`)
-      session = new Session(cmd.options.resumeId, found.file, history.length)
-    } else if (cmd.options.persistSession) {
-      session = store.create()
-    }
-  } else if (cmd.command === 'continue') {
-    const latest = store.continueLatest()
-    if (latest) {
-      history = latest.messages
-      const found = store.list().find((s) => s.id === latest.id)!
-      session = new Session(latest.id, found.file, history.length)
-    } else {
-      session = store.create()
-    }
-  } else if (cmd.command === 'resume') {
-    const picked = screenInput
-      ? await pickSessionLine(store.list(), screenInput)
-      : await pickSession(store.list())
-    if (picked) {
-      history = store.resume(picked.id)
-      session = new Session(picked.id, picked.file, history.length)
-    } else {
-      session = store.create()
-    }
-  } else {
-    session = store.create()
-  }
-
-  // Event journal: errors, turn completions (with usage), and compactions land in the
-  // session file so a crash is diagnosable from disk. A failed journal write must never
-  // crash or recurse — swallow it here, no bus emit from inside the subscriber.
-  bus.on((e) => {
-    if (e.type === 'error' || e.type === 'turn-done' || e.type === 'compaction') {
-      try {
-        session?.appendEvent(e)
-      } catch {
-        /* journaling is best-effort */
-      }
-    }
-  })
-
   const bridge = new PermissionBridge()
   const permissionDetails = new Map<string, string>()
-  const activeCapabilities = modelCapabilities(provider, settings.model)
-  const contextManager = new ContextManager({
-    modelWindowTokens: activeCapabilities.contextWindowTokens,
-  })
-  const toolContext: ToolContext = {
+  // Session selection the controller cannot express as a bare id: `--continue` takes the
+  // latest session for this project, `--resume` asks. Handed over as a callback so the
+  // picker still mounts at the point in startup it always has — after the plugin, skill,
+  // and agent warnings have printed on stderr rather than racing them onto its frame.
+  const selectSession = cmd.command === 'continue'
+    ? async (store: SessionStore) => {
+        const latest = store.continueLatest()
+        if (!latest) return null
+        // `continueLatest` and `list` are two separate directory scans, so a delete landing
+        // between them (a concurrent Athena, `/delete`) leaves an id with no file. A fresh
+        // session beats a crash on the way in, but say so rather than quietly ignoring the ask.
+        const found = store.list().find((s) => s.id === latest.id)
+        if (!found) {
+          console.error(`Session ${latest.id} disappeared while starting; starting a fresh session instead.`)
+          return null
+        }
+        return { id: latest.id, file: found.file, messages: latest.messages }
+      }
+    : cmd.command === 'resume'
+      ? async (store: SessionStore) => {
+          const picked = screenInput
+            ? await pickSessionLine(store.list(), screenInput)
+            : await pickSession(store.list())
+          if (!picked) return null
+          return { id: picked.id, file: picked.file, messages: store.resume(picked.id) }
+        }
+      : undefined
+  // One session composition for every path: exec, the append-only screen-reader loop, the
+  // Ink TUI below, and `athena voice` above all build the same controller.
+  const controller = await HarnessSessionController.create({
+    paths,
+    effectivePaths,
     cwd,
-    brainDir: paths.brainDir,
-    projectBrainDir: effectivePaths.projectBrainDir,
-    fileReadRegistry: new Set(),
-    fileReadHashes: new Map(),
-    todos: [],
-    emit: (event) => bus.emit(event),
-    abortSignal: new AbortController().signal,
-    resolvePath: (path, access) => resourcePolicy.resolvePath(path, access),
-    sandboxMode: settings.sandboxMode,
-    runId: trace.runId,
-  }
-  const engine = new Engine({
-    client,
-    bus,
-    registry,
-    gate,
-    hooks,
-    contextManager,
-    toolContext,
     provider,
-    model: settings.model,
-    effort: settings.effort,
-    systemPrompt,
-    maxTokens: settings.maxOutputTokens ?? activeCapabilities.maxOutputTokens,
-    preflightContext: true,
-    limits: isExec
-      ? cmd.options.limits
-      : {
-          maxModelCalls: 200,
-          maxToolCalls: 1_000,
-          maxTokens: 10_000_000,
-          maxCostUsd: 50,
-          maxDurationMs: 4 * 60 * 60_000,
-          maxConcurrency: 4,
-        },
+    client: makeClient(provider, resolved.key, vmpRecorder),
+    settings,
+    projectTrust,
+    limits: isExec ? cmd.options.limits : undefined,
+    outputSchema,
+    resumeId: isExec ? (cmd.options.resumeId ?? undefined) : undefined,
+    persistSession: isExec ? cmd.options.persistSession : true,
+    selectSession,
     askUser: isExec
       ? undefined
       : async (req) => {
@@ -2212,72 +1976,32 @@ async function main(): Promise<void> {
             ...(diff ? { diff: permissionDiffStats(diff) } : {}),
           }))
         },
-    onMessagesChanged: (messages) => {
-      // A full disk / locked file must not kill the TUI mid-turn.
-      try {
-        session?.rewriteOrAppend(messages)
-      } catch (err) {
-        bus.emit({
-          type: 'error',
-          message: `Session write failed: ${(err as Error).message}`,
-          fatal: false,
-        })
+    onAnnouncement: (announcement) => {
+      // The richer permission prompt immediately follows its semantic blocker; reading
+      // both aloud would announce one decision twice.
+      if (announcement.category !== 'permission') screenPresentation?.announce(announcement)
+    },
+    onEnvelope: (event) => {
+      if (cmd.command === 'exec' && cmd.options.output === 'jsonl') {
+        pendingSemanticEvents.push(event)
       }
     },
   })
-  hooks.configure({
-    invokeMcpTool: async (name, invocation, signal) => {
-      const tool = registry.get(name)
-      if (!tool || !name.startsWith('mcp__')) throw new Error(`Unknown MCP hook tool "${name}"`)
-      const parsed = tool.schema.safeParse(invocation.payload)
-      if (!parsed.success) throw new Error(`Invalid MCP hook input: ${parsed.error.message}`)
-      const decision = gate.check({
-        toolName: name,
-        input: parsed.data,
-        readOnly: tool.readOnly,
-        summary: `Hook invokes ${name}`,
-      })
-      if (decision.decision !== 'allow') {
-        throw new Error(`MCP hook tool permission denied: ${decision.reason}`)
-      }
-      const result = await tool.execute(parsed.data as never, {
-        ...toolContext,
-        abortSignal: signal,
-      })
-      if (result.isError) throw new Error(result.output)
-      return result.output
-    },
-    evaluatePrompt: async (prompt, invocation, signal) => {
-      const capabilities = modelCapabilities(engine.getProvider(), engine.getModel())
-      return client.complete({
-        model: capabilities.id,
-        prompt:
-          `${prompt}\n\nReturn a HookDecision JSON object only.\n\nInvocation:\n` +
-          JSON.stringify(invocation),
-        maxTokens: Math.min(2_048, capabilities.maxOutputTokens),
-        signal,
-      })
-    },
-    invokeAgent: async (agentName, prompt, _invocation, signal) => {
-      const definition = orchestrator.getDef(agentName)
-      if (!definition) throw new Error(`Unknown hook agent "${agentName}"`)
-      const result = await orchestrator.runAgent(definition, prompt, {
-        ...toolContext,
-        abortSignal: signal,
-      })
-      if (result.isError) throw new Error(result.output)
-      return result.output
-    },
-  })
-  if (history.length > 0) engine.loadMessages(history)
-
-  await hooks.run('SessionStart', { cwd })
-  let sessionEnded = false
-  const endSession = async (reason: string) => {
-    if (sessionEnded) return
-    sessionEnded = true
-    await hooks.run('SessionEnd', { cwd, reason, run: engine.getRunResult() })
-  }
+  const {
+    bus,
+    engine,
+    gate,
+    trace,
+    mcp,
+    interaction,
+    interactionService,
+    experienceStore,
+    contextManager,
+    orchestrator,
+    client,
+    session,
+    sessionStore: store,
+  } = controller
 
   if (isExec) {
     let permissionDenied = false
@@ -2312,7 +2036,7 @@ async function main(): Promise<void> {
       shutdownBackgroundTasks(trace.runId)
       unsubscribe()
       interaction.detach()
-      await endSession('exec-complete')
+      await controller.endSession('exec-complete')
       await mcp.closeAll()
     }
     const output = finalAssistantText(engine.getMessages())
@@ -2335,7 +2059,7 @@ async function main(): Promise<void> {
     const envelope = {
       schemaVersion: 1,
       runId: trace.runId,
-      sessionId: session?.id ?? null,
+      sessionId: controller.sessionPersisted ? session.id : null,
       status: result.status,
       reason: result.reason,
       exitCode,
@@ -2377,7 +2101,7 @@ async function main(): Promise<void> {
     void (async () => {
       shutdownBackgroundTasks(trace.runId)
       await Promise.allSettled([
-        endSession('crash'),
+        controller.endSession('crash'),
         mcp.closeAll(),
         trace.close(engine.getRunResult()),
       ])
@@ -2475,7 +2199,7 @@ async function main(): Promise<void> {
       await screenPresentation.close(engine.getRunResult())
       shutdownBackgroundTasks(trace.runId)
       interaction.detach()
-      await endSession('interactive-exit')
+      await controller.endSession('interactive-exit')
       await mcp.closeAll()
       await trace.close(engine.getRunResult())
       await captureExperienceBestEffort(trace.file, experienceStore)
@@ -2505,7 +2229,7 @@ async function main(): Promise<void> {
       permissionBridge: bridge,
       commands,
       agents: orchestrator.listDefs(),
-      initialMessages: history,
+      initialMessages: controller.initialMessages,
       onSlash: makeSlashHandler({
         bus,
         engine,
@@ -2533,7 +2257,7 @@ async function main(): Promise<void> {
   } finally {
     shutdownBackgroundTasks(trace.runId)
     interaction.detach()
-    await endSession('interactive-exit')
+    await controller.endSession('interactive-exit')
     await mcp.closeAll()
     await trace.close(engine.getRunResult())
     await captureExperienceBestEffort(trace.file, experienceStore)

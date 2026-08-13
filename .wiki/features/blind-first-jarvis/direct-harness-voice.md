@@ -130,7 +130,8 @@ microphone -> persistent local Athena wake gate
 
 Factor the existing headless engine composition into a shared `HarnessSessionController`
 used by `athena exec` and `athena voice`. Voice must not shell out to a new CLI process for
-each task. The controller owns:
+each task. As shipped it is the single session composition for every surface, the Ink TUI
+and the append-only screen-reader loop included. The controller owns:
 
 - one durable Athena session ID and engine lifecycle;
 - normal prompt submission and abort handling;

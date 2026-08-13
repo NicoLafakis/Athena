@@ -10,7 +10,8 @@ seam is noted; the consuming system is scoped separately.
 
 Two things are already grounded to reuse: `RunTraceWriter` (`src/harness/traces.ts`)
 hash-chains every engine event per run, and the existing per-session event log
-(`Session.appendEvent`, wired at `src/cli.ts:1397`) already listens on the
+(`Session.appendEvent`, wired in `HarnessSessionController.create`,
+`src/harness/controller.ts`) already listens on the
 `EngineEventBus` for `error`/`turn-done`/`compaction` and appends best-effort. The
 journal is a third listener on that same bus, at that same seam — not a new capture
 mechanism. What's new is: (a) treating *divergence from expectation* as the interesting
@@ -46,7 +47,7 @@ interface JournalEntryBase {
 { event: string; summary: string /* <=280 chars, templated */; attempts?: number; toolName?: string }
 ```
 Written by an `EngineEventBus` subscriber, installed next to the existing session
-listener at `src/cli.ts:1397`. It does NOT log every event — an explicit allowlist,
+listener in `src/harness/controller.ts`. It does NOT log every event — an explicit allowlist,
 because "fixed it, tests passed" teaches nothing:
 - `error` where `fatal: true` (uncaught failure)
 - a `tool-result` transitioning `isError: true → false` for the same
@@ -248,8 +249,10 @@ a single prediction exists, Athena can be shown a factual account of what happen
 nobody was watching.
 - `src/brain/journal.ts` (new): `JournalEntrySchema`, `JournalWriter` (append +
   index-append, atomic, redaction applied), monthly file resolution.
-- Wire an `EngineEventBus` listener in `src/cli.ts`, alongside the existing `bus.on(...)`
-  session-journal block — same seam, same best-effort/never-throw discipline.
+- Wire an `EngineEventBus` listener in `src/harness/controller.ts`, alongside the existing
+  `bus.on(...)` session-journal block — same seam, same best-effort/never-throw
+  discipline. Wiring it there reaches every surface at once; the controller is the one
+  session composition.
 - `loadJournalReadback` in `src/brain/loader.ts`; wire into
   `PromptParts`/`assembleSystemPrompt`.
 - Extend `ensureBrainScaffold` only if `journal/entries/` needs pre-creating;

@@ -1,7 +1,7 @@
-// src/harness/controller.ts — Shared Athena Harness Session Controller for CLI exec, voice, and headless runs.
+// src/harness/controller.ts — Shared Athena Harness Session Controller for the interactive
+// TUI, the append-only screen-reader loop, CLI exec, and voice.
 import { execSync } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import type { BrainPaths } from '../brain/paths.js'
 import type { ProviderId, Effort } from '../brain/models.js'
 import { modelCapabilities } from '../brain/models.js'
@@ -65,8 +65,21 @@ function gitBranch(cwd: string): string | null {
 
 import { ensureBrainScaffold } from './bootstrap.js'
 
+/** A session the caller picked itself: the `--continue` latest pick and the `--resume` picker. */
+export interface SelectedSession {
+  id: string
+  file: string
+  messages: MessageParam[]
+}
+
 export interface HarnessSessionControllerOptions {
+  /** Unfiltered paths, for the harness's own storage: traces, sessions, agent runs, experience. */
   paths: BrainPaths
+  /**
+   * The same paths with `projectBrainDir` nulled out when the project is untrusted. Everything
+   * that loads author-supplied content reads these: constitution, memory index, skills, agents,
+   * and the tool context's project brain dir.
+   */
   effectivePaths: BrainPaths
   cwd: string
   provider: ProviderId
@@ -78,10 +91,27 @@ export interface HarnessSessionControllerOptions {
   sandboxMode?: SandboxMode
   effort?: Effort
   model?: string
-  outputSchemaFile?: string
+  /**
+   * Already-parsed output schema appended to the system prompt. The caller reads the file
+   * and owns the exit code for a malformed one, so a bad schema fails before anything is
+   * built rather than after MCP servers are spawned.
+   */
+  outputSchema?: unknown
   resumeId?: string
+  /**
+   * Whether the session is written to disk. False mints a session for identity only and
+   * journals nothing, which is `athena exec` without `--persist-session`. A resumed
+   * session is always written back regardless.
+   */
   persistSession?: boolean
   sessionStore?: SessionStore
+  /**
+   * Session selection richer than `resumeId`: the `--continue` latest-session pick and the
+   * interactive `--resume` picker. Runs at the same point in startup the `resumeId` branch
+   * does, so a picker still mounts after the plugin warnings have printed rather than
+   * racing them onto the same frame. Returning null starts a fresh session.
+   */
+  selectSession?: (store: SessionStore) => Promise<SelectedSession | null>
   /**
    * Approver for `ask` permission decisions. Left undefined the engine auto-denies, which
    * is the deliberate `athena exec` contract; an interactive owner (voice, TUI) wires one.
@@ -89,6 +119,28 @@ export interface HarnessSessionControllerOptions {
   askUser?: AskUserFn
   onAnnouncement?: (announcement: Announcement) => void
   onEnvelope?: (envelope: InteractionEventEnvelope) => void
+}
+
+/** Everything the private constructor takes; assembled once by `create`. */
+interface HarnessSessionControllerParts {
+  cwd: string
+  provider: ProviderId
+  sessionStore: SessionStore
+  session: Session
+  sessionPersisted: boolean
+  initialMessages: MessageParam[]
+  engine: Engine
+  bus: EngineEventBus
+  trace: RunTraceWriter
+  interaction: InteractionEventAdapter
+  interactionService: InteractionService
+  experienceStore: ExperienceStore
+  mcp: McpManager
+  orchestrator: AgentOrchestrator
+  contextManager: ContextManager
+  client: ClientHolder
+  gate: PermissionEngine
+  hooks: HookRunner
 }
 
 export interface HarnessTurnResult {
@@ -100,38 +152,50 @@ export interface HarnessTurnResult {
 }
 
 export class HarnessSessionController {
+  public readonly cwd: string
+  public readonly provider: ProviderId
   public readonly session: Session
+  /** False when the caller opted out of persistence: the session is minted but never written. */
+  public readonly sessionPersisted: boolean
   public readonly sessionStore: SessionStore
+  /** Reconstructed history the engine was loaded with, for a presentation that replays it. */
+  public readonly initialMessages: MessageParam[]
   public readonly engine: Engine
   public readonly bus: EngineEventBus
   public readonly trace: RunTraceWriter
+  /** Semantic event adapter, for callers that record objectives or detach at teardown. */
+  public readonly interaction: InteractionEventAdapter
   public readonly interactionService: InteractionService
+  public readonly experienceStore: ExperienceStore
+  public readonly mcp: McpManager
+  public readonly orchestrator: AgentOrchestrator
+  public readonly contextManager: ContextManager
+  public readonly client: ClientHolder
   public readonly gate: PermissionEngine
   public readonly hooks: HookRunner
 
   private sessionEnded = false
   private isRunning = false
 
-  private constructor(
-    public readonly cwd: string,
-    public readonly provider: ProviderId,
-    sessionStore: SessionStore,
-    session: Session,
-    engine: Engine,
-    bus: EngineEventBus,
-    trace: RunTraceWriter,
-    interactionService: InteractionService,
-    gate: PermissionEngine,
-    hooks: HookRunner,
-  ) {
-    this.sessionStore = sessionStore
-    this.session = session
-    this.engine = engine
-    this.bus = bus
-    this.trace = trace
-    this.interactionService = interactionService
-    this.gate = gate
-    this.hooks = hooks
+  private constructor(parts: HarnessSessionControllerParts) {
+    this.cwd = parts.cwd
+    this.provider = parts.provider
+    this.sessionStore = parts.sessionStore
+    this.session = parts.session
+    this.sessionPersisted = parts.sessionPersisted
+    this.initialMessages = parts.initialMessages
+    this.engine = parts.engine
+    this.bus = parts.bus
+    this.trace = parts.trace
+    this.interaction = parts.interaction
+    this.interactionService = parts.interactionService
+    this.experienceStore = parts.experienceStore
+    this.mcp = parts.mcp
+    this.orchestrator = parts.orchestrator
+    this.contextManager = parts.contextManager
+    this.client = parts.client
+    this.gate = parts.gate
+    this.hooks = parts.hooks
   }
 
   public static async create(
@@ -150,10 +214,11 @@ export class HarnessSessionController {
       sandboxMode = settings.sandboxMode,
       effort = settings.effort,
       model = settings.model,
-      outputSchemaFile,
+      outputSchema = null,
       resumeId,
-      persistSession = false,
+      persistSession = true,
       sessionStore,
+      selectSession,
       askUser,
       onAnnouncement,
       onEnvelope,
@@ -260,13 +325,11 @@ export class HarnessSessionController {
     }
     registry.register(makeSkillTool(effectivePaths) as ToolDefinition<never>)
 
+    // MCP: connect to configured servers and mount their tools into the BASE registry
+    // BEFORE the orchestrator is built, so sub-agents inherit them under restriction.
+    // Connection failures are non-fatal (handled inside connectAll); an empty config is a no-op.
     const mcp = new McpManager()
     await mcp.connectAll(settings.mcpServers, registry, (m) => bus.emit({ type: 'info', message: m }))
-
-    let outputSchema: unknown = null
-    if (outputSchemaFile) {
-      outputSchema = JSON.parse(await readFile(resolve(cwd, outputSchemaFile), 'utf8')) as unknown
-    }
 
     let systemPrompt = assembleSystemPrompt({
       constitution: loadConstitution(effectivePaths),
@@ -314,23 +377,37 @@ export class HarnessSessionController {
     })
     registry.register(makeAgentTool(orchestrator) as ToolDefinition<never>)
 
+    // Session selection: an explicit id wins, then the caller's own picker, then fresh.
     let session: Session
     let history: MessageParam[] = []
+    let resumed = false
     if (resumeId) {
       history = store.resume(resumeId)
       const found = store.list().find((item) => item.id === resumeId)
       if (!found) throw new Error(`No session ${resumeId}`)
       session = new Session(resumeId, found.file, history.length)
-    } else if (persistSession) {
-      session = store.create()
+      resumed = true
     } else {
-      session = store.create()
+      const selected = selectSession ? await selectSession(store) : null
+      if (selected) {
+        history = selected.messages
+        session = new Session(selected.id, selected.file, history.length)
+        resumed = true
+      } else {
+        session = store.create()
+      }
     }
+    // Reconstructed history is always written back; a fresh one only when asked.
+    const sessionPersisted = persistSession || resumed
+    const journal = sessionPersisted ? session : null
 
+    // Event journal: errors, turn completions (with usage), and compactions land in the
+    // session file so a crash is diagnosable from disk. A failed journal write must never
+    // crash or recurse — swallow it here, no bus emit from inside the subscriber.
     bus.on((e) => {
       if (e.type === 'error' || e.type === 'turn-done' || e.type === 'compaction') {
         try {
-          session?.appendEvent(e)
+          journal?.appendEvent(e)
         } catch {
           /* journaling is best-effort */
         }
@@ -380,8 +457,9 @@ export class HarnessSessionController {
         maxConcurrency: 4,
       },
       onMessagesChanged: (messages) => {
+        // A full disk / locked file must not kill the presentation mid-turn.
         try {
-          session.rewriteOrAppend(messages)
+          journal?.rewriteOrAppend(messages)
         } catch (err) {
           bus.emit({
             type: 'error',
@@ -440,18 +518,26 @@ export class HarnessSessionController {
     if (history.length > 0) engine.loadMessages(history)
     await hooks.run('SessionStart', { cwd })
 
-    return new HarnessSessionController(
+    return new HarnessSessionController({
       cwd,
       provider,
-      store,
+      sessionStore: store,
       session,
+      sessionPersisted,
+      initialMessages: history,
       engine,
       bus,
       trace,
+      interaction,
       interactionService,
+      experienceStore,
+      mcp,
+      orchestrator,
+      contextManager,
+      client: clientHolder,
       gate,
       hooks,
-    )
+    })
   }
 
   public async submitTurn(prompt: string): Promise<HarnessTurnResult> {
@@ -503,10 +589,20 @@ export class HarnessSessionController {
     return this.interactionService.latestAnnouncement(this.trace.runId)
   }
 
-  public async close(reason = 'shutdown'): Promise<void> {
+  /**
+   * Run the SessionEnd hook, once. Split out from `close` for callers that close the trace
+   * themselves, after work that has to land between the two (MCP teardown, the exec exit
+   * code) — the ordering of those side effects is part of their contract.
+   */
+  public async endSession(reason = 'shutdown'): Promise<void> {
     if (this.sessionEnded) return
     this.sessionEnded = true
     await this.hooks.run('SessionEnd', { cwd: this.cwd, reason, run: this.engine.getRunResult() })
+  }
+
+  public async close(reason = 'shutdown'): Promise<void> {
+    if (this.sessionEnded) return
+    await this.endSession(reason)
     await this.trace.close(this.engine.getRunResult())
   }
 }

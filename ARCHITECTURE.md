@@ -7,8 +7,18 @@ This is the short structural map of the runtime. Behavioral rules live in
 
 `bin/athena.js` loads the built CLI in `dist/cli.js`; the TypeScript composition root is
 [`src/cli.ts`](src/cli.ts). It owns startup, trust and credential resolution, settings,
-plugins, tool and MCP registration, sessions, the engine, semantic interaction state,
-presentation selection, shutdown, tracing, and experience capture.
+plugins, presentation selection, shutdown ordering, and experience capture, then hands the
+session itself to `HarnessSessionController`
+([`src/harness/controller.ts`](src/harness/controller.ts)).
+
+The controller is the single session composition: tool and MCP registration, the
+permission gate, resource policy, protected-paths fence, hooks, sessions, tracing,
+semantic interaction state, the agent orchestrator, the context manager, and the engine.
+Every path builds it — `athena exec`, the append-only screen-reader loop, the Ink TUI, and
+`athena voice` — so a session is assembled in one place and its guarantees are configured
+in one place. Presentation-specific wiring stays with the caller: the Ink
+`PermissionBridge`, the screen-reader approver, slash-command handling, the `--continue`
+and `--resume` selection callback, and the teardown order each surface needs.
 
 ```text
 CLI / settings
@@ -49,8 +59,9 @@ and local slash-command handler.
 - `src/tui/` — React/Ink fullscreen presentation and its existing FIFO permission bridge.
   Slash commands are parsed here but handled by shared CLI dependencies. Read the
   fullscreen row-budget page before changing layout.
-- `src/harness/` — permissions, resource policy, hooks, sessions, traces, MCP, agents,
-  trust, plugins, staleness checks, and opt-in watcher primitives.
+- `src/harness/` — the shared session controller plus permissions, resource policy, the
+  protected-paths fence, hooks, sessions, traces, MCP, agents, trust, plugins, staleness
+  checks, and opt-in watcher primitives.
 - `src/tools/` — built-in tool definitions and the registry used by the main engine and
   delegated agents.
 - `src/brain/` — paths, settings, credentials and vaults, models, plugins, and local brain
