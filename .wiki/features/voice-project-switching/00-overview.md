@@ -106,3 +106,19 @@ configuration Athena will read, and are Nico's to set.
   evidence of which project is live, and the wrong-project failure mode is expensive.
 - Whether history carries across a switch in full, is summarized, or starts clean. Full
   carry is the least surprising and the most token-expensive.
+
+## Constraint inherited from piece 1
+
+Piece 1 separated session **identity** from session **persistence**: the controller always
+mints a `Session`, and a new `sessionPersisted` flag decides whether anything is written.
+`athena exec` without `--persist-session` therefore mints an id and a path but never
+touches disk, which is how the old `session: null` behavior survives without a nullable
+field.
+
+That shape is currently pinned by `tests/harness/controller.test.ts`, which constructs the
+controller with default options and asserts on `controller.session.id`. Piece 2 rebuilds
+the controller on every switch, so it inherits the question directly: a re-root produces a
+second session, and whether that is one logical conversation spanning two session files or
+two sessions sharing a history is a decision piece 2 has to make explicitly rather than
+inherit by accident. If a genuinely session-less run is ever wanted, that test is the
+contract to renegotiate first.
