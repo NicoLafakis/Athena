@@ -10,6 +10,11 @@ dist/
 .athena/
 **/.athena/
 
+# Agent harness scratch. Isolated worktrees are created at .claude/worktrees/<id>/,
+# which is a full nested checkout of this repo — one `git add -A` away from being
+# committed into itself.
+.claude/
+
 # Credential stores and key material — never committed, on any machine
 credentials.json
 credentials*.json
