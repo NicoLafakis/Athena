@@ -1,5 +1,4 @@
 import type { ChildProcess } from 'node:child_process'
-import { EventEmitter } from 'node:events'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,6 +6,12 @@ import { PassThrough } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 import type { HarnessSessionController } from '../../src/harness/controller.js'
 import type { PermissionAnswer } from '../../src/engine/types.js'
+import {
+  FakeWakeProcess,
+  fakeSpawner,
+  phraseLine,
+  readyLine,
+} from '../helpers/fake-wake-process.js'
 import { VoiceAttentionBridge } from '../../src/voice/attention.js'
 import {
   RealtimeTransportError,
@@ -25,77 +30,7 @@ import {
   waitForWakeProbe,
   type VoiceCommandInput,
   type VoiceRealtimeClient,
-  type WakeListenerProcess,
 } from '../../src/voice/daemon.js'
-
-function pcmWave(sampleRate = 16_000, samples = [0, 1, -1, 2]): Buffer {
-  const pcm = Buffer.alloc(samples.length * 2)
-  samples.forEach((sample, index) => pcm.writeInt16LE(sample, index * 2))
-  const wave = Buffer.alloc(44 + pcm.length)
-  wave.write('RIFF', 0)
-  wave.writeUInt32LE(36 + pcm.length, 4)
-  wave.write('WAVEfmt ', 8)
-  wave.writeUInt32LE(16, 16)
-  wave.writeUInt16LE(1, 20)
-  wave.writeUInt16LE(1, 22)
-  wave.writeUInt32LE(sampleRate, 24)
-  wave.writeUInt32LE(sampleRate * 2, 28)
-  wave.writeUInt16LE(2, 32)
-  wave.writeUInt16LE(16, 34)
-  wave.write('data', 36)
-  wave.writeUInt32LE(pcm.length, 40)
-  pcm.copy(wave, 44)
-  return wave
-}
-
-function phraseLine(text: string, confidence: number): string {
-  return JSON.stringify({ text, confidence, wave: pcmWave().toString('base64') })
-}
-
-function readyLine(recognizer = 'Athena Test Recognizer'): string {
-  return JSON.stringify({ ready: true, recognizer }) + '\n'
-}
-
-class FakeWakeProcess implements WakeListenerProcess {
-  readonly stdout = new EventEmitter()
-  readonly stderr = new EventEmitter()
-  readonly written: string[] = []
-  ended = false
-  killed = false
-  private readonly exitEmitter = new EventEmitter()
-  readonly stdin = {
-    write: (chunk: string) => {
-      this.written.push(chunk)
-      return true
-    },
-    end: () => {
-      this.ended = true
-    },
-  }
-  once(event: 'exit', listener: (code: number | null, signal: NodeJS.Signals | null) => void): this {
-    this.exitEmitter.once(event, listener)
-    return this
-  }
-  kill(): boolean {
-    this.killed = true
-    this.emitExit(null, 'SIGTERM')
-    return true
-  }
-  emitExit(code: number | null = 1, signal: NodeJS.Signals | null = null): void {
-    this.exitEmitter.emit('exit', code, signal)
-  }
-  emitStdout(text: string): void {
-    this.stdout.emit('data', Buffer.from(text))
-  }
-}
-
-function fakeSpawner(processes: FakeWakeProcess[]): () => FakeWakeProcess {
-  return () => {
-    const process = new FakeWakeProcess()
-    processes.push(process)
-    return process
-  }
-}
 
 class ScriptedInput implements VoiceCommandInput {
   closed = false

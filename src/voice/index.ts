@@ -81,6 +81,22 @@ export {
   type RealtimeVoiceModel,
 } from './realtime.js'
 export {
+  NULL_VOICE_TELEMETRY,
+  VOICE_EVENTS,
+  VOICE_EVENT_LABELS,
+  VOICE_TELEMETRY_SCHEMA_VERSION,
+  VoiceMetersSchema,
+  VoiceTelemetry,
+  VoiceTelemetryRecordSchema,
+  type VoiceEventLabel,
+  type VoiceEventName,
+  type VoiceMeters,
+  type VoiceTelemetryEvent,
+  type VoiceTelemetryOptions,
+  type VoiceTelemetryRecord,
+  type VoiceTelemetryRecorder,
+} from './telemetry.js'
+export {
   probeWindowsSpeech,
   recognizeWindowsPhrase,
   spawnWindowsWakeListener,

@@ -18,6 +18,7 @@ import {
   type RealtimeTurnResult,
   type RealtimeVoiceModel,
 } from './realtime.js'
+import { NULL_VOICE_TELEMETRY, type VoiceTelemetryRecorder } from './telemetry.js'
 import {
   playWindowsPcm,
   probeWindowsSpeech,
@@ -75,6 +76,8 @@ export interface WindowsPersistentWakeOptions {
   onReady?: (recognizer: string | null) => void
   onWarn?: (message: string) => void
   sleep?: (ms: number) => Promise<void>
+  /** Lifecycle counters. Wake events are counted locally and never carry what was said. */
+  telemetry?: VoiceTelemetryRecorder
 }
 
 interface WakeAttempt {
@@ -107,6 +110,7 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
   private readonly onReady: (recognizer: string | null) => void
   private readonly onWarn: (message: string) => void
   private readonly sleep: (ms: number) => Promise<void>
+  private readonly meter: VoiceTelemetryRecorder
 
   private attempt: WakeAttempt | null = null
   private lineBuffer = ''
@@ -132,6 +136,7 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
     this.onReady = options.onReady ?? (() => {})
     this.onWarn = options.onWarn ?? (() => {})
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
+    this.meter = options.telemetry ?? NULL_VOICE_TELEMETRY
   }
 
   async next(): Promise<VoiceCommand | null> {
@@ -171,7 +176,7 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
     try {
       this.spawnAttempt()
     } catch (error) {
-      void this.restart((error as Error).message)
+      void this.restart((error as Error).message, 'not-ready')
     }
   }
 
@@ -239,6 +244,7 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
     try {
       audio = realtimePcmFromWave(wave)
     } catch (error) {
+      this.meter.record({ event: 'wake.rejected', label: 'malformed-audio' })
       this.onWarn(`Athena voice skipped malformed wake audio: ${(error as Error).message}`)
       return
     }
@@ -253,22 +259,32 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
    * dropped on-device.
    */
   private handlePhrase(phrase: RecognizedPhrase): void {
-    if (phrase.confidence < this.minimumConfidence) return
+    // Counted, never quoted: a rejected wake must leave a number behind and nothing else,
+    // or the counter becomes a transcript of everything said near the microphone.
+    if (phrase.confidence < this.minimumConfidence) {
+      this.meter.record({ event: 'wake.rejected', label: 'low-confidence' })
+      return
+    }
     const text = phrase.text.trim()
     if (stripWakePhrase(text)) {
       this.listeningUntil = 0
+      this.meter.record({ event: 'wake.accepted', label: 'wake-phrase' })
       this.deliver({ kind: 'audio', pcm: phrase.audio, wakeTranscript: text })
       return
     }
     if (/^athena[,.!?;:]?$/i.test(text)) {
       this.listeningUntil = this.now() + this.listeningWindowMs
+      this.meter.record({ event: 'wake.accepted', label: 'wake-word' })
       this.onListening()
       return
     }
     if (this.now() < this.listeningUntil) {
       this.listeningUntil = 0
+      this.meter.record({ event: 'wake.accepted', label: 'capture-window' })
       this.deliver({ kind: 'audio', pcm: phrase.audio, wakeTranscript: text })
+      return
     }
+    this.meter.record({ event: 'wake.rejected', label: 'ambient' })
   }
 
   private deliver(command: VoiceCommand): void {
@@ -288,12 +304,13 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
       ? `process exited with ${code === null ? `signal ${signal ?? 'unknown'}` : `code ${code ?? 'unknown'}`}`
       : (attempt.stderrTail.trim().split(/\r?\n/).pop()?.trim() ||
         'the listener exited before proving microphone readiness')
+    const settled = attempt.settled
     this.attempt = null
     if (this.closed || this.failed) return
-    void this.restart(reason)
+    void this.restart(reason, settled ? 'crash' : 'not-ready')
   }
 
-  private async restart(reason: string): Promise<void> {
+  private async restart(reason: string, label: 'crash' | 'not-ready'): Promise<void> {
     if (this.restarting || this.closed || this.failed) return
     this.restarting = true
     try {
@@ -301,10 +318,12 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
       while (!this.closed && !this.failed) {
         if (this.restarts >= this.maxRestarts) {
           this.failed = new Error(PERSISTENT_WAKE_FAILURE)
+          this.meter.record({ event: 'wake.failed', label })
           this.rejectWaiters(this.failed)
           return
         }
         this.restarts += 1
+        this.meter.record({ event: 'wake.restart', label })
         this.onWarn(
           `Athena voice wake listener stopped (${detail}); ` +
           `restarting (${this.restarts}/${this.maxRestarts}). If this repeats, run \`athena voice probe\`.`,
@@ -535,7 +554,11 @@ export interface VoiceSessionOptions {
   play?: (audio: Buffer) => Promise<void>
   speakFallback?: (text: string) => Promise<void>
   onStatus?: (message: string) => void
-  onUsage?: (usage: unknown) => void
+  /**
+   * Lifecycle counters, provider usage, and latency. Optional and non-fatal by
+   * construction: a ledger that cannot be written must never cost a turn.
+   */
+  telemetry?: VoiceTelemetryRecorder
   maxCommands?: number
   /** Athena's constitution text, woven into the Realtime session instructions. */
   persona?: string
@@ -561,12 +584,17 @@ interface VoiceTurnContext {
   answeringTurn: number
   /** Set when this utterance reached the harness, so a drop can say whether it was lost. */
   submitted: boolean
+  /** End of user speech, in recorder time; the start of the first-feedback budget. */
+  receivedAt: number
+  /** Cleared once the first spoken feedback is measured, so one utterance meters once. */
+  feedbackPending: boolean
 }
 
 export async function runVoiceSession(options: VoiceSessionOptions): Promise<void> {
   const play = options.play ?? playWindowsPcm
   const speakFallback = options.speakFallback ?? speakWindowsText
   const status = options.onStatus ?? ((message) => console.log(message))
+  const meter = options.telemetry ?? NULL_VOICE_TELEMETRY
   const turns = new VoiceTurnLedger()
   let commands = 0
   let stopRequested = false
@@ -618,6 +646,10 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
     }),
     onWarn: (message) => status(message),
     onSession: ({ generation, reason }) => {
+      // A planned renewal and an unplanned reconnect cost the same but mean different
+      // things, so they stay separate counters rather than one "session opened" total.
+      if (reason === 'renewal') meter.record({ event: 'realtime.renewal' })
+      else meter.record({ event: 'realtime.connect', label: reason })
       if (reason === 'initial') return
       status(`Athena voice opened Realtime session ${generation} (${reason}).`)
     },
@@ -629,17 +661,33 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
    * and a rejection from the audio backend degrades to local speech instead of ending the
    * session (which is what an unguarded `await play(...)` did).
    */
-  const present = async (turn: RealtimeTurnResult): Promise<void> => {
-    options.onUsage?.(turn.usage)
+  const present = async (turn: RealtimeTurnResult, context?: VoiceTurnContext): Promise<void> => {
+    meter.record({ event: 'provider.usage', meters: turn.usage })
     if (turn.transcript) {
       lastSpoken = turn.transcript
       status(`Athena: ${turn.transcript}`)
     }
+    // The budget is end of speech to the first thing the user actually hears, and it is
+    // metered here rather than at submit_turn: a status line is not feedback to a blind
+    // user. Harness work carries on afterwards and is metered separately.
+    if (context?.feedbackPending) {
+      context.feedbackPending = false
+      meter.record({
+        event: 'turn.feedback',
+        source: context.source,
+        ms: meter.now() - context.receivedAt,
+      })
+    }
+    const startedAt = meter.now()
+    const path = turn.audio.length > 0 ? 'realtime-audio' : 'local-speech'
     try {
       if (turn.audio.length > 0) await play(turn.audio)
       else if (turn.transcript) await speakFallback(turn.transcript)
+      else return
+      meter.record({ event: 'playback.spoken', label: path, ms: meter.now() - startedAt })
       return
     } catch (error) {
+      meter.record({ event: 'playback.failed', label: path })
       status(
         'Athena voice could not play audio through the Windows audio backend: ' +
         `${plainBounded((error as Error).message, 240)}. ` +
@@ -647,11 +695,18 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
       )
     }
     if (turn.audio.length === 0 || !turn.transcript) return
+    const recoveryAt = meter.now()
     try {
       await speakFallback(turn.transcript)
+      meter.record({
+        event: 'playback.spoken',
+        label: 'local-speech',
+        ms: meter.now() - recoveryAt,
+      })
     } catch {
       // Local speech was the recovery path; with both gone the stable text above is all
       // there is, and saying so twice would add nothing.
+      meter.record({ event: 'playback.failed', label: 'local-speech' })
     }
   }
 
@@ -751,6 +806,7 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
       const parsed = VoiceTurnSubmissionSchema.safeParse(call.arguments)
       const text = parsed.success ? plainBounded(parsed.data.text, 4_096) : ''
       if (!text) {
+        meter.record({ event: 'turn.refused', label: 'malformed', source: context.source })
         return {
           error: 'That submit_turn call is not well formed, so nothing was run.',
           instruction: 'Call submit_turn again with a single text field holding the user request.',
@@ -758,6 +814,7 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
       }
       const controller = options.controller
       if (!controller) {
+        meter.record({ event: 'turn.refused', label: 'no-controller', source: context.source })
         // The harness IS the executor: with no controller there is nowhere to run work,
         // and inventing an answer would be worse than saying so.
         return {
@@ -772,6 +829,12 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
       })
       if (!admission.ok) {
         context.submitted = true
+        meter.record({
+          event: 'turn.refused',
+          label: admission.reason,
+          source: context.source,
+          voiceTurnId: admission.record.id,
+        })
         status(`Athena: submit_turn refused (${admission.reason}) for ${admission.record.id}.`)
         return admission.reason === 'duplicate'
           ? {
@@ -792,6 +855,8 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
       context.submitted = true
       const record = admission.record
       status(`Athena harness: ${text} (${record.id})`)
+      meter.record({ event: 'turn.submitted', voiceTurnId: record.id, source: context.source })
+      const submittedAt = meter.now()
       void controller.submitTurn(text)
         .then((turnResult) => {
           turns.settle(
@@ -799,10 +864,24 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
             turnResult.status === 'completed' ? 'completed' : 'failed',
             turnResult.sessionId,
           )
+          // The voice turn ID is the key that ties this meter to the Athena session and run
+          // the trace already holds the real evidence for.
+          meter.record({
+            event: turnResult.status === 'completed' ? 'turn.completed' : 'turn.failed',
+            voiceTurnId: record.id,
+            harnessSessionId: turnResult.sessionId,
+            ...(turnResult.snapshot ? { runId: turnResult.snapshot.runId } : {}),
+            ms: meter.now() - submittedAt,
+          })
           deliverHarnessResult(turnResult)
         })
         .catch((error: unknown) => {
           turns.settle(record.id, 'failed')
+          meter.record({
+            event: 'turn.failed',
+            voiceTurnId: record.id,
+            ms: meter.now() - submittedAt,
+          })
           deliverHarnessResult({
             status: 'failed',
             summary: `Harness turn failed: ${(error as Error).message}`,
@@ -893,9 +972,11 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
     try {
       await client.connect()
     } catch (reconnectError) {
+      meter.record({ event: 'realtime.lost', label: 'unrecoverable' })
       await enqueueTurn(() => announceLocally(plainBounded((reconnectError as Error).message, 512)))
       return false
     }
+    meter.record({ event: 'realtime.lost', label: 'recovered' })
     await enqueueTurn(() => announceLocally(context.submitted
       ? 'I lost the voice connection and reopened it. The work you asked for is still running, ' +
         'so you do not need to repeat that.'
@@ -907,9 +988,14 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
   try {
     await client.connect()
     status(`Athena voice connected with ${options.model}. Say “Athena” followed by a command.`)
+    // The ready cue is the end of the launch budget, measured from process start rather
+    // than from here — everything before this line (boot, key resolution, controller
+    // creation) is time the user spent waiting too.
+    meter.record({ event: 'session.ready', ms: meter.sinceLaunch() })
     while (options.maxCommands === undefined || commands < options.maxCommands) {
       const command = await options.input.next()
       if (command === null) continue
+      const receivedAt = meter.now()
       commands++
       const text = command.kind === 'text' ? command.text : null
       const normalized = text?.trim().toLowerCase() ?? ''
@@ -932,6 +1018,9 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
         lastSpoken = spoken
         await speakFallback(spoken)
         status(`Athena: ${spoken}`)
+        // A typed decision is still an utterance that got an answer, so it counts against
+        // the same feedback budget as a spoken one.
+        meter.record({ event: 'turn.feedback', source: 'keyboard', ms: meter.now() - receivedAt })
         continue
       }
       const context: VoiceTurnContext = {
@@ -939,6 +1028,8 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
         source: command.kind === 'audio' ? 'audio' : 'keyboard',
         answeringTurn: 0,
         submitted: false,
+        receivedAt,
+        feedbackPending: true,
       }
       let turn: RealtimeTurnResult
       try {
@@ -953,7 +1044,7 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
         if (!(await recoverTransport(error, context))) break
         continue
       }
-      await present(turn)
+      await present(turn, context)
       options.onStandby?.()
       if (stopRequested) break
     }

@@ -9,6 +9,7 @@ import {
 } from '../presentation/permission-format.js'
 import type { AccessiblePermissionRequest } from '../presentation/types.js'
 import { speechDecision, speechOwnershipReason, type SpeechOwnership } from './speech.js'
+import { NULL_VOICE_TELEMETRY, type VoiceTelemetryRecorder } from './telemetry.js'
 
 export type VoicePermissionAction = 'allow' | 'deny'
 
@@ -54,6 +55,11 @@ export interface VoiceAttentionBridgeOptions {
   maxRemembered?: number
   /** Semantic-plane text buffered before the session attaches its speaker. */
   maxQueued?: number
+  /**
+   * Permission wait/resolution counters. The bridge is the only place that sees a wait
+   * BEGIN — the daemon only ever sees the answer — so the seam has to be here.
+   */
+  telemetry?: VoiceTelemetryRecorder
 }
 
 interface PendingRecord {
@@ -62,6 +68,8 @@ interface PendingRecord {
   spoken: string
   /** Voice turn in flight when this was announced; a same-turn answer is refused. */
   announcedAtTurn: number
+  /** Recorder time the harness started waiting, for the resolution latency meter. */
+  waitingSince: number
   resolve: (answer: PermissionAnswer) => void
 }
 
@@ -95,6 +103,7 @@ export class VoiceAttentionBridge {
   private readonly pending = new Map<string, PendingRecord>()
   private readonly resolved: string[] = []
   private readonly queued: Array<{ text: string; spoken: boolean }> = []
+  private readonly meter: VoiceTelemetryRecorder
   private speaker: VoiceAttentionSpeaker | null = null
   private closed = false
 
@@ -104,6 +113,7 @@ export class VoiceAttentionBridge {
     this.screenReaderActive = options.screenReaderActive ?? false
     this.maxRemembered = Math.max(1, options.maxRemembered ?? 64)
     this.maxQueued = Math.max(1, options.maxQueued ?? 16)
+    this.meter = options.telemetry ?? NULL_VOICE_TELEMETRY
   }
 
   /**
@@ -126,8 +136,12 @@ export class VoiceAttentionBridge {
       request: accessible,
       spoken,
       announcedAtTurn: this.speaker?.currentTurn() ?? 0,
+      waitingSince: this.meter.now(),
       resolve,
     })
+    // The identity only; the tool, the target, and the diff stay in the trace where the
+    // real evidence lives. A counter that carried the summary would be a transcript.
+    this.meter.record({ event: 'permission.wait', permissionId: accessible.id })
     // Spoken straight from the canonical record: routing a blocker through a model round
     // trip both delays it and lets a paraphrase change what the user thinks they allowed.
     // It is blocking, so it survives routine suppression; only an explicit `exclusive`
@@ -170,6 +184,14 @@ export class VoiceAttentionBridge {
     for (const record of [...this.pending.values()]) {
       this.pending.delete(record.id)
       this.remember(record.id)
+      // Labelled `shutdown`, not `deny`: a decision nobody was left to give reads very
+      // differently from one the user actually made.
+      this.meter.record({
+        event: 'permission.resolved',
+        label: 'shutdown',
+        permissionId: record.id,
+        ms: this.meter.now() - record.waitingSince,
+      })
       record.resolve('deny')
     }
     this.speaker = null
@@ -231,11 +253,20 @@ export class VoiceAttentionBridge {
     const answer: PermissionAnswer = action === 'allow' ? 'allow-once' : 'deny'
     this.pending.delete(record.id)
     this.remember(record.id)
+    this.meter.record({
+      event: 'permission.resolved',
+      label: action,
+      permissionId: record.id,
+      ms: this.meter.now() - record.waitingSince,
+    })
     record.resolve(answer)
     return { ok: true, id: record.id, action, answer }
   }
 
   private refuse(reason: VoicePermissionRefusal, pendingIds: string[]): VoicePermissionResolution {
+    // The refusal reason is already a closed union, so it is a counter label as it stands;
+    // the clarification sentence it maps to is never persisted.
+    this.meter.record({ event: 'permission.refused', label: reason })
     return { ok: false, reason, clarification: REFUSALS[reason], pendingIds }
   }
 

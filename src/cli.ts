@@ -1443,6 +1443,7 @@ async function main(): Promise<void> {
     const {
       KeyboardVoiceCommandInput,
       VoiceAttentionBridge,
+      VoiceTelemetry,
       WindowsPersistentWakeInput,
       ensureVoiceKey,
       playListeningCue,
@@ -1550,6 +1551,15 @@ async function main(): Promise<void> {
         return
       }
       const harnessClient = makeClient(provider, resolvedKey.key, voiceVmpRecorder)
+      const usageFile = join(paths.brainDir, 'voice-usage.jsonl')
+      // Cost, latency, and lifecycle meters — scalars and IDs only, never a transcript.
+      // Constructed before the bridge and the wake listener because both report into it.
+      const voiceTelemetry = new VoiceTelemetry({
+        model: cmd.model,
+        artifact: 'voice-usage.jsonl',
+        write: (line) => appendFileSync(usageFile, line, { encoding: 'utf8', mode: 0o600 }),
+        onWarn: (message) => console.error(message),
+      })
       // Running `athena voice` is itself a request for spoken output, so `directSpeech:
       // off` (the TUI default) becomes `supplemental` here rather than muting the one
       // mode with no screen to fall back on. Supplemental still yields routine speech to
@@ -1560,6 +1570,7 @@ async function main(): Promise<void> {
           ? 'supplemental'
           : settings.accessibility.directSpeech,
         screenReaderActive: settings.accessibility.presentation === 'screen-reader',
+        telemetry: voiceTelemetry,
       })
       const controller = await HarnessSessionController.create({
         paths,
@@ -1573,7 +1584,6 @@ async function main(): Promise<void> {
         askUser: attention.askUser,
         onAnnouncement: (announcement) => attention.announce(announcement),
       })
-      const usageFile = join(paths.brainDir, 'voice-usage.jsonl')
       // Ctrl+C is the documented immediate keyboard fallback, and without a handler the
       // process dies before `controller.close` runs — losing the SessionEnd hook and the
       // trace's closing record, which are the evidence a shut-down session is meant to
@@ -1594,6 +1604,7 @@ async function main(): Promise<void> {
         ? new KeyboardVoiceCommandInput({ onInterrupt: onVoiceSigint })
         : new WindowsPersistentWakeInput({
           onWarn: (message) => console.error(message),
+          telemetry: voiceTelemetry,
           onListening: () => {
             console.log('Athena: listening…')
             void playListeningCue().catch(() => {})
@@ -1614,11 +1625,7 @@ async function main(): Promise<void> {
               console.log('Athena: wake standby')
               void playStandbyCue().catch(() => {})
             },
-          onUsage: (usage) => appendFileSync(
-            usageFile,
-            JSON.stringify({ schemaVersion: 1, timestamp: new Date().toISOString(), model: cmd.model, usage }) + '\n',
-            { encoding: 'utf8', mode: 0o600 },
-          ),
+          telemetry: voiceTelemetry,
         })
       } catch (error) {
         // An interrupt tears the wake listener down on purpose; reporting that as a voice
