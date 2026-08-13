@@ -1,4 +1,3 @@
-import { execFile } from 'node:child_process'
 import { createInterface } from 'node:readline/promises'
 import { plainBounded } from '../interaction/format.js'
 import type { HarnessSessionController } from '../harness/controller.js'
@@ -22,7 +21,6 @@ import {
 import {
   playWindowsPcm,
   probeWindowsSpeech,
-  recognizeWindowsPhrase,
   realtimePcmFromWave,
   spawnWindowsWakeListener,
   speakWindowsText,
@@ -40,32 +38,6 @@ export interface VoiceCommandInput {
 export type VoiceCommand =
   | { kind: 'text'; text: string }
   | { kind: 'audio'; pcm: Buffer; wakeTranscript: string }
-
-/** Shared local wake gate: confidence threshold plus the constrained `Athena` prefix.
- *  The full post-wake audio is what Realtime receives; the transcript only gates. */
-function acceptWakePhrase(phrase: RecognizedPhrase, minimumConfidence: number): VoiceCommand | null {
-  if (phrase.confidence < minimumConfidence) return null
-  if (stripWakePhrase(phrase.text) || /^athena[,.!?;:]?$/i.test(phrase.text.trim())) {
-    return { kind: 'audio', pcm: phrase.audio, wakeTranscript: phrase.text }
-  }
-  return null
-}
-
-export class WindowsWakeCommandInput implements VoiceCommandInput {
-  constructor(
-    private readonly minimumConfidence = WINDOWS_WAKE_MINIMUM_CONFIDENCE,
-    private readonly recognize: typeof recognizeWindowsPhrase = recognizeWindowsPhrase,
-  ) {}
-  async next(): Promise<VoiceCommand | null> {
-    for (;;) {
-      const phrase = await this.recognize()
-      if (!phrase) return null
-      const command = acceptWakePhrase(phrase, this.minimumConfidence)
-      if (command) return command
-    }
-  }
-  close(): void {}
-}
 
 /** The streaming subset of ChildProcess the wake listener needs (injectable for tests). */
 export interface WakeListenerProcess {
@@ -541,79 +513,6 @@ export async function waitForWakeProbe(options: WakeProbeOptions = {}): Promise<
   return { passed: false, heard, command: null, audio: null, detail }
 }
 
-export interface DelegateResult {
-  status: 'completed' | 'failed'
-  summary: string
-  sessionId?: string
-}
-
-export type DelegateRunner = (prompt: string) => Promise<DelegateResult>
-
-export function athenaDelegateArgs(prompt: string, resumeId?: string): string[] {
-  return [
-    'exec',
-    `Voice delegation: ${plainBounded(prompt, 4_096)}`,
-    '--output',
-    'json',
-    ...(resumeId ? ['--resume', resumeId] : ['--session']),
-    '--permission-mode',
-    'acceptEdits',
-  ]
-}
-
-export function runAthenaDelegate(
-  prompt: string,
-  cwd = process.cwd(),
-  entrypoint = process.argv[1],
-  resumeId?: string,
-): Promise<DelegateResult> {
-  return new Promise((resolve) => {
-    if (!entrypoint) {
-      resolve({ status: 'failed', summary: 'Athena CLI entrypoint is unavailable.' })
-      return
-    }
-    const bounded = plainBounded(prompt, 4_096)
-    execFile(
-      process.execPath,
-      [entrypoint, ...athenaDelegateArgs(bounded, resumeId)],
-      {
-        cwd,
-        windowsHide: true,
-        timeout: 30 * 60_000,
-        maxBuffer: 4 * 1024 * 1024,
-        env: { ...process.env, ATHENA_VOICE_CHILD: '1' },
-      },
-      (error, stdout, stderr) => {
-        const lines = stdout.trim().split(/\r?\n/).filter(Boolean)
-        let envelope: Record<string, unknown> | null = null
-        try {
-          const parsed = JSON.parse(lines.at(-1) ?? '') as unknown
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            envelope = parsed as Record<string, unknown>
-          }
-        } catch {
-          // The bounded stderr fallback below is the actionable result.
-        }
-        const output = typeof envelope?.output === 'string'
-          ? plainBounded(envelope.output, 8_192)
-          : ''
-        if (!error && envelope) {
-          resolve({
-            status: envelope.status === 'completed' ? 'completed' : 'failed',
-            summary: output || `Athena finished with status ${String(envelope.status ?? 'unknown')}.`,
-            ...(typeof envelope.sessionId === 'string' ? { sessionId: envelope.sessionId } : {}),
-          })
-          return
-        }
-        resolve({
-          status: 'failed',
-          summary: plainBounded(stderr || error?.message || 'Athena delegation failed.', 2_048),
-        })
-      },
-    )
-  })
-}
-
 export interface VoiceSessionOptions {
   apiKey: string
   model: RealtimeVoiceModel
@@ -624,7 +523,6 @@ export interface VoiceSessionOptions {
    * harness keeps its headless auto-deny and voice can only do read-only work.
    */
   attention?: VoiceAttentionBridge
-  delegate?: DelegateRunner
   /**
    * One fixed session with no renewal or reconnect. This is the single-shot seam; normal
    * use goes through `clientFactory` so a dropped or expiring session can be replaced.
@@ -661,7 +559,6 @@ interface VoiceTurnContext {
   source: VoiceTurnSource
   /** Realtime turn in flight, so a permission announced on it cannot answer itself. */
   answeringTurn: number
-  pendingAtTurnStart: boolean
   /** Set when this utterance reached the harness, so a drop can say whether it was lost. */
   submitted: boolean
 }
@@ -671,8 +568,6 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
   const speakFallback = options.speakFallback ?? speakWindowsText
   const status = options.onStatus ?? ((message) => console.log(message))
   const turns = new VoiceTurnLedger()
-  let pendingDelegate: string | null = null
-  let lastDelegate: DelegateResult | null = null
   let commands = 0
   let stopRequested = false
   // What Athena last actually said out loud, so `repeat` replays speech rather than the
@@ -693,8 +588,6 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
     )
     return run
   }
-  const delegate = options.delegate
-    ?? ((prompt: string) => runAthenaDelegate(prompt, process.cwd(), process.argv[1], lastDelegate?.sessionId))
 
   /**
    * A replacement Realtime session starts with an EMPTY conversation, so continuity has to
@@ -807,8 +700,8 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
       // outstanding the harness is blocked on the user, whatever else has been reduced.
       status: awaiting.length > 0
         ? 'waiting-permission'
-        : snapshot?.phase.value ?? lastDelegate?.status ?? 'idle',
-      summary: snapshot?.objective.value ?? lastDelegate?.summary ?? 'Athena voice is ready.',
+        : snapshot?.phase.value ?? 'idle',
+      summary: snapshot?.objective.value ?? 'Athena voice is ready.',
       activity: snapshot?.activity.value?.label ?? null,
       attention: (snapshot?.attention ?? [])
         .slice(0, 8)
@@ -851,7 +744,7 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
     call: RealtimeToolCall,
     context: VoiceTurnContext,
   ): Promise<unknown> => {
-    const { pendingAtTurnStart, answeringTurn } = context
+    const { answeringTurn } = context
     if (call.name === 'submit_turn') {
       // Model output is untrusted input, and the tool is advertised with exactly one
       // string field: anything else is a malformed call and runs nothing.
@@ -863,61 +756,62 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
           instruction: 'Call submit_turn again with a single text field holding the user request.',
         }
       }
-      if (options.controller) {
-        const admission = turns.admit({
-          utterance: context.utterance,
-          source: context.source,
-          text,
-        })
-        if (!admission.ok) {
-          context.submitted = true
-          status(`Athena: submit_turn refused (${admission.reason}) for ${admission.record.id}.`)
-          return admission.reason === 'duplicate'
-            ? {
-              error: 'I already have that exact request; it was not started a second time.',
-              voice_turn_id: admission.record.id,
-              state: admission.record.state,
-              instruction: 'Tell the user you already have that request. Do not submit it again.',
-            }
-            : {
-              error: 'Athena is still working on the previous request.',
-              voice_turn_id: admission.record.id,
-              instruction: 'Tell the user you are still working on the previous request.',
-            }
-        }
-        // Non-blocking by design: the harness turn can run for minutes, and the
-        // Realtime response holding this tool call times out long before that. Return
-        // at start; the finished result is spoken via deliverHarnessResult.
-        context.submitted = true
-        const record = admission.record
-        status(`Athena harness: ${text} (${record.id})`)
-        const controller = options.controller
-        void controller.submitTurn(text)
-          .then((turnResult) => {
-            turns.settle(
-              record.id,
-              turnResult.status === 'completed' ? 'completed' : 'failed',
-              turnResult.sessionId,
-            )
-            deliverHarnessResult(turnResult)
-          })
-          .catch((error: unknown) => {
-            turns.settle(record.id, 'failed')
-            deliverHarnessResult({
-              status: 'failed',
-              summary: `Harness turn failed: ${(error as Error).message}`,
-            })
-          })
+      const controller = options.controller
+      if (!controller) {
+        // The harness IS the executor: with no controller there is nowhere to run work,
+        // and inventing an answer would be worse than saying so.
         return {
-          status: 'started',
-          voice_turn_id: record.id,
-          instruction: 'The work has started. Tell the user, briefly and in first person, that you are on it.',
+          error: 'This voice session has no Athena harness attached, so nothing was run.',
+          instruction: 'Tell the user you cannot run that right now, and do not try again.',
         }
       }
-      lastDelegate = await delegate(text)
+      const admission = turns.admit({
+        utterance: context.utterance,
+        source: context.source,
+        text,
+      })
+      if (!admission.ok) {
+        context.submitted = true
+        status(`Athena: submit_turn refused (${admission.reason}) for ${admission.record.id}.`)
+        return admission.reason === 'duplicate'
+          ? {
+            error: 'I already have that exact request; it was not started a second time.',
+            voice_turn_id: admission.record.id,
+            state: admission.record.state,
+            instruction: 'Tell the user you already have that request. Do not submit it again.',
+          }
+          : {
+            error: 'Athena is still working on the previous request.',
+            voice_turn_id: admission.record.id,
+            instruction: 'Tell the user you are still working on the previous request.',
+          }
+      }
+      // Non-blocking by design: the harness turn can run for minutes, and the Realtime
+      // response holding this tool call times out long before that. Return at start; the
+      // finished result is spoken via deliverHarnessResult.
+      context.submitted = true
+      const record = admission.record
+      status(`Athena harness: ${text} (${record.id})`)
+      void controller.submitTurn(text)
+        .then((turnResult) => {
+          turns.settle(
+            record.id,
+            turnResult.status === 'completed' ? 'completed' : 'failed',
+            turnResult.sessionId,
+          )
+          deliverHarnessResult(turnResult)
+        })
+        .catch((error: unknown) => {
+          turns.settle(record.id, 'failed')
+          deliverHarnessResult({
+            status: 'failed',
+            summary: `Harness turn failed: ${(error as Error).message}`,
+          })
+        })
       return {
-        status: lastDelegate.status,
-        summary: plainBounded(lastDelegate.summary, 8_192),
+        status: 'started',
+        voice_turn_id: record.id,
+        instruction: 'The work has started. Tell the user, briefly and in first person, that you are on it.',
       }
     }
     if (call.name === 'local_control') {
@@ -978,66 +872,7 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
       }
       return { error: `Unhandled local control action: ${action}` }
     }
-    if (call.name === 'status') {
-      const snap = options.controller?.getSnapshot()
-      return {
-        status: snap?.phase.value ?? lastDelegate?.status ?? 'idle',
-        summary: snap?.objective.value ?? lastDelegate?.summary ?? 'No voice delegation has run yet.',
-      }
-    }
-    if (call.name === 'stop_listening') {
-      stopRequested = true
-      return { status: 'stopping', summary: 'Athena voice is stopping.' }
-    }
-    if (call.name === 'cancel') {
-      if (!pendingAtTurnStart || !pendingDelegate) {
-        return { error: 'There is no proposal from an earlier turn to cancel.' }
-      }
-      pendingDelegate = null
-      return { status: 'canceled', summary: 'The pending delegation was canceled.' }
-    }
-    if (call.name === 'confirm') {
-      if (!pendingAtTurnStart || !pendingDelegate) {
-        return { error: 'There is no proposal from an earlier turn to confirm.' }
-      }
-      const prompt = pendingDelegate
-      pendingDelegate = null
-      status('Athena: Confirmed. Delegating to the coding engine.')
-      if (options.controller) {
-        const turnResult = await options.controller.submitTurn(prompt)
-        return {
-          status: turnResult.status,
-          summary: turnResult.summary,
-          sessionId: turnResult.sessionId,
-        }
-      }
-      lastDelegate = await delegate(prompt)
-      return {
-        status: lastDelegate.status,
-        summary: plainBounded(lastDelegate.summary, 8_192),
-      }
-    }
-    if (call.name !== 'delegate') return { error: `Unsupported voice function: ${call.name}` }
-    if (pendingAtTurnStart) {
-      return { error: 'A proposal is already waiting; the user must confirm or cancel it.' }
-    }
-    const args = call.arguments as { prompt?: unknown } | null
-    const prompt = typeof args?.prompt === 'string' ? plainBounded(args.prompt, 4_096) : ''
-    if (!prompt) return { error: 'Delegate prompt is missing.' }
-    if (options.controller) {
-      status(`Athena harness: ${prompt}`)
-      const turnResult = await options.controller.submitTurn(prompt)
-      return {
-        status: turnResult.status,
-        summary: turnResult.summary,
-        sessionId: turnResult.sessionId,
-      }
-    }
-    pendingDelegate = prompt
-    return {
-      status: 'confirmation_required',
-      instruction: 'Say Athena confirm to run it, or Athena cancel to discard it.',
-    }
+    return { error: `Unsupported voice function: ${call.name}` }
   }
 
   /**
@@ -1076,35 +911,9 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
       const command = await options.input.next()
       if (command === null) continue
       commands++
-      const pendingAtTurnStart = pendingDelegate !== null
       const text = command.kind === 'text' ? command.text : null
       const normalized = text?.trim().toLowerCase() ?? ''
       if (text && (normalized === 'quit' || normalized === 'exit')) break
-      if (text && pendingDelegate && normalized === 'cancel') {
-        pendingDelegate = null
-        await speakFallback('Pending delegation canceled.')
-        status('Athena: Pending delegation canceled.')
-        continue
-      }
-      if (text && pendingDelegate && normalized === 'confirm') {
-        const prompt = pendingDelegate
-        pendingDelegate = null
-        status('Athena: Confirmed. Delegating to the coding engine.')
-        lastDelegate = await delegate(prompt)
-        const confirmed: DelegateResult = lastDelegate
-        const summary = plainBounded(confirmed.summary, 8_192)
-        await present(await enqueueTurn(() => client.ask(
-          `A separately confirmed Athena coding delegation finished with status ` +
-          `${confirmed.status}. Give a concise spoken summary of this redacted result: ${summary}`,
-          async () => ({ error: 'Nested delegation is not allowed while summarizing a result.' }),
-        )))
-        continue
-      }
-      if (text && pendingDelegate) {
-        await speakFallback('A delegation is waiting. Say Athena confirm or Athena cancel.')
-        status('Athena: A delegation is waiting for confirm or cancel.')
-        continue
-      }
       // Keyboard parity (FR-006): a typed answer resolves the same canonical request
       // through the same matcher, with no model between the user and the decision.
       const typedAnswer = text && options.attention
@@ -1129,7 +938,6 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
         utterance: commands,
         source: command.kind === 'audio' ? 'audio' : 'keyboard',
         answeringTurn: 0,
-        pendingAtTurnStart,
         submitted: false,
       }
       let turn: RealtimeTurnResult

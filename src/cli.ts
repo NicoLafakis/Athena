@@ -1464,11 +1464,6 @@ async function main(): Promise<void> {
     const VOICE_KEY_PROMPT =
       'Paste your OpenAI API key and press Enter ' +
       '(visible while pasting; validated, then stored in your OS credential vault): '
-    if (process.env['ATHENA_VOICE_CHILD'] === '1') {
-      console.error('Nested Athena voice processes are not allowed.')
-      process.exitCode = CLI_EXIT.usage
-      return
-    }
     if (cmd.action === 'auth') {
       if (!process.stdin.isTTY || !process.stdout.isTTY) {
         console.error('athena voice auth needs an interactive terminal.')
