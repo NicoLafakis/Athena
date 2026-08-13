@@ -59,7 +59,10 @@ and local slash-command handler.
 - `src/experience/` — deterministic capture, compilation, storage, and retrieval of
   bounded experiential guidance.
 - `src/voice/` — provider-neutral optional voice contracts and routing over semantic
-  state; no default boot-time audio or network activity.
+  state, plus the opt-in `athena voice` session: a persistent local wake listener, a
+  bounded OpenAI Realtime audio/intent adapter advertising only `submit_turn` and
+  `local_control`, and `VoiceAttentionBridge`, the permission approver it hands to the
+  shared controller. No default boot-time audio or network activity.
 - `src/learning/` — governed learning candidates, evaluation, promotion, and warehouse.
 - `src/auth/` — interactive credential setup.
 
@@ -71,7 +74,11 @@ The accessibility branch is selected once during startup in `src/cli.ts`:
    with the same stable request ID.
 2. Standard mode enqueues the request through `PermissionBridge` in `src/tui/App.tsx`.
    Screen-reader mode creates a presentation-neutral accessible request and reads a
-   plain `y`, `a`, or `n` response.
+   plain `y`, `a`, or `n` response. `athena voice` is the third consumer:
+   `VoiceAttentionBridge` speaks the canonical record through local TTS, tells the
+   Realtime session a decision is outstanding without granting it authority to answer,
+   and settles only on a validated `local_control` call — refusing same-turn, stale,
+   unknown, and ambiguous replies, and reaching `allow-once` but never `allow-always`.
 3. Shared helpers in `src/presentation/permission-diff.ts` derive change counts and a
    bounded on-demand diff; the visual and append-only presentations consume the same
    diff algorithm from `src/presentation/diff-lines.ts`.
