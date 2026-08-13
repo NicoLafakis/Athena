@@ -3,8 +3,8 @@ import { render } from 'ink-testing-library'
 import { Box, Text } from 'ink'
 import { createElement } from 'react'
 import {
-  sliceToRows,
-  shiftWindowEnd,
+  sliceToAnchor,
+  shiftAnchor,
   estimateEntryRows,
   displayWidth,
   tailTextToRows,
@@ -14,70 +14,93 @@ import {
 import { popupLine } from '../../src/tui/popupWindow.js'
 import type { TranscriptEntry } from '../../src/tui/components/Transcript.js'
 
-describe('sliceToRows', () => {
+describe('sliceToAnchor', () => {
   it('returns everything when it all fits', () => {
     const entries = ['a', 'b', 'c']
-    expect(sliceToRows(entries, () => 1, 10)).toEqual(['a', 'b', 'c'])
+    expect(sliceToAnchor(entries, () => 1, 10, null)).toEqual({
+      items: ['a', 'b', 'c'],
+      clipFirstRows: 0,
+      clipLastRows: 0,
+    })
   })
 
-  it('keeps only the most recent entries that fit within maxRows', () => {
+  it('packs backward from the tail within maxRows, clipping the top entry into spare rows', () => {
     const entries = ['a', 'b', 'c', 'd', 'e']
-    // 2 rows each, budget 5: two entries (4 rows) fit, a third (6 rows) would not.
-    expect(sliceToRows(entries, () => 2, 5)).toEqual(['d', 'e'])
+    // 2 rows each, budget 5: d+e (4 rows) fit whole, and c contributes its last row
+    // rather than leaving a row unused — row-granularity at the window's top edge.
+    expect(sliceToAnchor(entries, () => 2, 5, null)).toEqual({
+      items: ['c', 'd', 'e'],
+      clipFirstRows: 1,
+      clipLastRows: 0,
+    })
   })
 
-  it('always keeps at least the single most recent entry, even if it alone exceeds maxRows', () => {
-    expect(sliceToRows(['a', 'b'], () => 100, 5)).toEqual(['b'])
+  it('clips an oversized anchor entry to its tail rows instead of dropping it', () => {
+    const window = sliceToAnchor(['a', 'b'], () => 100, 5, null)
+    expect(window.items).toEqual(['b'])
+    expect(window.clipFirstRows).toBe(95)
+    expect(window.clipLastRows).toBe(0)
   })
 
-  it('returns an empty array for an empty input', () => {
-    expect(sliceToRows([], () => 1, 10)).toEqual([])
+  it('returns an empty window for an empty input', () => {
+    expect(sliceToAnchor([], () => 1, 10, null).items).toEqual([])
   })
 
   it('maxRows <= 0 still keeps the most recent entry rather than blanking the transcript', () => {
-    expect(sliceToRows(['a', 'b'], () => 1, 0)).toEqual(['b'])
+    expect(sliceToAnchor(['a', 'b'], () => 1, 0, null).items).toEqual(['b'])
   })
 
   it('render/memory cost stays flat: window size never grows with history length', () => {
     const long = Array.from({ length: 5_000 }, (_, i) => `entry-${i}`)
-    expect(sliceToRows(long, () => 1, 20)).toHaveLength(20)
-  })
-})
-
-describe('sliceToRows with a scrolled window end', () => {
-  const entries = ['a', 'b', 'c', 'd', 'e']
-
-  it('windowEnd === entries.length is byte-for-byte the pinned-to-tail default', () => {
-    expect(sliceToRows(entries, () => 1, 3, entries.length)).toEqual(sliceToRows(entries, () => 1, 3))
+    expect(sliceToAnchor(long, () => 1, 20, null).items).toHaveLength(20)
   })
 
-  it('ends the window at the given exclusive index', () => {
-    expect(sliceToRows(entries, () => 1, 3, 4)).toEqual(['b', 'c', 'd'])
-    expect(sliceToRows(entries, () => 1, 3, 3)).toEqual(['a', 'b', 'c'])
+  it('a scrolled anchor ends the window inside the indexed entry', () => {
+    const entries = ['a', 'b', 'c', 'd', 'e']
+    expect(sliceToAnchor(entries, () => 1, 3, { index: 3, clip: 0 }).items).toEqual(['b', 'c', 'd'])
+    expect(sliceToAnchor(entries, () => 1, 3, { index: 2, clip: 0 }).items).toEqual(['a', 'b', 'c'])
   })
 
-  it('packs backward by ROWS, not by entry count, from the scrolled end', () => {
-    // 2 rows each, budget 5: two entries fit, a third would not.
-    expect(sliceToRows(entries, () => 2, 5, 4)).toEqual(['c', 'd'])
+  it('clip rows come off the anchor entry bottom (row-precise, not entry-granular)', () => {
+    // A 10-row entry whose window bottom rests 6 rows above its tail, budget 4:
+    // rows [0..4) show — clipFirst 0, clipLast 6.
+    const window = sliceToAnchor(['big'], () => 10, 4, { index: 0, clip: 6 })
+    expect(window).toEqual({ items: ['big'], clipFirstRows: 0, clipLastRows: 6 })
   })
 
-  it('clamps a window end below 1 up to 1 rather than blanking the transcript', () => {
-    expect(sliceToRows(entries, () => 1, 3, 0)).toEqual(['a'])
-    expect(sliceToRows(entries, () => 1, 3, -10)).toEqual(['a'])
+  it('the middle of a screen-taller entry is reachable — the regression this fixes', () => {
+    // 30-row entry under 10 singles, budget 5, bottom edge 20 rows above the tall
+    // entry's bottom: the window shows tall rows [7..12) — its middle.
+    const entries = ['tall', 's1', 's2']
+    const rows = (e: string): number => (e === 'tall' ? 30 : 1)
+    const window = sliceToAnchor(entries, rows, 5, { index: 0, clip: 20 })
+    expect(window).toEqual({ items: ['tall'], clipFirstRows: 5, clipLastRows: 20 })
   })
 
-  it('clamps a window end past the tail back down to the tail', () => {
-    expect(sliceToRows(entries, () => 1, 2, 99)).toEqual(['d', 'e'])
+  it('clips the top entry from above when it only partially fits', () => {
+    // budget 4 from the tail: c(1) + b(1) fit whole; a(10 rows) contributes its last 2.
+    const rows = (e: string): number => (e === 'a' ? 10 : 1)
+    const window = sliceToAnchor(['a', 'b', 'c'], rows, 4, null)
+    expect(window).toEqual({ items: ['a', 'b', 'c'], clipFirstRows: 8, clipLastRows: 0 })
   })
 
-  it('still keeps one entry when the entry at the window end alone exceeds maxRows', () => {
-    expect(sliceToRows(entries, () => 100, 5, 3)).toEqual(['c'])
+  it('never slices a non-clippable entry mid-body', () => {
+    const rows = (e: string): number => (e === 'a' ? 10 : 1)
+    const window = sliceToAnchor(['a', 'b', 'c'], rows, 4, null, () => false)
+    expect(window).toEqual({ items: ['b', 'c'], clipFirstRows: 0, clipLastRows: 0 })
+  })
+
+  it('clamps a nonsense anchor into range instead of blanking the transcript', () => {
+    const entries = ['a', 'b', 'c']
+    expect(sliceToAnchor(entries, () => 1, 2, { index: 99, clip: 0 }).items).toEqual(['b', 'c'])
+    expect(sliceToAnchor(entries, () => 1, 2, { index: -5, clip: 0 }).items).toEqual(['a'])
   })
 
   it('a scrolled window is unmoved by entries appended after it (no yank to the tail)', () => {
-    const before = sliceToRows(entries, () => 1, 3, 3)
+    const entries = ['a', 'b', 'c', 'd', 'e']
+    const before = sliceToAnchor(entries, () => 1, 3, { index: 2, clip: 0 })
     const grown = [...entries, 'f', 'g']
-    expect(sliceToRows(grown, () => 1, 3, 3)).toEqual(before)
+    expect(sliceToAnchor(grown, () => 1, 3, { index: 2, clip: 0 })).toEqual(before)
   })
 
   it('cost stays proportional to the viewport, not to history length', () => {
@@ -87,56 +110,52 @@ describe('sliceToRows with a scrolled window end', () => {
       measured += 1
       return 1
     }
-    expect(sliceToRows(long, rows, 20, 2_500)).toHaveLength(20)
+    expect(sliceToAnchor(long, rows, 20, { index: 2_499, clip: 0 }).items).toHaveLength(20)
     expect(measured).toBeLessThanOrEqual(21) // the window plus the one that didn't fit
   })
 })
 
-describe('shiftWindowEnd', () => {
+describe('shiftAnchor', () => {
   const entries = Array.from({ length: 10 }, (_, i) => `e${i}`)
   const one = (): number => 1
 
   it('scrolls up by the requested number of rows', () => {
-    expect(shiftWindowEnd(entries, one, 10, -3)).toBe(7)
+    expect(shiftAnchor(entries, one, null, -3, 5)).toEqual({ index: 6, clip: 0 })
   })
 
-  it('scrolls back down by the requested number of rows', () => {
-    expect(shiftWindowEnd(entries, one, 7, 3)).toBe(10)
+  it('scrolling down to the live tail returns null (resume follow)', () => {
+    expect(shiftAnchor(entries, one, { index: 6, clip: 0 }, 3, 5)).toBeNull()
   })
 
-  it('round-trips: up then down by the same amount returns to where it started', () => {
-    const up = shiftWindowEnd(entries, one, 10, -4)
-    expect(shiftWindowEnd(entries, one, up, 4)).toBe(10)
+  it('round-trips: up then down by the same amount returns to the tail', () => {
+    const up = shiftAnchor(entries, one, null, -4, 5)
+    expect(shiftAnchor(entries, one, up, 4, 5)).toBeNull()
   })
 
-  it('clamps at the top to 1, never emptying the window', () => {
-    expect(shiftWindowEnd(entries, one, 3, -99)).toBe(1)
-    expect(shiftWindowEnd(entries, one, 1, -1)).toBe(1)
+  it('clamps at the top with the first content row at the window top', () => {
+    // budget 5 over 10 one-row entries: the topmost position shows e0..e4.
+    expect(shiftAnchor(entries, one, null, -99, 5)).toEqual({ index: 4, clip: 0 })
+    expect(shiftAnchor(entries, one, { index: 1, clip: 0 }, -99, 5)).toEqual({ index: 4, clip: 0 })
   })
 
-  it('clamps at the bottom to the live tail', () => {
-    expect(shiftWindowEnd(entries, one, 8, 99)).toBe(10)
-    expect(shiftWindowEnd(entries, one, 10, 5)).toBe(10)
+  it('is a no-op (null) when the whole history already fits the viewport', () => {
+    expect(shiftAnchor(['a', 'b'], one, null, -1, 5)).toBeNull()
   })
 
-  it('accounts for multi-row entries: a tall entry consumes a whole page step on its own', () => {
+  it('walks through a tall entry interior row by row', () => {
     const tall = (entry: string): number => (entry === 'e9' ? 50 : 1)
-    expect(shiftWindowEnd(entries, tall, 10, -10)).toBe(9)
+    // 9 singles + a 50-row tail entry, total 59: up 10 from the tail lands 10 rows
+    // above the tall entry's bottom.
+    expect(shiftAnchor(entries, tall, null, -10, 5)).toEqual({ index: 9, clip: 10 })
   })
 
-  it('lands on an entry boundary at or PAST the requested rows, never mid-entry', () => {
-    const two = (): number => 2
-    // 3 rows requested, 2 rows per entry: two entries (4 rows) must leave the window.
-    expect(shiftWindowEnd(entries, two, 10, -3)).toBe(8)
-  })
-
-  it('clamps a nonsense incoming window end before moving it', () => {
-    expect(shiftWindowEnd(entries, one, 999, -1)).toBe(9)
-    expect(shiftWindowEnd(entries, one, -999, -1)).toBe(1)
+  it('clamps a nonsense incoming anchor before moving it', () => {
+    expect(shiftAnchor(entries, one, { index: 999, clip: 0 }, -1, 5)).toEqual({ index: 8, clip: 0 })
+    expect(shiftAnchor(entries, one, { index: -5, clip: 99 }, -1, 5)).toEqual({ index: 4, clip: 0 })
   })
 
   it('is a no-op on an empty transcript', () => {
-    expect(shiftWindowEnd([], one, 0, -5)).toBe(0)
+    expect(shiftAnchor([], one, null, -5, 5)).toBeNull()
   })
 })
 

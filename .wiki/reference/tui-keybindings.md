@@ -65,20 +65,28 @@ Up/Down/Enter/Esc.
 ## Transcript scrolling (fullscreen mode only)
 
 Fullscreen-only because classic mode keeps native terminal scrollback, which these keys
-would otherwise fight with. See
+would otherwise fight with. (In practice Ink repaints classic mode with a
+scrollback-erasing `clearTerminal` on every frame once output reaches one screen, so
+classic scrollback is fragile by upstream design — fullscreen is the reliable reader.)
+The window is row-granular: paging walks through the interior of messages taller than
+the screen, not just entry by entry. See
 [the row-budget architecture page](../architecture/tui-fullscreen-row-budget.md) for how
 the scroll window is computed, and [platform limits](tui-platform-limits.md) for why
 Home/End aren't available as an alternative to the Ctrl+PageUp/PageDown bindings below.
 
 | Key | Action |
 | --- | --- |
-| PageUp | Scroll up roughly one screen (with a 1-row overlap for reader continuity) |
-| PageDown | Scroll down roughly one screen; scrolling past the last entry resumes following the live tail |
+| PageUp | Scroll up roughly one screen, row-precise (with a 1-row overlap for reader continuity) |
+| PageDown | Scroll down roughly one screen; reaching the live tail resumes following it |
 | Ctrl+PageUp | Jump to the top of the transcript |
 | Ctrl+PageDown | Jump to the live tail (equivalent to un-scrolling) |
 
+Windows Terminal caveat: it binds Ctrl+PageUp/Ctrl+PageDown to tab switching by default,
+so the jump bindings may never reach the app there — plain PageUp/PageDown are unbound
+in Windows Terminal and always work.
+
 New messages never yank a scrolled-up view back down to the tail — auto-follow only
-applies while `scrollEnd` is at its default (`null`, meaning "following the live tail").
+applies while the scroll anchor is at its default (`null`, "following the live tail").
 
 ## Global
 

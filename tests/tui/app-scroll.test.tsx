@@ -238,6 +238,32 @@ describe('fullscreen transcript scrolling', () => {
     }
   })
 
+  it('reaches the middle of an entry taller than the screen', async () => {
+    const props = makeProps()
+    const { stdout, stdin } = renderOnTty(<App {...props} />, 20, 80)
+    await delay(10)
+    // One 30-line assistant entry (a single emit stays a single entry), then singles.
+    props.bus.emit({
+      type: 'assistant-text',
+      delta: Array.from({ length: 30 }, (_, i) => `tall-line-${i + 1}`).join('\n'),
+    })
+    await delay(20)
+    await seedEntries(props.bus, 10)
+
+    const tail = lastFrame(stdout)
+    expect(tail).toContain('msg-10')
+    expect(tail).not.toContain('tall-line-15')
+
+    stdin.write(PAGE_UP)
+    await delay(20)
+
+    const frame = lastFrame(stdout)
+    // The middle of the tall entry — structurally unreachable with entry-granular windows.
+    expect(frame).toContain('tall-line-15')
+    expect(frame).toContain('C:/proj') // pinned chrome stays put
+    expect(frame.split('\n').length).toBeLessThanOrEqual(20)
+  })
+
   it('/clear resets a stale scroll anchor instead of leaving it pointing at gone entries', async () => {
     const props = makeProps()
     const { stdout, stdin } = renderOnTty(<App {...props} />, 20, 80)

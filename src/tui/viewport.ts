@@ -211,72 +211,105 @@ export function truncateTextToRows(text: string, columns: number, maxRows: numbe
   return `${cells.slice(0, lo).join('')}…`
 }
 
-/** Returns the longest run of `entries` ENDING at `windowEnd` (exclusive) whose estimated
- *  total row count fits within `maxRows`, always keeping at least the single entry
- *  immediately before `windowEnd` (even if it alone exceeds maxRows) so the transcript is
- *  never blanked out entirely. Generic over the row-estimator so it's unit-testable
- *  without constructing real TranscriptEntry values.
- *
- *  `windowEnd` defaults to `entries.length` — i.e. pinned to the live tail, which is
- *  exactly the pre-scrolling behavior and the only thing classic mode/the default call
- *  site ever needs. Scrolling (see shiftWindowEnd below and App.tsx's scrollEnd state)
- *  works purely by moving that exclusive end index BACKWARD; the window is still packed
- *  backward from it with the same row math, so there is only ever one row-measurement
- *  implementation. Anchoring the scroll position to an ENTRY INDEX rather than to a
- *  row-offset-from-the-bottom is deliberate: appending new entries at the tail then
- *  cannot move a scrolled-up window (no "yank to bottom"), and it keeps the per-render
- *  cost proportional to the viewport rather than to total history length. */
-export function sliceToRows<T>(
+/** Scroll position for the fullscreen transcript. The window's bottom edge rests `clip`
+ *  rows above the bottom of `entries[index]`; `null` (handled by callers) means pinned
+ *  to the live tail. Anchoring to an entry index — not a row-offset-from-the-bottom —
+ *  is deliberate: appending new entries at the tail cannot move a scrolled-up window
+ *  (no "yank to bottom"), and per-render cost stays proportional to the viewport. */
+export interface ScrollAnchor {
+  index: number
+  clip: number
+}
+
+export interface TranscriptWindow<T> {
+  items: T[]
+  /** Rows dropped from the TOP of items[0] (a partially visible first entry). */
+  clipFirstRows: number
+  /** Rows dropped from the BOTTOM of the last item (the anchor entry's clipped tail). */
+  clipLastRows: number
+}
+
+/** Row-granular window slicing. Packs entries backward from the anchor's bottom edge:
+ *  the anchor entry contributes its last `rows - clip` rows (fewer when it alone
+ *  overflows the budget — its middle is then reachable by paging, which is exactly the
+ *  regression entry-granular slicing had); whole entries above are added while they
+ *  fit; and the first entry is clipped from the top when it only partially fits.
+ *  `canClip` marks which entries may be sliced mid-body (text kinds); a non-clippable
+ *  entry (a bordered ToolCard) that doesn't fit whole is simply left out of the window.
+ *  Measurement goes through the caller's `rows` estimator — the SAME one Transcript
+ *  renders with — so a page step and the window it produces can never disagree about
+ *  how tall anything is. */
+export function sliceToAnchor<T>(
   entries: readonly T[],
   rows: (entry: T) => number,
   maxRows: number,
-  windowEnd: number = entries.length,
-): T[] {
-  if (entries.length === 0) return []
-  const end = Math.min(Math.max(Math.trunc(windowEnd), 1), entries.length)
-  const last = entries[end - 1] as T
-  if (maxRows <= 0) return [last]
-  let total = 0
-  let start = end
-  for (let i = end - 1; i >= 0; i--) {
+  anchor: ScrollAnchor | null,
+  canClip: (entry: T) => boolean = () => true,
+): TranscriptWindow<T> {
+  if (entries.length === 0) return { items: [], clipFirstRows: 0, clipLastRows: 0 }
+  const rowsOf = (entry: T): number => Math.max(1, rows(entry))
+  const index = Math.min(Math.max(Math.trunc(anchor?.index ?? entries.length - 1), 0), entries.length - 1)
+  const anchorRows = rowsOf(entries[index] as T)
+  const clip = Math.min(Math.max(Math.trunc(anchor?.clip ?? 0), 0), anchorRows - 1)
+  const budget = Math.max(Math.trunc(maxRows), 1)
+  const visibleAnchorRows = anchorRows - clip
+  const take = Math.min(visibleAnchorRows, budget)
+  let start = index
+  let clipFirst = anchorRows - clip - take
+  let remaining = budget - take
+  for (let i = index - 1; i >= 0 && remaining > 0; i--) {
     const entry = entries[i] as T
-    const r = Math.max(1, rows(entry))
-    if (total > 0 && total + r > maxRows) break
-    total += r
-    start = i
+    const r = rowsOf(entry)
+    if (r <= remaining) {
+      start = i
+      remaining -= r
+      continue
+    }
+    if (canClip(entry)) {
+      start = i
+      clipFirst = r - remaining
+    }
+    break
   }
-  return entries.slice(start, end)
+  return { items: entries.slice(start, index + 1), clipFirstRows: clipFirst, clipLastRows: clip }
 }
 
-/** Moves a `sliceToRows` window end by approximately `deltaRows` rows — negative scrolls
- *  UP (drops entries off the bottom of the window), positive scrolls DOWN (adds them back)
- *  — and returns the new exclusive end index, clamped to [1, entries.length] so the window
- *  can never be emptied or run past the live tail. Entry-granular by construction: an
- *  entry is the smallest unit that can enter or leave the window, so a page step lands on
- *  the first entry boundary at or past the requested row count rather than mid-entry.
- *  Measurement goes through the caller's `rows` estimator — the SAME one Transcript slices
- *  with — so a page step and the window it produces can never disagree about how tall
- *  anything is. */
-export function shiftWindowEnd<T>(
+/** Moves the scroll anchor by `deltaRows` ROWS (negative up, positive down), walking
+ *  through the interiors of tall entries. `maxRows` (the viewport budget) is what makes
+ *  the top clamp correct: the window's bottom edge may never rise above `min(totalRows,
+ *  maxRows)`, so paging up stops with the first content row at the window's top instead
+ *  of overshooting into an under-filled frame. Returns null when the move reaches the
+ *  live tail (the caller resumes follow-the-tail), when everything already fits, or
+ *  when there is no history. Positions are converted through absolute row offsets, so
+ *  an anchor and the window it produces can never drift apart. */
+export function shiftAnchor<T>(
   entries: readonly T[],
   rows: (entry: T) => number,
-  windowEnd: number,
+  anchor: ScrollAnchor | null,
   deltaRows: number,
-): number {
-  if (entries.length === 0) return 0
-  let end = Math.min(Math.max(Math.trunc(windowEnd), 1), entries.length)
-  let moved = 0
-  const wanted = Math.abs(deltaRows)
-  if (deltaRows < 0) {
-    while (end > 1 && moved < wanted) {
-      moved += Math.max(1, rows(entries[end - 1] as T))
-      end -= 1
-    }
+  maxRows: number,
+): ScrollAnchor | null {
+  if (entries.length === 0) return null
+  const rowsOf = (i: number): number => Math.max(1, rows(entries[i] as T))
+  let total = 0
+  for (let i = 0; i < entries.length; i++) total += rowsOf(i)
+  let position: number
+  if (anchor) {
+    const index = Math.min(Math.max(Math.trunc(anchor.index), 0), entries.length - 1)
+    const clip = Math.min(Math.max(Math.trunc(anchor.clip), 0), rowsOf(index) - 1)
+    position = rowsOf(index) - clip
+    for (let i = 0; i < index; i++) position += rowsOf(i)
   } else {
-    while (end < entries.length && moved < wanted) {
-      moved += Math.max(1, rows(entries[end] as T))
-      end += 1
-    }
+    position = total
   }
-  return end
+  const minPosition = Math.min(Math.max(Math.trunc(maxRows), 1), total)
+  const next = Math.min(Math.max(position + Math.trunc(deltaRows), minPosition), total)
+  if (next >= total) return null
+  let acc = 0
+  for (let i = 0; i < entries.length; i++) {
+    const r = rowsOf(i)
+    if (next <= acc + r) return { index: i, clip: acc + r - next }
+    acc += r
+  }
+  return null
 }

@@ -23,7 +23,7 @@ import {
 import { createFullscreenController } from './fullscreen.js'
 import { popupLayout } from './popupWindow.js'
 import type { ProviderId, Effort } from '../brain/models.js'
-import { estimateEntryRows, shiftWindowEnd, truncateRowsWithNotice, wrappedRowCount } from './viewport.js'
+import { estimateEntryRows, shiftAnchor, truncateRowsWithNotice, wrappedRowCount, type ScrollAnchor } from './viewport.js'
 import {
   PERMISSION_HEADER_TEXT,
   PERMISSION_FOOTER_TEXT,
@@ -342,10 +342,10 @@ export function App({
   // new messages keep the view pinned to the bottom). A number means the user has scrolled
   // up, and new messages must NOT yank the view back down — which an entry-index anchor
   // gives for free, since appending at the tail can't move an index that points behind it
-  // (see viewport.ts's sliceToRows/shiftWindowEnd for why the anchor is an index rather
+  // (see viewport.ts's sliceToAnchor/shiftAnchor for why the anchor is an index rather
   // than a row offset measured from the bottom). Fullscreen-only: classic mode has native
   // scrollback and never virtualizes.
-  const [scrollEnd, setScrollEnd] = useState<number | null>(null)
+  const [scrollAnchor, setScrollAnchor] = useState<ScrollAnchor | null>(null)
   const { exit } = useApp()
 
   // Fullscreen (alternate-screen) TUI mode: /tui fullscreen | classic still toggles it
@@ -501,7 +501,7 @@ export function App({
           setEntries([])
           // A scroll anchor that outlived the transcript it indexed into would leave the
           // view parked on entries that no longer exist; snap back to the live tail.
-          setScrollEnd(null)
+          setScrollAnchor(null)
           bus.emit({
             type: 'info',
             message: 'Screen cleared (transcript display only) — conversation context is unchanged.',
@@ -533,21 +533,24 @@ export function App({
   // checking `pending`.
   const dialogPendingFullscreen = fullscreen && pending !== null
 
-  // Scroll window end, RE-CLAMPED on every render rather than cached: `entries` can only
+  // Scroll anchor, RE-CLAMPED on every render rather than cached: `entries` can only
   // ever grow (append) or reset to empty (/clear), and `rows`/`columns` change under the
-  // app's feet on every terminal resize, so a stored index is only ever trustworthy
+  // app's feet on every terminal resize, so a stored anchor is only ever trustworthy
   // relative to the history that exists right now. Recomputing here is what makes a stale
   // anchor structurally impossible — the same discipline availableRows below already
-  // follows for the row budget. undefined = pinned to the live tail.
-  const windowEnd =
-    scrollEnd === null || entries.length === 0
-      ? undefined
-      : Math.min(Math.max(scrollEnd, 1), entries.length)
+  // follows for the row budget. null = pinned to the live tail.
+  const anchor =
+    scrollAnchor === null || entries.length === 0
+      ? null
+      : {
+          index: Math.min(Math.max(Math.trunc(scrollAnchor.index), 0), entries.length - 1),
+          clip: Math.max(0, Math.trunc(scrollAnchor.clip)),
+        }
   // How many entries sit below the viewport — drives StatusLine's "… N more below" notice.
   // Computed BEFORE statusLineRows on purpose: the notice is part of the status line's
   // text, so its own wrapped height has to be inside that measurement or it becomes an
   // unbudgeted row in a column whose only overflow-protected sibling is the Transcript.
-  const scrolledBelow = windowEnd === undefined ? 0 : entries.length - windowEnd
+  const scrolledBelow = anchor === null ? 0 : entries.length - 1 - anchor.index
 
   // StatusLine is a fixed footer, but its content (cwd/branch/model/mode/ctx%) is
   // arbitrary-length text with NO border/padding stealing width, so it's measured against
@@ -839,11 +842,14 @@ export function App({
   // reporting "scrolled" while actually rendering the tail. Functional update: when the
   // clamp is a no-op React bails out and no extra render happens.
   useEffect(() => {
-    setScrollEnd((prev) => {
+    setScrollAnchor((prev) => {
       if (prev === null) return null
       if (entries.length === 0) return null
-      const clamped = Math.min(Math.max(prev, 1), entries.length)
-      return clamped >= entries.length ? null : clamped
+      const index = Math.min(Math.max(Math.trunc(prev.index), 0), entries.length - 1)
+      const maxClip = Math.max(1, estimateEntryRows(entries[index]!, columns)) - 1
+      const clip = Math.min(Math.max(Math.trunc(prev.clip), 0), maxClip)
+      if (index === entries.length - 1 && clip === 0) return null
+      return index === prev.index && clip === prev.clip ? prev : { index, clip }
     })
   }, [entries.length, rows, columns])
 
@@ -872,23 +878,25 @@ export function App({
     (_ch, key) => {
       if (key.pageUp) {
         if (entries.length === 0) return
-        setScrollEnd((prev) => {
-          const from = prev ?? entries.length
-          return key.ctrl ? 1 : shiftWindowEnd(entries, entryRowsOf, from, -pageRows)
-        })
+        setScrollAnchor((prev) =>
+          // Ctrl+PageUp asks for the top: an arbitrarily large upward step, which
+          // shiftAnchor clamps at the first content row reaching the window's top.
+          key.ctrl
+            ? shiftAnchor(entries, entryRowsOf, null, -Number.MAX_SAFE_INTEGER, pageRows)
+            : shiftAnchor(entries, entryRowsOf, prev, -pageRows, pageRows),
+        )
         return
       }
       if (key.pageDown) {
         if (key.ctrl) {
-          setScrollEnd(null)
+          setScrollAnchor(null)
           return
         }
-        setScrollEnd((prev) => {
+        setScrollAnchor((prev) => {
           if (prev === null) return null
-          const next = shiftWindowEnd(entries, entryRowsOf, prev, pageRows)
-          // Paging past the last entry resumes following the live tail, rather than
-          // freezing on an index that later messages would scroll away from.
-          return next >= entries.length ? null : next
+          // Paging down to the live tail resumes following it (shiftAnchor returns
+          // null), rather than freezing on an anchor later messages would move past.
+          return shiftAnchor(entries, entryRowsOf, prev, pageRows, pageRows)
         })
       }
     },
@@ -915,7 +923,7 @@ export function App({
         justifyContent={fullscreen ? 'flex-end' : 'flex-start'}
         overflow={fullscreen ? 'hidden' : 'visible'}
       >
-        <Transcript entries={entries} maxRows={availableRows} windowEnd={windowEnd} columns={columns} />
+        <Transcript entries={entries} maxRows={availableRows} anchor={anchor} columns={columns} />
       </Box>
       {/* Hidden whenever a permission dialog is pending in fullscreen (see showTodoPanel
           above) — same visual-priority reasoning as the banner. Classic mode is
