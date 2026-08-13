@@ -72,18 +72,20 @@ The existing self-reflection-journal and memory-hygiene wiki plans remain separa
 They may share event identifiers and trace references, but not stores or authority.
 
 An earlier voice draft in commit `3bc1ce6` established an opt-in voice daemon, local wake
-word, OpenAI Realtime conductor, engine-session router, voice permissions, and a later
-control channel. Its useful decisions are now reconciled into the canonical
-[voice component](voice.md); the standalone roadmap was removed. The first working
-composition proved a local wake gate, raw microphone audio into Realtime, Marin playback,
-and a separately confirmed resumable `athena exec` child. It remains an intermediate
-proxy composition, not the final product boundary.
+word, an OpenAI Realtime conductor, an engine-session router, voice permissions, and a
+later control channel. Its useful decisions are reconciled into the canonical
+[voice component](voice.md); the standalone roadmap was removed. That composition proved
+the transport — a local wake gate, raw microphone audio into Realtime, Marin playback —
+while running work through a separately confirmed resumable `athena exec` child. It was
+always an intermediate proxy, not the product boundary.
 
 The [direct-harness voice specification](direct-harness-voice.md) and
-[ADR 0003](adr/0003-realtime-as-audio-adapter.md) supersede preservation of that conductor
-boundary. Realtime is to interpret post-wake audio and speak results while the semantic
-state, announcement plane, permissions, reasoning, tools, and claims about work remain
-owned by one Athena harness session.
+[ADR 0003](adr/0003-realtime-as-audio-adapter.md) superseded that conductor boundary, and
+the proxy itself was deleted on 2026-08-13. Realtime interprets post-wake audio and speaks
+results; semantic state, the announcement plane, permissions, reasoning, tools, and every
+claim about work belong to one Athena harness session. The transport survived the
+supersession intact, which is the useful lesson: the audio spike was worth keeping
+precisely because it proved hardware and wire format without committing to an architecture.
 
 Official OpenAI documentation checked 2026-07-29 resolved `gpt-realtime-2.1` as the
 quality model and `gpt-realtime-2.1-mini` as the implemented lower-cost default. Current

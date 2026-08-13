@@ -86,23 +86,41 @@ organization/admin keys are optional reconciliation tools and are not required.
 
 Windows voice mode listens through the local `System.Speech` recognizer. An utterance is
 ignored unless the locally recognized text begins with **Athena**, so ambient microphone
-audio is not sent to OpenAI. The post-wake command goes to the OpenAI Realtime conductor,
-which returns 24 kHz spoken audio. Coding work is proposed through `delegate`, requires a
-separate `Athena confirm`, and then runs through Athena's existing engine and permission
-policy. `Athena cancel` discards a pending delegation.
+audio is not sent to OpenAI. Only the post-wake utterance goes to the OpenAI Realtime
+session, which returns 24 kHz spoken audio.
+
+You are talking to Athena, not to something standing in front of her. Realtime is a
+bounded audio adapter: it understands what you said, hands it to one ordinary Athena
+session as normal input, and speaks back that session's real result. It cannot run tools,
+answer a question about your repository from its own knowledge, or decide whether a tool
+is allowed. When Athena needs permission she asks out loud, and your spoken answer is
+matched against the canonical request. A reply that arrives in the same turn as the
+question, names an unknown or already-settled request, or is ambiguous is refused rather
+than guessed at, and a spoken approval grants exactly one action. There is no spoken
+equivalent of "allow always"; widening the session gate stays a keyboard decision.
 
 ```sh
-athena voice auth       # hidden key entry; validates and saves to the OS vault
-athena voice probe      # speaks a sentinel, asks for “Athena voice probe”, checks Realtime
 athena voice            # microphone input; say “Athena” followed by a command
-athena voice --keyboard # stable text/Braille equivalent; type confirm/cancel/exit
+athena voice probe      # drives the real wake listener, then checks Realtime and playback
+athena voice auth       # replace the saved per-machine OpenAI voice key
+athena voice --keyboard # stable text/Braille equivalent; type answers, `exit` to leave
 ```
 
+You do not need `athena voice auth` to start. If no key is saved, `athena voice` asks for
+one inline and saves it to the OS vault, so a missing key never dead-ends into a second
+command. `OPENAI_API_KEY` is the zero-file alternative.
+
+`athena voice probe` is the command every wake failure names, so it drives the same
+persistent listener that real sessions use: process spawn, readiness handshake, wake
+gating, then Realtime understanding and Marin playback. A failure tells you which of those
+stages broke.
+
 The default is the lower-cost `gpt-realtime-2.1-mini`; select the quality model with
-`--model gpt-realtime-2.1`. `OPENAI_API_KEY` is the zero-file alternative to
-`athena voice auth`. No raw recordings or voiceprints are retained; per-response usage
-objects are appended to `~/.athena/voice-usage.jsonl`. Ordinary `athena` and
-`athena exec` dynamically avoid loading or probing the optional voice stack.
+`--model gpt-realtime-2.1`. No raw recordings or voiceprints are retained. Lifecycle and
+usage counters are appended to `~/.athena/voice-usage.jsonl`, and that file has no
+free-text field by construction: every value is a fixed enum, a bounded number, or a
+generated ID, so what you said cannot land there. Ordinary `athena` and `athena exec`
+dynamically avoid loading or probing the optional voice stack.
 
 Full keyboard shortcuts for editing, popups, and transcript scrolling are listed in
 [`.wiki/reference/tui-keybindings.md`](.wiki/reference/tui-keybindings.md).

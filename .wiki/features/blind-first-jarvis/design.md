@@ -402,17 +402,21 @@ and semantic-announcement composition remain pending.
 
 ## Voice seam
 
-The [voice component](voice.md) records both the working intermediate composition and its
-provider-neutral seams. Today, an opt-in `athena voice` process uses a local `Athena` wake
-gate, sends post-wake PCM to an OpenAI Realtime conductor, and runs separately confirmed
-work through one resumable `athena exec` child. The reusable `InteractionSnapshot`,
-`Announcement`, routing, and speech-ownership components exist, but the working CLI does
-not yet compose them into a direct harness-owned voice session.
+The [voice component](voice.md) records the provider-neutral seams; the
+[direct-harness voice specification](direct-harness-voice.md) is the authority for the
+shipped design. An opt-in `athena voice` process uses a local `Athena` wake gate and sends
+only the post-wake utterance's PCM to an OpenAI Realtime session that advertises exactly
+two tools, `submit_turn` and `local_control`. Every work turn is ordinary input to one
+in-process `HarnessSessionController` — the same controller `athena exec` uses — so there
+is no second assistant and no child process holding a competing account of state.
 
-The [direct-harness voice specification](direct-harness-voice.md) is the next-phase
-authority: Realtime becomes a bounded audio/intent adapter, every work turn enters one
-Athena-owned harness session, and status and permissions come from canonical harness
-state. Active control of an independently running TUI remains deferred.
+`InteractionSnapshot`, `Announcement`, routing, and speech-ownership are composed into that
+session rather than sitting beside it: status is read from canonical runtime state, and
+permission requests reach the voice path through the engine's own `AskUserFn` gate, which
+refuses a reply that arrives in the same turn as the question, that names a stale or
+unknown ID, or that is ambiguous. Voice grants exactly one action; `allow-always` is
+reachable only from the keyboard. Active control of an independently running TUI remains
+deferred.
 
 The implemented defaults are `gpt-realtime-2.1-mini` for cost and
 `gpt-realtime-2.1` for quality, resolved from official documentation on 2026-07-29.

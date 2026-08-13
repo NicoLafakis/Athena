@@ -1,8 +1,11 @@
 # Direct-harness voice - next upgrade specification
 
 **Tier:** 3 - CLI contract, microphone data, paid provider, permissions
-**Date:** 2026-07-29
-**Status:** Draft for implementation
+**Date:** 2026-07-29 (implementation reconciled 2026-08-13)
+**Status:** Implemented pending live validation. Sequence items 1-7 and 9 are done and
+gated; item 8, the live blind-first acceptance script, requires real hardware and a human
+listener and is the only thing between this and complete. See
+[the acceptance runbook](acceptance-runbook.md) for how to execute it.
 **Parent:** [Blind-first Jarvis objective](00-overview.md)
 **Related:** [Voice component](voice.md) | [Technical design](design.md) |
 [Test strategy](test-strategy.md) | [Tasks](tasks.md) |
@@ -10,9 +13,9 @@
 
 ## Decision summary
 
-The proven audio transport is retained, but the current Realtime conductor is not the
-product boundary. `athena voice` must become a first-class presentation and input adapter
-for one real Athena harness session.
+The proven audio transport is retained, but the Realtime conductor was never the product
+boundary. `athena voice` becomes a first-class presentation and input adapter for one real
+Athena harness session.
 
 OpenAI Realtime has two bounded responsibilities:
 
@@ -25,7 +28,8 @@ interaction state, permissions, trace, and session store remain authoritative.
 
 ## Why this upgrade exists
 
-The current implementation proved the difficult external path:
+This section is the historical motivation; both defects it describes are fixed. The
+pre-upgrade implementation proved the difficult external path:
 
 - the Windows default microphone array captures speech;
 - a local constrained `Athena` grammar gates ambient audio;
@@ -34,15 +38,14 @@ The current implementation proved the difficult external path:
 - OpenAI PCM output plays successfully with the Marin voice; and
 - the API credential remains per-machine in the existing vault.
 
-The live probe passed all of those checks on 2026-07-29. However, normal voice mode still
-talks first to a lightweight Realtime conductor. That conductor may propose a delegation,
-which is later executed by a spawned `athena exec` child. This feels like talking to an
-assistant in front of Athena rather than talking to Athena herself.
+The live probe passed all of those checks on 2026-07-29. But normal voice mode talked first
+to a lightweight Realtime conductor, which could propose a delegation later executed by a
+spawned `athena exec` child. That felt like talking to an assistant standing in front of
+Athena rather than talking to Athena herself.
 
-The current wake listener also runs one blocking Windows recognition process at a time.
-Each process times out and reopens the microphone, which explains the Windows microphone
-privacy icon cycling even in silence. That is lifecycle churn, not evidence of microphone
-sensitivity.
+The wake listener also ran one blocking Windows recognition process at a time. Each process
+timed out and reopened the microphone, which explained the Windows microphone privacy icon
+cycling even in silence — lifecycle churn, not evidence of microphone sensitivity.
 
 ## Load-bearing invariant
 
@@ -283,10 +286,11 @@ voice dependencies. Ship as independently green commits following the implementa
 sequence. Keep `--keyboard` usable at every phase so the harness controller can be tested
 without audio hardware.
 
-Before the hands-free acceptance script passes, the current conductor path is a test
-baseline, not a production fallback to preserve indefinitely. Rollback reverts the direct
-bridge while retaining the already-proven credential, raw-audio transport, and probe.
-Rollback must never delete an Athena session, credential, trace, or usage record.
+The conductor path was a test baseline, never a fallback to preserve indefinitely, and it
+was removed in full on 2026-08-13 once `submit_turn` carried every spoken turn: there is
+no second assistant left to fall back to. Rollback therefore means reverting the direct
+bridge commits, which retains the already-proven credential, raw-audio transport, and
+probe. Rollback must never delete an Athena session, credential, trace, or usage record.
 
 ## Implementation sequence
 
@@ -330,21 +334,60 @@ Rollback must never delete an Athena session, credential, trace, or usage record
   previously the wake-only grammar completed first and the command never crossed the
   wire. A falling tone after each spoken reply marks the return to wake standby.
   Ambient non-wake phrases are still dropped on-device.
-- [ ] **4. Voice permissions and controls:** connect canonical permission IDs plus local
+- [x] **4. Voice permissions and controls:** connect canonical permission IDs plus local
   status/repeat/stop behavior with keyboard parity.
+  Implemented 2026-08-13. Two defects had to be fixed together: `local_control` advertised
+  `allow`/`deny` that nothing implemented, and `HarnessSessionController` built its engine
+  with no `askUser` at all, so every `ask` decision hit the headless auto-deny. In any
+  project not explicitly trusted, voice could only ever do read-only work — and the
+  failure was close to silent. `VoiceAttentionBridge` is now the approver and the single
+  place a spoken word can authorize anything: the request is spoken from the canonical
+  accessible record rather than paraphrased by the model, and an answer is refused unless
+  it names exactly one pending request. Stale, unknown, ambiguous, and same-turn answers
+  change nothing; voice reaches `allow-once` and never `allow-always`; shutdown denies
+  everything outstanding rather than parking the engine on a decision nobody will give.
+  `athena exec` keeps its documented auto-deny, pinned by a regression test.
 - [x] **5. Spoken lifecycle:** add Marin ready, waiting, permission, completion, failure,
   and recovery behavior under screen-reader ownership policy.
-  Partial 2026-08-12: ready, work-started acknowledgment, asynchronous spoken completion,
-  and failure reports are in. Permission announcements (item 4) remain open.
-- [ ] **6. Session renewal and recovery:** reconnect Realtime without losing the Athena
+  Completed 2026-08-13: the controller's `onAnnouncement` now reaches the voice session,
+  which speaks under the shared ownership policy and always emits stable text. Routine
+  `polite` chatter stays text-only because Marin already narrates every turn result, and a
+  permission is never said twice.
+- [x] **6. Session renewal and recovery:** reconnect Realtime without losing the Athena
   session; make duplicate submission impossible.
-- [ ] **7. Automated verification:** protocol fakes, controller integration, microphone
+  Implemented 2026-08-13. The deadline is read from `session.created.expires_at`; the
+  documented 60-minute maximum is only a fallback, because that ceiling has already moved
+  15 -> 30 -> 60 minutes. A session is replaced a full worst-case turn ahead of expiry, and
+  `session_expired` is classified as a dead transport rather than a failed request.
+  `VoiceTurnLedger` keys idempotency on (utterance, normalized text), so a doubled tool
+  call runs once while the same words spoken later legitimately run again. Recovery states
+  which happened: work that already started survives and needs no repeat, a request that
+  never crossed is asked for again.
+- [x] **7. Automated verification:** protocol fakes, controller integration, microphone
   process supervision, confirmation races, duplicate prevention, redaction, and failure
   recovery.
+  Implemented 2026-08-13, plus the lifecycle counters in [observability](observability.md).
+  The integration test drives a fake socket speaking the real wire protocol into a REAL
+  `HarnessSessionController`. The redaction test pushes a fake API key, an absolute Windows
+  path, and a distinctive phrase through the wake transcript, submitted text, provider
+  usage, and the model's answer, then asserts none reach the ledger while the phrase DOES
+  reach the run trace — so it cannot pass on an empty pipe.
 - [ ] **8. Live blind-first validation:** complete the acceptance script below with screen
   reader off, NVDA on, and Narrator on; record latency and provider usage.
-- [ ] **9. Gates and documentation:** reconcile this package, then run typecheck, lint,
+  BLOCKED on real hardware and a human listener; it is the last open item. Executable
+  procedure: [acceptance runbook](acceptance-runbook.md).
+- [x] **9. Gates and documentation:** reconcile this package, then run typecheck, lint,
   all tests, and build on the exact committed state.
+  Each of the commits above ran all four gates green on its exact committed state.
+  Documentation reconciled 2026-08-13 across this file, [voice.md](voice.md),
+  [design.md](design.md), [00-overview.md](00-overview.md), [tasks.md](tasks.md),
+  [threat-model.md](threat-model.md), [test-strategy.md](test-strategy.md),
+  [research.md](research.md), [observability.md](observability.md), and the wiki index.
+  Conductor-era language is now either corrected or explicitly marked historical — the
+  rejected-alternatives table and ADR 0003 keep it on purpose, because a decision record
+  that erases what was rejected stops being evidence. The [acceptance
+  runbook](acceptance-runbook.md) was added so item 8 is a procedure someone can execute
+  rather than a checklist someone has to reconstruct.
 
 ## Acceptance script
 

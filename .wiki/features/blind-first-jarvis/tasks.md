@@ -204,8 +204,9 @@ editing under the active Global Rule.
   and define `InteractionSnapshot`/`Announcement` context, routing, speech ownership, and
   bounded confirmation contracts without inventing a second digest truth model. Those
   reusable components and their tests exist. The working opt-in CLI composes the local
-  wake gate, Realtime conductor, one resumable child Athena session, and usage-only record.
-  The conductor owns no file tools and cannot claim child results without the engine envelope.
+  wake gate, a bounded Realtime audio/intent adapter, one in-process Athena harness
+  session, and a lifecycle telemetry record. The adapter owns no file tools and cannot
+  claim a result without the engine envelope.
 - [ ] **7.2 Run the plan's capability/cost spike and resolve current API contracts** - use
   only official OpenAI docs for the supported Realtime model and wire schema; do not pin
   the older draft's `gpt-realtime-2` without re-verification - done when audio, wake word,
@@ -226,21 +227,27 @@ editing under the active Global Rule.
   transcript fallback and `--keyboard` preserve stable-text/Braille reachability.
 - [x] **7.4 Implement the optional speech-input foundation** - provide bounded input
   contracts plus the first working wake-gated Realtime path - done when recognition
-  failure loses no state and the intermediate conductor cannot execute a proposal in the
-  same turn.
+  failure loses no state and the adapter cannot approve its own request in the same turn.
   Windows speech recognition runs locally, requires a confidence-thresholded `Athena`
-  prefix, and sends only post-wake raw PCM to Realtime. Coding delegation requires a
-  separate confirm turn; cancel/recognition failure lose no engine state. The keyboard
-  input adapter exercises the same conductor and confirmation state machine.
+  prefix, and sends only post-wake raw PCM to Realtime. A permission is settled only by a
+  later turn naming its opaque ID, so a same-turn reply is refused; cancel and recognition
+  failure lose no engine state. The keyboard input adapter exercises the same session and
+  permission state machine.
 - [ ] **7.5 Manual AT/voice validation** - test with actual screen readers enabled and
   disabled - done when voice improves measured workflows and can be entirely removed
   without reducing capability.
-- [x] **7.6 Replace the intermediate conductor with direct-harness voice** - execute the
-  [next-upgrade specification](direct-harness-voice.md) and
+- [ ] **7.6 Replace the intermediate conductor with direct-harness voice** - execute the
+  [direct-harness specification](direct-harness-voice.md) and
   [ADR 0003](adr/0003-realtime-as-audio-adapter.md) - done when one persistent wake
   listener feeds ordinary turns into one Athena-owned harness session, Marin speaks only
   authoritative harness results, and the hands-free acceptance script passes.
-  Shared `HarnessSessionController` encapsulates engine lifecycle, permissions, traces, and session storage. `submit_turn` and `local_control` tools send speech directly into the in-process harness session.
+  Every code clause is implemented; the box stays open only because the acceptance script
+  has not been run, and that run is 7.5. Shared `HarnessSessionController` encapsulates
+  engine lifecycle, permissions, traces, and session storage; `submit_turn` and
+  `local_control` send speech directly into the in-process harness session. The
+  intermediate conductor was deleted outright on 2026-08-13 rather than left dormant - it
+  was already unreachable, and a dead second assistant is exactly the thing this phase
+  exists to remove.
 - [x] **7.7 Persistent wake listener and paste-to-setup key handling** - one supervised
   continuous-recognition process (compiled C# event sink, JSONL framing, bounded restart,
   real WAV-sentinel round trip) replaces per-listen PowerShell churn, and a missing
@@ -248,6 +255,19 @@ editing under the active Global Rule.
   validate -> best-effort vault save instead of a separate hidden-input command - done
   when the mic opens once per session, a missing key never dead-ends into a second
   command, and a failed vault save warns without aborting the session.
+- [x] **7.8 Close the direct-harness gaps found by review (2026-08-13)** - done when the
+  spoken path is safe, survivable, and measurable rather than merely wired.
+  Five independently gated commits: `athena voice probe` now drives the production
+  persistent listener instead of a retired one-shot backend, so the command every wake
+  failure names can no longer pass while the real listener is broken; voice answers
+  canonical permissions through the engine's own `AskUserFn`, refusing same-turn, stale,
+  unknown, and ambiguous replies and resolving only to `allow-once`; the session survives
+  a dropped socket and renews against the server's own `expires_at`, with turn-ID
+  idempotency so a retry resumes rather than re-runs; the dead conductor path was removed
+  (net -302 lines); and lifecycle telemetry (schemaVersion 2, no free-text field) makes
+  both NFR budgets measurable, verified by an integration test that drives a fake key, a
+  real Windows path, and a distinctive phrase through the whole session and proves they
+  reach the run trace but never the ledger.
 
 ## Documentation and release closure for every phase
 

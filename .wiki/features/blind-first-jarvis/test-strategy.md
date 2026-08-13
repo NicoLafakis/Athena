@@ -108,11 +108,29 @@ routine direct speech, recognition failure is a no-op, and consequential calls r
 separate local confirmation. A fake WebSocket exercises session configuration, audio,
 tool-call output, continuation, errors, and usage. Subprocess seams prove a probed local
 recognizer/voice rather than platform inference, wake gating, temporary PCM playback,
-vault readback/rollback, and keyboard-equivalent confirmation. They do not prove the
-actual microphone, playback device, paid Realtime account, latency, false-positive rate,
-or assistive-technology behavior. The raw microphone -> paid Realtime -> Marin playback
-probe passed on Nico's laptop on 2026-07-29; latency, additional machines, persistent
-wake behavior, direct-harness routing, and manual AT gates remain open.
+vault readback/rollback, and keyboard-equivalent confirmation.
+
+Since 2026-08-13 the direct-harness seam is covered end to end rather than stubbed. A fake
+socket speaking the real Realtime wire protocol drives `submit_turn` into a REAL
+`HarnessSessionController` on a deterministic model, and the test asserts both the run
+trace and the spoken result — a stub on either side would have proved only that the mock
+was called. The redaction test is deliberately built so it cannot pass on an empty pipe: it
+drives a fake API key, a real absolute Windows path, and a distinctive nonsense phrase
+through the wake transcript, the submitted text, provider usage, and the model's answer,
+then asserts none of them reach the telemetry ledger while the phrase DOES reach the run
+trace. Permission refusals (same-turn, stale, unknown, ambiguous, closed-bridge) and turn
+idempotency under reconnect are asserted directly.
+
+The persistent wake listener is proven against the production PowerShell script under a
+win32 gate, using a locally synthesized WAV sentinel rather than a microphone, and the
+probe test asserts the child process exits so no orphan `powershell.exe` survives. Per
+AGENTS.md rule 4, stub-only coverage of a subprocess-backed module is not coverage.
+
+None of this proves the actual microphone, playback device, paid Realtime account, latency,
+false-positive rate, or assistive-technology behavior. The raw microphone -> paid Realtime
+-> Marin playback probe passed on Nico's laptop on 2026-07-29; latency, additional
+machines, live wake false-positive rate, and manual AT gates remain open and are exactly
+what the [acceptance runbook](acceptance-runbook.md) exists to close.
 
 ### Existing TUI regression gates
 

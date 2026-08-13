@@ -4,10 +4,11 @@
 > [Implementation tasks](tasks.md) |
 > [Next upgrade: direct-harness voice](direct-harness-voice.md)
 
-> **Next-phase authority:** The paid audio path below is proven, but the current
-> conductor/delegation composition is an intermediate implementation. The
-> [direct-harness voice specification](direct-harness-voice.md) defines the next upgrade:
-> Realtime becomes an audio/intent adapter around one real Athena harness session.
+> **Authority:** The conductor/delegation composition described in earlier revisions of
+> this page was removed on 2026-08-13. The
+> [direct-harness voice specification](direct-harness-voice.md) is the authority for the
+> shipped design: Realtime is an audio/intent adapter around one real Athena harness
+> session.
 
 ## Role and authority
 
@@ -16,26 +17,38 @@ hands-free conversation from any window, but it is not the accessibility foundat
 it does not create a second account of current state. Every workflow remains complete by
 keyboard and stable text when audio, wake word, network, or the Realtime provider fails.
 
-In the working intermediate composition, the Realtime model is a conductor, not a coding
-agent. It can converse and invoke bounded voice functions, but it never edits files or
-bypasses Athena's engine. Its current `status` function reports only the latest voice
-delegation result; canonical harness status and permissions are not yet wired into the
-live CLI path. That wiring belongs to the direct-harness upgrade above.
+The Realtime model is an audio/intent adapter, not a coding agent and not a conductor
+standing in front of one. It understands post-wake audio, submits the understood request
+to the harness, and speaks the harness's authoritative result in Athena's own first
+person. It never edits files, never answers a repository question from its own knowledge,
+and never decides whether a tool may run. Status, repeat, and permission identity are
+served from `InteractionSnapshot`, `Announcement`, and canonical permission records, so a
+spoken account of state is never model-authored guesswork.
 
-## Current intermediate architecture
+## Architecture
 
 ```text
-microphone -> local Athena wake gate -> opt-in VoiceDaemon <-> Realtime API
-                                           |
-                                           v
-                                     VoiceConductor
-                         (delegate, status, confirm, cancel,
-                              stop listening; no file tools)
-                                           |
-                                  separate confirm
-                                           |
-                                           v
-                                resumable athena exec child
+                       pre-wake audio stays local
+microphone -> persistent local Athena wake gate
+                       |
+                       v post-wake PCM only
+                OpenAI Realtime audio/intent adapter
+                    (submit_turn, local_control)
+                       |
+                       v
+              HarnessSessionController
+          (one active Athena engine/session owner)
+                       |
+       +---------------+----------------+
+       |               |                |
+ permissions/hooks  tools/agents   InteractionService
+       |               |          snapshot/announcements
+       +---------------+----------------+
+                       |
+              authoritative turn result
+                       |
+                       v
+             OpenAI Realtime -> Marin PCM
 ```
 
 `athena voice` is a separate entrypoint. Ordinary `athena` and `athena exec` boot paths
@@ -50,23 +63,41 @@ do not import, probe, or start voice dependencies.
 3. the most recently active unambiguous session;
 4. an audible request for clarification.
 
-The working `athena voice` CLI does not currently use this router; it owns one resumable
-child session after confirmation. The next upgrade instead makes voice own one harness
-session directly. A later authenticated named-pipe or socket control channel may make
-voice a client of an independently running TUI, but that IPC work is explicitly deferred.
+`athena voice` owns one harness session directly and does not currently need the router;
+it is retained for the deferred case where voice becomes a client of an independently
+running TUI over an authenticated named-pipe or socket control channel. That IPC work
+stays deferred: the single-writer invariant means a later controller must not open a
+competing engine writer.
 
 ## Voice permissions
 
-The working conductor has no file or shell tools. It can only propose a bounded
-delegation, and a separate later `Athena confirm` or keyboard `confirm` is required before
-the resumable child engine runs it under Athena's existing permission and sandbox policy.
-The current voice process does not yet announce or resolve canonical pending permission
-records from that child.
+Permissions are canonical and voice cannot bypass them. The harness raises an ordinary
+`ask` decision; `VoiceAttentionBridge` is the approver wired into
+`HarnessSessionController`, and it is the single place where a spoken word can authorize
+anything.
 
-The direct-harness upgrade must expose those records through stable permission IDs,
-announce the exact bounded action and consequence, and allow voice or keyboard resolution
-without treating model-authored confirmation as authority. Voice sessions default to
-scoped permissions, never implicit trust.
+The request is spoken straight from the canonical accessible permission record — the same
+`createAccessiblePermissionRequest` the screen-reader path uses — naming the tool, the
+target, and the consequence. It is deliberately not routed through a model round trip:
+that would both delay a blocker and license a paraphrase that changes what the user
+believes they allowed.
+
+An answer is refused unless it identifies exactly one pending request:
+
+- a **stale** identity (already decided), an **unknown** identity, or an **ambiguous**
+  answer (no identity given while several are waiting) changes nothing and asks for
+  clarification;
+- an answer arriving on the **same Realtime turn** that raised the request is refused,
+  because the user cannot have heard it yet;
+- a conversational "yes" with nothing pending authorizes nothing;
+- the model's `request_id` is Zod-bounded before it is matched — model output is untrusted
+  input, never authorization.
+
+Voice reaches `allow-once` and never `allow-always`: nothing in a spoken contract
+distinguishes "yes to this" from "yes to all of these". The keyboard path still reaches
+the wider answer, and typed answers resolve the same canonical request through the same
+matcher with no model in the path (FR-006/FR-011). Shutdown denies everything outstanding,
+because a harness turn parked on a decision nobody is left to give is a silent hang.
 
 ## Capability and privacy contract
 
@@ -90,8 +121,10 @@ component, backend, and recovery command and leaves core Athena usable.
 
 1. **Capability and cost spike:** probe the desktop and laptop audio paths, wake word,
    current API contract, latency, privacy, licensing, and failure reporting.
-2. **Daemon-owned session:** PTT or VAD-gated conversation with delegate, status,
-   permission, and cancellation functions over the semantic plane.
+2. **Daemon-owned session:** PTT or VAD-gated conversation with work-submission, status,
+   permission, and cancellation functions over the semantic plane. (The `delegate` tool
+   this step originally named was replaced by `submit_turn` and then removed with the rest
+   of the conductor.)
 3. **Wake word and polish:** local gating, silence timeout, milestone speech, interruption
    policy, and spoken/logged usage summaries.
 4. **Existing-session control:** opt-in local control endpoint, single-writer routing,
@@ -109,29 +142,29 @@ This sequence produced the working audio proof. Phase 7.6 now follows the separa
 [direct-harness implementation sequence](direct-harness-voice.md#implementation-sequence),
 which is authoritative for subsequent voice work.
 
-## Implementation status (2026-07-29)
+## Implementation status (2026-08-13)
 
 Provider-neutral building blocks live in `src/voice/`. `buildVoiceContext` accepts only an
 `InteractionSnapshot` and optional `Announcement`, then emits a strict bounded/redacted
 context containing semantic objective, phase, pending attention, verified outcome, and
 latest material announcement. No raw engine event, tool input/output, or independent
-status digest enters that context seam. The working CLI conductor does not yet consume
-this context.
+status digest enters that context seam. The live session serves `status` and `repeat` from
+the same semantic sources rather than from this context object.
 
 `VoiceSessionRouter` implements the planned order: explicit session, proven foreground
 hint, then an unambiguous recent session. Unknown or near-simultaneous candidates return
-clarification rather than silently choosing. It is not wired into the current CLI.
-`VoiceSpeechOutput` consumes `Announcement` only and likewise remains a reusable semantic
-output component rather than the current Marin playback path. Direct speech off is
-removable; exclusive ownership yields to an active screen reader; supplemental ownership
-suppresses routine speech and allows only blocking interruption when a screen reader is
-active.
+clarification rather than silently choosing. It is retained for the deferred multi-session
+case. The speech ownership rule is shared rather than re-derived per caller: direct speech
+off is removable; exclusive ownership yields to an active screen reader; supplemental
+ownership suppresses routine speech and allows only blocking interruption when a screen
+reader is active. `athena voice` treats `off` as `supplemental`, because running it is
+itself a request for spoken output and it is the one mode with no screen to fall back on.
 
-The provider-neutral input mapper can turn recognized text into an ordinary prompt or
-slash command, while recognition failure is a no-op with a keyboard recovery message.
-The working CLI instead uses the conductor's `delegate`, `status`, `confirm`, `cancel`,
-and `stop_listening` calls. A delegation cannot execute from its proposal turn: only a
-separate later confirmation releases it to the resumable child engine session.
+The announcement plane is wired: the controller's `onAnnouncement` reaches the voice
+session, which speaks under that ownership policy and always emits stable text for Braille
+and review. Routine `polite` chatter stays stable-text-only, because Marin already narrates
+the result of every turn and speaking both is noise rather than access. A permission is
+never said twice: the plane's short line yields to the canonical record.
 
 ### Working Windows composition
 
@@ -144,7 +177,14 @@ associated microphone WAV, downmixes/resamples it in memory to 24 kHz mono PCM, 
 the raw utterance to OpenAI Realtime. Windows' guessed command text is diagnostic only;
 the Realtime audio model performs speech understanding. Ambient audio that does not pass
 the local `Athena` gate stays on the machine. `athena voice --keyboard` drives the same
-conductor and confirmation state machine with text input.
+harness controller and the same permission path with text input, changing only the
+input/output adapter (FR-011).
+
+The listener is one supervised long-lived process, so the microphone opens once per
+session rather than cycling per command. A fluid "Athena, <command>" ships its whole
+utterance; a bare "Athena" is answered locally with a listening cue and a ~6 s capture
+window, and the next phrase inside that window is the command. Neither the cue nor the
+ambient audio before it crosses the provider boundary.
 
 The default `gpt-realtime-2.1-mini` session uses an authenticated server-side WebSocket,
 24 kHz PCM input, function calls, and 24 kHz PCM output. Laptop-array input enables the
@@ -152,18 +192,26 @@ provider's `far_field` noise reduction and uses explicit buffer append/commit ev
 Output PCM is wrapped in a temporary
 owner-only WAV for synchronous `System.Media.SoundPlayer` playback and deleted
 immediately afterward; raw input audio, raw output audio, and voiceprints are not
-persisted. The only voice-specific persistent telemetry is the provider's usage object,
-model, and timestamp in `~/.athena/voice-usage.jsonl`.
+persisted. Voice-specific persistent telemetry is the bounded lifecycle ledger at
+`~/.athena/voice-usage.jsonl` described in [observability](observability.md).
 
-The conductor exposes `delegate`, `status`, `confirm`, `cancel`, and `stop_listening`.
-`delegate` records a bounded proposal and cannot run it. A model-produced confirmation
-is valid only when the proposal existed before the current turn, so one utterance cannot
-both propose and authorize work. A later `Athena confirm` invokes `athena exec` through the
-existing engine with `acceptEdits`: file writes remain scoped to the workspace, while
-shell and other consequential tools are not implicitly trusted. `Athena cancel` drops
-the proposal. The first confirmed delegation creates a durable child session and later
-delegations resume that same session. The bounded/redacted engine envelope is returned to
-Realtime for a concise spoken summary; the model cannot manufacture the engine status.
+The session advertises exactly two tools, `submit_turn` and `local_control`.
+
+`submit_turn` routes one understood request into the shared `HarnessSessionController`.
+It is deliberately non-blocking: it returns at turn START, because a harness turn can run
+for minutes while the Realtime response holding the tool call times out at two minutes.
+The finished result arrives later as a separate serialized spoken turn. A busy harness
+answers "still working" rather than double-running. `VoiceTurnLedger` is the idempotency
+key — scoped to (utterance, normalized text), so two calls inside one utterance run once
+while the same words spoken again later are legitimately a new request.
+
+`local_control` serves `status`, `repeat`, `allow`, `deny`, and `stop_listening`, all
+validated by local code that decides whether the action is currently legal. `repeat`
+replays what was actually said; `status` reports `waiting-permission` from the semantic
+plane whenever a decision is outstanding.
+
+The session instructions put Athena in the first person with her constitution woven in,
+and forbid claiming an allow or deny that the tool result did not give.
 
 `athena voice auth` accepts the OpenAI key with no character echo, validates a Realtime
 session, then stores it under `voice/openai` in the per-machine OS vault and verifies

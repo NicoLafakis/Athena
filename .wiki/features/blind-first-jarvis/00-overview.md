@@ -182,15 +182,23 @@ bounded, path-free, abortable, and nonfatal under corrupt state, backend failure
 shutdown races. The visible foreground command and cross-platform dogfood remain open.
 
 Phase 7 now composes that provider-neutral core into an opt-in Windows voice process.
-Local `System.Speech` gates confidence-thresholded commands on “Athena”; the current
-OpenAI Realtime WebSocket conductor receives raw 24 kHz PCM and returns Marin speech. A
-separate local confirmation runs the existing engine in a durable resumable session.
-Keyboard input, vault/env auth, usage-only records, fake-server protocol tests, and an
-interactive device/account probe are present; the raw microphone -> Realtime -> Marin
-probe passed on Nico's laptop on 2026-07-29. The conductor is explicitly intermediate:
-the [next upgrade](direct-harness-voice.md) makes voice a direct adapter over one Athena
-harness session. The direct-harness controller, the persistent wake listener (one
-supervised continuous-recognition process with a compiled C# event sink, replacing
-per-listen subprocess churn), and paste-to-setup inline key handling are now implemented.
-Latency/cost and false-positive measurements, retention review, and manual AT/voice
-validation remain.
+Local `System.Speech` gates confidence-thresholded commands on “Athena”; an OpenAI
+Realtime WebSocket session receives raw 24 kHz PCM and returns Marin speech. The raw
+microphone -> Realtime -> Marin probe passed on Nico's laptop on 2026-07-29.
+
+The [direct-harness upgrade](direct-harness-voice.md) is now implemented. Realtime is a
+bounded audio/intent adapter advertising only `submit_turn` and `local_control` — the
+intermediate conductor that could hold its own conversation and delegate work was removed
+outright on 2026-08-13, so every spoken work turn is ordinary input to exactly one Athena
+harness session. Permissions are answered by voice through the harness engine's own gate,
+which refuses same-turn, stale, unknown, and ambiguous replies and never reaches
+`allow-always`. Also implemented: the persistent wake listener (one supervised
+continuous-recognition process with a compiled C# event sink, replacing per-listen
+subprocess churn, and now the backend the probe actually drives), Realtime
+reconnect/renewal against the server's own `expires_at`, turn-ID idempotency, and a
+lifecycle telemetry ledger with no free-text field.
+
+What remains is one item: the [live acceptance run](acceptance-runbook.md), which needs a
+microphone, a human listener, NVDA, and Narrator. It is what produces the latency, cost,
+and wake false-positive measurements, and it is the only thing between this phase and
+complete. Retention review and cross-platform support remain open separately.

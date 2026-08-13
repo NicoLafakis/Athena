@@ -39,9 +39,12 @@ Trust boundaries:
 | Accessibility downgrade | Standard fallback silently restores inaccessible fullscreen | Plain warning names fallback and user command; never silent mode change |
 | Watch-scope escape | Symlink or absolute path reaches outside the approved workspace | Resolve through `ResourcePolicy` before persistence; only existing files/directories are accepted |
 | Watch event mistaken for authority | A filesystem notification is treated as proof of success or a safety decision | Observations are advisory change facts only; they cannot authorize, block, or verify work |
-| Voice self-confirmation | Realtime tool call includes its own `confirmed: true` for approval | Conductor calls cannot carry confirmation; local bounded gate requires a separate exact confirmation tied to an opaque ID |
+| Voice self-confirmation | Realtime tool call includes its own `confirmed: true` for approval | No adapter tool can carry approval. A permission is settled only by a later turn naming the opaque ID; a reply in the same turn the question was asked is refused as `same-turn`, so the model cannot answer itself and a "yes" spoken before the question was heard cannot land |
 | Ambient voice disclosure | Always-listening audio is streamed before a wake decision | The confidence-thresholded `Athena` gate runs locally; only the recognized post-wake utterance's raw PCM crosses the Realtime boundary |
-| Voice bypasses coding permissions | Realtime calls file or shell tools directly | Current Realtime tools are bounded conductor controls; the next direct-harness phase exposes only validated turn/control input and keeps the existing harness permission engine authoritative |
+| Voice bypasses coding permissions | Realtime calls file or shell tools directly | The session advertises only `submit_turn` and `local_control`; neither can run a tool. Work reaches tools solely as harness input, where the existing permission engine stays authoritative and unchanged |
+| Voice widens the session gate | An approval spoken for one action silently authorizes every later tool call | Voice resolves to `allow-once` only. Nothing in the spoken contract distinguishes "yes to this" from "yes to all of these", so `allow-always` is unreachable by voice and remains a keyboard decision |
+| Spoken permission laundering | A model-authored sentence claims an action was allowed or denied | Only a tool result settles a permission, and the session instructions forbid reporting an outcome that no tool result carries. Unknown, stale, and ambiguous replies are refused rather than guessed, and closing the bridge denies everything still outstanding |
+| Voice ledger becomes a second transcript | Lifecycle counters accumulate utterances, paths, or keys in `voice-usage.jsonl` | The record carries no free-text field: every value is a literal, closed enum, bounded integer, generator-shaped ID, or numbers-only meters tree, and `.strict()` rejects an unexpected key. A rejected wake stores a label, never what was said |
 
 ## Security invariants
 
@@ -56,9 +59,12 @@ Trust boundaries:
   mark an outcome verified.
 - A non-voice watch exists only after an explicit user request, watches one resolved
   in-workspace resource, and owns no process after its foreground invocation exits.
-- The reusable voice router never silently selects an ambiguous session. The current
-  conductor cannot execute its own delegation proposal, and the direct-harness adapter
-  cannot authorize or resolve a canonical permission from model-authored text alone.
+- The reusable voice router never silently selects an ambiguous session. The direct-harness
+  adapter cannot authorize or resolve a canonical permission from model-authored text
+  alone, and it cannot reach `allow-always`.
+- A spoken work turn is idempotent under retry: a turn is keyed by utterance plus
+  normalized text, so a reconnect or a repeated tool call resumes the existing record
+  rather than running the work twice, and an in-flight turn cannot be evicted.
 
 ## Review gates
 
