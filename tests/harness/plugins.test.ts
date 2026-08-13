@@ -4,11 +4,12 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resolveBrainPaths } from '../../src/brain/paths.js'
 import { discoverPlugins, loadSkillsIndexWithPlugins } from '../../src/brain/plugins.js'
@@ -58,7 +59,7 @@ describe('PluginManager', () => {
     expect(installed).toMatchObject({ id: 'acme', version: '1.0.0', enabled: true })
     expect(manager.verify('acme')).toBe(true)
     expect(loadSkillsIndexWithPlugins(paths).map((skill) => skill.name)).toEqual(['acme:helper'])
-    expect(manager.list()[0]!.source).toBe(source)
+    expect(manager.list()[0]!.source).toBe(realpathSync.native(resolve(source)))
   })
 
   it('enable and disable control discovery without deleting the package', () => {

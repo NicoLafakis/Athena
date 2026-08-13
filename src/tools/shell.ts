@@ -46,7 +46,8 @@ const SPECS: ShellSpec[] = [
   },
   {
     name: 'PowerShell',
-    bin: 'powershell.exe',
+    // Windows PowerShell 5.1 on Windows; PowerShell 7 ships as `pwsh` elsewhere.
+    bin: process.platform === 'win32' ? 'powershell.exe' : 'pwsh',
     args: (command) => ['-NoProfile', '-NonInteractive', '-Command', command],
   },
 ]
