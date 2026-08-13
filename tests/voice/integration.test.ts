@@ -285,6 +285,87 @@ describe('voice through the real harness controller', () => {
     expect(attention.pendingIds()).toEqual([])
   })
 
+  it('seeds the pending permission into the live session so a spoken allow can land', async () => {
+    const target = join(root, 'seeded-forecast.txt')
+    const model = new MockAnthropicClient([
+      {
+        blocks: [toolUseBlock('write-1', 'Write', { file_path: target, content: PHRASE })],
+        stopReason: 'tool_use',
+      },
+      { blocks: [textBlock('The file is written.')], stopReason: 'end_turn' },
+    ])
+    const { telemetry, raw, records } = makeTelemetry()
+    const attention = new VoiceAttentionBridge({ cwd: root, telemetry })
+    const controller = await makeController(model, attention.askUser)
+    const { socket, client } = realtime([
+      { toolCalls: [{ name: 'submit_turn', arguments: { text: `write ${PHRASE} to the forecast` } }] },
+      { transcript: 'I am on it.' },
+      {
+        toolCalls: [{
+          name: 'local_control',
+          arguments: { action: 'allow', request_id: 'permission:write-1' },
+        }],
+      },
+      { transcript: 'Allowed once.' },
+      { transcript: 'The file is written.' },
+    ])
+    const input = new DrivenInput()
+    const spoken: string[] = []
+
+    const session = runVoiceSession({
+      apiKey: 'test-key',
+      model: 'gpt-realtime-2.1-mini',
+      input,
+      client,
+      controller,
+      attention,
+      telemetry,
+      play: async () => {},
+      speakFallback: async (text) => {
+        spoken.push(text)
+      },
+      onStatus: () => {},
+    })
+    input.speak(`Athena, write ${PHRASE} to the forecast`)
+    await vi.waitFor(() => expect(attention.pendingIds()).toEqual(['permission:write-1']))
+
+    // The context has to be on the wire BEFORE the user answers; that is the whole point.
+    const seeded = socket.systemNotes().find((note) => note.includes('permission:write-1'))
+    expect(seeded).toBeDefined()
+    expect(seeded).toContain('waiting for the user')
+    expect(seeded).toContain('local_control')
+    expect(seeded).toContain('Your own words authorize nothing')
+    // It went as a `system` item, not dressed up as something the user said.
+    expect(socket.userInputs().join('\n')).not.toContain('Athena runtime notice')
+
+    // A genuinely SPOKEN allow, on a later turn, through the model and its control tool.
+    input.speak('Athena, allow that')
+    await vi.waitFor(() => expect(spoken).toContain('The file is written.'))
+    input.stop()
+    await session
+    await controller.close()
+
+    // End to end: the real harness permission was granted and the real tool ran.
+    expect(existsSync(target)).toBe(true)
+    expect(readFileSync(target, 'utf8')).toContain(PHRASE)
+    expect(attention.pendingIds()).toEqual([])
+    expect(records().find((record) => record.event === 'permission.resolved'))
+      .toMatchObject({ label: 'allow', permissionId: 'permission:write-1' })
+
+    // The resolution retires the seeded view rather than leaving it stuck on "waiting".
+    expect(socket.systemNotes().at(-1)).toContain('allowed once')
+    // Five scripted responses, five served: a seeded item costs no extra model round trip,
+    // because it is sent with no `response.create` behind it.
+    expect(socket.served).toBe(5)
+
+    // Injection is a wire path, not a ledger one: the label and the ID are all that persist.
+    expect(records().filter((record) => record.event === 'realtime.context').length)
+      .toBeGreaterThanOrEqual(2)
+    expect(raw()).not.toContain(PHRASE)
+    expect(raw()).not.toContain('runtime notice')
+    expect(raw()).not.toContain('seeded-forecast')
+  })
+
   it('keeps transcripts, submitted text, secrets, and absolute paths out of the ledger', async () => {
     const target = join(root, 'sensitive-report.txt')
     const model = new MockAnthropicClient([

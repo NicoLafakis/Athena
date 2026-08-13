@@ -18,6 +18,7 @@ import {
   type RealtimeToolCall,
   type RealtimeTurnResult,
 } from '../../src/voice/realtime.js'
+import { VoiceTelemetry } from '../../src/voice/telemetry.js'
 import {
   probeWindowsSpeech,
   runPowerShell,
@@ -612,6 +613,173 @@ describe('voice permissions and local controls', () => {
     })
     return { results, spoken, client }
   }
+
+  /**
+   * A fake Realtime that records seeded context items and can put SEVERAL tool calls on one
+   * turn — which is the only way to reach the same-turn case deterministically, because a
+   * permission and the answer to it then share one `answeringTurn`.
+   */
+  function notingClient(
+    script: Array<RealtimeToolCall[]>,
+    results: unknown[],
+    notes: string[],
+  ): VoiceRealtimeClient {
+    let turn = 0
+    return {
+      connect: vi.fn(async () => {}),
+      close: vi.fn(),
+      note: vi.fn(async (text: string) => {
+        notes.push(text)
+      }),
+      ask: vi.fn(async (_text, handler): Promise<RealtimeTurnResult> => {
+        for (const call of script[turn++] ?? []) results.push(await handler(call))
+        return { transcript: 'ok', audio: Buffer.alloc(0), usage: [] }
+      }),
+      askAudio: vi.fn(async () => ({ transcript: '', audio: Buffer.alloc(0), usage: [] })),
+    }
+  }
+
+  it('seeds the pending permission into the session without spending a turn on it', async () => {
+    const harness = permissionHarness()
+    const results: unknown[] = []
+    const notes: string[] = []
+    const telemetry = new VoiceTelemetry({ model: 'gpt-realtime-2.1-mini', write: () => {} })
+    const client = notingClient(
+      [[{ name: 'submit_turn', callId: '1', arguments: { text: 'write x' } }]],
+      results,
+      notes,
+    )
+    await runVoiceSession({
+      apiKey: 'test',
+      model: 'gpt-realtime-2.1-mini',
+      input: new ScriptedInput(['write x', 'exit']),
+      client,
+      controller: harness.controller,
+      attention: harness.bridge,
+      telemetry,
+      speakFallback: async () => {},
+      play: async () => {},
+      onStatus: () => {},
+    })
+
+    // The identity the model needs, the tool it must reach for, and an explicit denial that
+    // its own words count for anything.
+    expect(notes[0]).toContain('permission:write-1')
+    expect(notes[0]).toContain('Write x.txt')
+    expect(notes[0]).toContain('local_control')
+    expect(notes[0]).toContain('Your own words authorize nothing')
+    // Athena already said the blocker herself, so the model must not say it again.
+    expect(notes[0]).toContain('do not repeat the request')
+    // Context is not a turn: the only Realtime turn was the utterance the user actually spoke.
+    expect(client.ask).toHaveBeenCalledOnce()
+    // Shutdown retires it, so the seeded view cannot outlive the thing it described.
+    expect(notes.at(-1)).toContain('no longer waiting')
+    await expect(harness.answerFor('permission:write-1')).resolves.toBe('deny')
+
+    // Counted by closed label and bounded identity only; the summary rode the wire, not the
+    // ledger, and there is no field on the record it could have arrived in.
+    await vi.waitFor(() => expect(telemetry.counters()).toMatchObject({
+      'realtime.context/permission-pending': 1,
+      'realtime.context/permission-shutdown': 1,
+    }))
+  })
+
+  it('never lets a failed context injection cost the permission or the turn', async () => {
+    const harness = permissionHarness()
+    const results: unknown[] = []
+    const spoken: string[] = []
+    const statuses: string[] = []
+    const telemetry = new VoiceTelemetry({ model: 'gpt-realtime-2.1-mini', write: () => {} })
+    const script: RealtimeToolCall[][] = [
+      [{ name: 'submit_turn', callId: '1', arguments: { text: 'write x' } }],
+      [control('2', { action: 'allow', request_id: 'permission:write-1' })],
+    ]
+    let turn = 0
+    const client: VoiceRealtimeClient = {
+      connect: vi.fn(async () => {}),
+      close: vi.fn(),
+      note: vi.fn(async () => {
+        throw new Error('socket is not open')
+      }),
+      ask: vi.fn(async (_text, handler): Promise<RealtimeTurnResult> => {
+        for (const call of script[turn++] ?? []) results.push(await handler(call))
+        return { transcript: 'ok', audio: Buffer.alloc(0), usage: [] }
+      }),
+      askAudio: vi.fn(async () => ({ transcript: '', audio: Buffer.alloc(0), usage: [] })),
+    }
+    await runVoiceSession({
+      apiKey: 'test',
+      model: 'gpt-realtime-2.1-mini',
+      input: new ScriptedInput(['write x', 'athena allow', 'exit']),
+      client,
+      controller: harness.controller,
+      attention: harness.bridge,
+      telemetry,
+      speakFallback: async (text) => {
+        spoken.push(text)
+      },
+      play: async () => {},
+      onStatus: (message) => statuses.push(message),
+    })
+
+    // The blocker was still spoken from its canonical record, unchanged...
+    expect(spoken.join('\n')).toContain('Permission needed: Write on x.txt.')
+    // ...and still answerable through exactly the same validated path.
+    expect(results[1]).toMatchObject({ status: 'allowed-once' })
+    await expect(harness.answerFor('permission:write-1')).resolves.toBe('allow-once')
+    // Degraded loudly rather than silently: the user is told the request still stands.
+    expect(statuses.join('\n')).toContain('did not take that permission context')
+    expect(statuses.join('\n')).toContain('still stands')
+    await vi.waitFor(() =>
+      expect(telemetry.counters()['realtime.context/not-delivered']).toBeGreaterThanOrEqual(1))
+  })
+
+  it('still refuses a same-turn answer once the model has been told, and still takes the next one', async () => {
+    const harness = permissionHarness()
+    const results: unknown[] = []
+    const notes: string[] = []
+    const client = notingClient(
+      [
+        // Both on turn 1: the permission is raised inside submit_turn, so the answer that
+        // follows it here cannot have been heard by the user.
+        [
+          { name: 'submit_turn', callId: '1', arguments: { text: 'write x' } },
+          control('2', { action: 'allow', request_id: 'permission:write-1' }),
+        ],
+        [control('3', { action: 'allow', request_id: 'permission:write-1' })],
+      ],
+      results,
+      notes,
+    )
+    await runVoiceSession({
+      apiKey: 'test',
+      model: 'gpt-realtime-2.1-mini',
+      input: new ScriptedInput(['write x', 'athena allow', 'exit']),
+      client,
+      controller: harness.controller,
+      attention: harness.bridge,
+      speakFallback: async () => {},
+      play: async () => {},
+      onStatus: () => {},
+    })
+
+    // Direction one: seeding context did not make a same-turn answer start landing.
+    expect(results[1]).toMatchObject({ reason: 'same-turn' })
+    // Direction two: nor did it inflate the turn counter, so the legitimate later answer
+    // still resolves the real request rather than being refused as same-turn in its turn.
+    expect(results[2]).toMatchObject({
+      status: 'allowed-once',
+      permission_id: 'permission:write-1',
+    })
+    await expect(harness.answerFor('permission:write-1')).resolves.toBe('allow-once')
+
+    // Exactly one Realtime turn per spoken utterance; a note never became one.
+    expect(client.ask).toHaveBeenCalledTimes(2)
+    expect(notes).toHaveLength(3)
+    expect(notes[1]).toContain('refused (same-turn)')
+    expect(notes[1]).toContain('nothing was authorized')
+    expect(notes[2]).toContain('allowed once')
+  })
 
   it('speaks the canonical request and lets an allow with its exact identity through', async () => {
     const harness = permissionHarness()

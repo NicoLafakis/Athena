@@ -103,12 +103,21 @@ asserts it by driving a fake key, a real Windows path, and a distinctive phrase 
 whole session and proving they land nowhere here while the phrase does reach the run trace.
 
 Events: `session.ready`, `wake.accepted|rejected|restart|failed`,
-`realtime.connect|renewal|lost`, `turn.submitted|refused|feedback|completed|failed`,
+`realtime.connect|renewal|lost|context`, `turn.submitted|refused|feedback|completed|failed`,
 `permission.wait|resolved|refused`, `playback.spoken|failed`, `provider.usage`,
 `ledger.dropped`. Labels are a single closed vocabulary (`wake-phrase`, `low-confidence`,
 `ambient`, `duplicate`, `busy`, `stale`, `same-turn`, `write-failed`, and so on) so a
 counter is a number and a bounded enum label, never a place a summary can arrive. A
 rejected wake records its label and nothing about what was said.
+
+`realtime.context` counts the out-of-band conversation items that tell the live model
+session a permission is outstanding (see
+[voice](voice.md#context-without-authority)). Its labels are
+`permission-pending|resolved|refused|shutdown` and `not-delivered`, plus the bounded
+`permissionId`. The one-line summary that rides the wire is deliberately not on the record:
+there is no field it could arrive in. `not-delivered` is the honest count of a session that
+could not take the context — the permission is still spoken and still answerable, so this
+is a degraded hint, never a lost decision.
 
 The two budgets are measured as:
 

@@ -127,6 +127,72 @@ describe('OpenAI Realtime voice transport', () => {
     await expect(turn).resolves.toMatchObject({ transcript: 'I heard you.' })
   })
 
+  it('seeds a system conversation item without asking the model to answer it', async () => {
+    const socket = new FakeSocket()
+    const client = new RealtimeVoiceClient({
+      apiKey: 'test',
+      webSocketFactory: () => socket as unknown as WebSocket,
+    })
+    socket.open()
+    socket.server({ type: 'session.updated' })
+    await client.connect()
+    const before = socket.sent.length
+
+    await client.note('permission:write-1 is waiting for the user.')
+
+    // The documented shape: role `system` carries `input_text`, and NO response.create
+    // follows it — that omission is the entire mechanism, because an item on its own never
+    // generates a reply. A `user` item here would read as the user having said it.
+    expect(socket.sent.slice(before)).toEqual([{
+      type: 'conversation.item.create',
+      item: {
+        type: 'message',
+        role: 'system',
+        content: [{ type: 'input_text', text: 'permission:write-1 is waiting for the user.' }],
+      },
+    }])
+    expect(socket.sent.some((event) => (event as { type?: string }).type === 'response.create'))
+      .toBe(false)
+
+    // A note is not a turn: the client is still free to take one straight afterwards.
+    const turn = client.ask('what is waiting?', async () => ({}))
+    await tick()
+    socket.server({ type: 'response.output_audio_transcript.delta', delta: 'One permission.' })
+    socket.server({ type: 'response.done', response: { status: 'completed', output: [] } })
+    await expect(turn).resolves.toMatchObject({ transcript: 'One permission.' })
+  })
+
+  it('bounds a note and drops an empty one rather than putting a blank item on the wire', async () => {
+    const socket = new FakeSocket()
+    const client = new RealtimeVoiceClient({
+      apiKey: 'test',
+      webSocketFactory: () => socket as unknown as WebSocket,
+    })
+    socket.open()
+    socket.server({ type: 'session.updated' })
+    await client.connect()
+    const before = socket.sent.length
+
+    await client.note('   ')
+    expect(socket.sent).toHaveLength(before)
+
+    // A note is the one send nothing is waiting on, so a socket that has begun closing
+    // drops it rather than raising an error that would fail whatever turn is in flight.
+    socket.readyState = WebSocket.CLOSING
+    await expect(client.note('too late')).resolves.toBeUndefined()
+    expect(socket.sent).toHaveLength(before)
+    socket.readyState = WebSocket.OPEN
+
+    await client.note(`sk-ant-api03-DEADBEEFdeadbeefDEADBEEFdeadbeef ${'x'.repeat(4_000)}`)
+    const item = socket.sent[before] as { item: { content: Array<{ text: string }> } }
+    const text = item.item.content[0]!.text
+    // Bounded and redacted by the same seam every other outbound string already uses, so a
+    // permission summary can never widen into an unbounded channel off the machine.
+    expect(text).toHaveLength(2_048)
+    expect(text.startsWith('[REDACTED]')).toBe(true)
+    expect(text).not.toContain('sk-ant-api03')
+  })
+
   it('fails loudly on a protocol error without echoing the API key', async () => {
     const socket = new FakeSocket()
     const client = new RealtimeVoiceClient({
@@ -237,6 +303,32 @@ describe('Realtime session renewal and reconnection', () => {
       expiresAt: options.expiresAt ?? (() => null),
     }
   }
+
+  it('routes a note to the live session and stays a no-op when there is none', async () => {
+    const notes: Array<{ generation: number; text: string }> = []
+    const client = new ReconnectingRealtimeClient({
+      open: (generation) => ({
+        ...fakeSession(generation),
+        note: async (text: string) => {
+          notes.push({ generation, text })
+        },
+      }),
+      sleep: async () => {},
+    })
+    // Before any session exists a note is silently dropped rather than opening one: a note
+    // is not worth a paid connection, and a fresh conversation would not have it anyway.
+    await client.note('before the session')
+    expect(notes).toEqual([])
+
+    await client.connect()
+    await client.note('permission:write-1 is waiting.')
+    expect(notes).toEqual([{ generation: 1, text: 'permission:write-1 is waiting.' }])
+
+    client.close()
+    // A closed client still refuses to fabricate a session for a note, and does not throw.
+    await expect(client.note('after close')).resolves.toBeUndefined()
+    expect(notes).toHaveLength(1)
+  })
 
   it('replaces an expiring session before the deadline, transparently to the caller', async () => {
     let clock = 0

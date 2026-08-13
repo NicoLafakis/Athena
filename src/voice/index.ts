@@ -20,6 +20,7 @@ export {
   type VoiceAttentionBridgeOptions,
   type VoiceAttentionSpeaker,
   type VoicePermissionAction,
+  type VoicePermissionNotice,
   type VoicePermissionRefusal,
   type VoicePermissionResolution,
 } from './attention.js'
@@ -114,6 +115,7 @@ export {
 export {
   KeyboardVoiceCommandInput,
   WindowsPersistentWakeInput,
+  permissionNoticeText,
   runVoiceProbe,
   runVoiceSession,
   waitForWakeProbe,

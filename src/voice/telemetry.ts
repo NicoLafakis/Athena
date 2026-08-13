@@ -25,6 +25,12 @@ export const VOICE_EVENTS = [
   'realtime.connect',
   'realtime.renewal',
   'realtime.lost',
+  /**
+   * One out-of-band conversation item seeded into the live session so the model knows a
+   * permission is outstanding. The label says which state change it carried, never what the
+   * permission was about — the summary rides the wire, not the ledger.
+   */
+  'realtime.context',
   'turn.submitted',
   'turn.refused',
   /** End of user speech to the first thing Athena actually says — the p95-under-2.5s budget. */
@@ -54,6 +60,9 @@ export type VoiceEventName = (typeof VOICE_EVENTS)[number]
  * - `wake.rejected`: why post-wake audio never left the machine.
  * - `wake.restart` / `wake.failed`: what the supervised listener died of.
  * - `realtime.connect` / `realtime.lost`: which session episode this was.
+ * - `realtime.context`: which permission state change was seeded, or that none reached the
+ *   wire. A permission summary is never a label; the bounded `permissionId` carries the
+ *   identity and nothing else does.
  * - `turn.refused`: why `submit_turn` ran nothing.
  * - `permission.*`: the decision, or the canonical refusal reason.
  * - `playback.*`: which output path spoke, or failed to.
@@ -68,6 +77,9 @@ export const VOICE_EVENT_LABELS = [
   'crash', 'not-ready',
   // realtime.connect / realtime.lost
   'initial', 'recovery', 'recovered', 'unrecoverable',
+  // realtime.context
+  'permission-pending', 'permission-resolved', 'permission-refused', 'permission-shutdown',
+  'not-delivered',
   // turn.refused
   'duplicate', 'busy', 'malformed', 'no-controller',
   // permission.resolved / permission.refused

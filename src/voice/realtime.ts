@@ -269,6 +269,39 @@ export class RealtimeVoiceClient {
     })
   }
 
+  /**
+   * Adds one out-of-band item to the live conversation and asks for nothing back.
+   *
+   * `conversation.item.create` never generates a reply by itself: "After adding the user
+   * message to the conversation, send the `response.create` event to initiate a response
+   * from the model." Deliberately sending no `response.create` is therefore the whole
+   * mechanism — the model gains context for the turn the user speaks NEXT, while this turn,
+   * the pending-response bookkeeping, and anything Athena is saying locally are untouched.
+   * https://developers.openai.com/api/docs/guides/realtime-conversations
+   *
+   * The role is `system`, whose content parts are `input_text`. `assistant` would assert
+   * Athena had said this out loud and `user` would assert the user had said it; both are
+   * claims the model would then reason from, and one of them looks like consent.
+   * https://platform.openai.com/docs/api-reference/realtime-client-events/conversation/item/create
+   */
+  async note(text: string): Promise<void> {
+    const bounded = plainBounded(text, 2_048)
+    if (!bounded) return
+    await this.connect()
+    // Every other send belongs to a turn somebody is waiting on; this one does not. Sending
+    // into a socket that has begun closing makes `ws` raise on the socket, which fails the
+    // pending turn — so a note that arrives a moment too late is dropped instead.
+    if (this.socket.readyState !== WebSocket.OPEN) return
+    this.send({
+      type: 'conversation.item.create',
+      item: {
+        type: 'message',
+        role: 'system',
+        content: [{ type: 'input_text', text: bounded }],
+      },
+    })
+  }
+
   private async startTurn(
     handler: RealtimeToolHandler,
     sendInput: () => void,
@@ -417,6 +450,8 @@ export interface RealtimeSessionClient {
   close(): void
   /** Absolute provider deadline, or null when this session does not report one. */
   expiresAt?(): number | null
+  /** Seeds conversation context without asking for a reply; optional for test doubles. */
+  note?(text: string): Promise<void>
 }
 
 export type RealtimeSessionReason = 'initial' | 'renewal' | 'recovery'
@@ -500,6 +535,16 @@ export class ReconnectingRealtimeClient implements RealtimeSessionClient {
 
   async askAudio(pcm: Buffer, handler: RealtimeToolHandler): Promise<RealtimeTurnResult> {
     return this.run((session) => session.askAudio(pcm, handler))
+  }
+
+  /**
+   * Context for the session that is ALREADY live, and only that one. A note deliberately
+   * does not open or renew a session: a replacement starts with an empty conversation, so
+   * whatever the note said would be lost anyway, and the caller re-seeds a fresh session
+   * through its instructions instead. Between sessions this is a no-op rather than a wait.
+   */
+  async note(text: string): Promise<void> {
+    await this.active?.note?.(text)
   }
 
   close(): void {

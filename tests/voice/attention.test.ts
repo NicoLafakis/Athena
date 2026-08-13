@@ -4,20 +4,30 @@ import {
   VoiceAttentionBridge,
   parseVoicePermissionCommand,
   type VoiceAttentionSpeaker,
+  type VoicePermissionNotice,
 } from '../../src/voice/attention.js'
 
 const CWD = process.cwd()
 
 interface Presented { text: string; spoken: boolean }
 
-function recorder(turn = () => 1): { speaker: VoiceAttentionSpeaker; presented: Presented[] } {
+function recorder(turn = () => 1): {
+  speaker: VoiceAttentionSpeaker
+  presented: Presented[]
+  notices: VoicePermissionNotice[]
+} {
   const presented: Presented[] = []
+  const notices: VoicePermissionNotice[] = []
   return {
     presented,
+    notices,
     speaker: {
       currentTurn: turn,
       present: (item) => {
         presented.push(item)
+      },
+      notify: (notice) => {
+        notices.push(notice)
       },
     },
   }
@@ -172,6 +182,85 @@ describe('VoiceAttentionBridge permission matching', () => {
     expect(presented[0]!.text).toContain('Permission needed')
     bridge.close()
     await expect(answer).resolves.toBe('deny')
+  })
+})
+
+describe('VoiceAttentionBridge permission notices', () => {
+  it('tells the listening session a decision is outstanding, and what its identity is', async () => {
+    const bridge = new VoiceAttentionBridge({ cwd: CWD })
+    const { speaker, notices } = recorder(() => 1)
+    bridge.attach(speaker)
+
+    const answer = askWrite(bridge, 'permission:write-1')
+    expect(notices).toEqual([
+      { kind: 'pending', id: 'permission:write-1', summary: 'Write notes.txt' },
+    ])
+
+    // Resolving retires it, so the model's view cannot stay stuck on "still waiting".
+    bridge.resolve('allow', 'permission:write-1', 2)
+    expect(notices[1]).toEqual({
+      kind: 'resolved', id: 'permission:write-1', action: 'allow',
+    })
+    await expect(answer).resolves.toBe('allow-once')
+  })
+
+  it('reports a refusal and a shutdown denial as their own states', async () => {
+    const bridge = new VoiceAttentionBridge({ cwd: CWD })
+    const { speaker, notices } = recorder(() => 4)
+    bridge.attach(speaker)
+    const answer = askWrite(bridge, 'permission:write-1')
+
+    bridge.resolve('allow', 'permission:write-1', 4)
+    expect(notices[1]).toEqual({ kind: 'refused', reason: 'same-turn' })
+    // The refusal changed nothing, so the request is still waiting and still answerable.
+    expect(bridge.hasPending()).toBe(true)
+
+    bridge.close()
+    expect(notices[2]).toEqual({ kind: 'shutdown', id: 'permission:write-1' })
+    await expect(answer).resolves.toBe('deny')
+  })
+
+  it('re-derives what is waiting when a speaker attaches, rather than replaying a queue', async () => {
+    const bridge = new VoiceAttentionBridge({ cwd: CWD })
+    const first = askWrite(bridge, 'permission:write-1', 'one.txt')
+    const second = askWrite(bridge, 'permission:write-2', 'two.txt')
+    // Decided before anything was listening: a queued notice would announce it as pending.
+    bridge.resolve('deny', 'permission:write-1', 1)
+    await expect(first).resolves.toBe('deny')
+
+    const { speaker, notices } = recorder()
+    bridge.attach(speaker)
+    expect(notices).toEqual([
+      { kind: 'pending', id: 'permission:write-2', summary: 'Write two.txt' },
+    ])
+    bridge.close()
+    await expect(second).resolves.toBe('deny')
+  })
+
+  it('keeps a permission spoken and answerable when the notice sink is missing or throws', async () => {
+    const silent = new VoiceAttentionBridge({ cwd: CWD })
+    const presented: Presented[] = []
+    // A speaker with no model behind it simply has no notify; that must not be an error.
+    silent.attach({ currentTurn: () => 1, present: (item) => { presented.push(item) } })
+    const first = askWrite(silent, 'permission:write-1')
+    expect(presented[0]!.text).toContain('Permission needed')
+    expect(silent.resolve('allow', 'permission:write-1', 2)).toMatchObject({ ok: true })
+    await expect(first).resolves.toBe('allow-once')
+
+    const broken = new VoiceAttentionBridge({ cwd: CWD })
+    broken.attach({
+      currentTurn: () => 1,
+      present: () => {},
+      notify: () => {
+        throw new Error('the voice session is gone')
+      },
+    })
+    // The canonical request was already spoken; a model that missed the hint must never be
+    // able to take the decision down with it.
+    const second = askWrite(broken, 'permission:write-2')
+    expect(broken.pendingIds()).toEqual(['permission:write-2'])
+    expect(broken.resolve('allow', 'permission:write-2', 2)).toMatchObject({ ok: true })
+    await expect(second).resolves.toBe('allow-once')
   })
 })
 

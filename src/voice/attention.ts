@@ -34,12 +34,35 @@ export interface PendingVoicePermission {
   summary: string
 }
 
+/**
+ * A change in what is waiting on the user, for whatever model session is listening.
+ *
+ * This is CONTEXT, never authority. The canonical request is still spoken locally, and the
+ * only path from a spoken answer to a harness answer is {@link VoiceAttentionBridge.resolve}
+ * — a notice cannot grant, deny, or unblock anything. It exists because a model that is
+ * never told a decision is outstanding has nothing to act on when the user answers, and
+ * correctly refuses to invent an approval instead of reaching for the control tool.
+ *
+ * Every field is an ID or a closed literal except `summary`, which is bounded at the seam.
+ */
+export type VoicePermissionNotice =
+  | { kind: 'pending'; id: string; summary: string }
+  | { kind: 'resolved'; id: string; action: VoicePermissionAction }
+  | { kind: 'refused'; reason: VoicePermissionRefusal }
+  | { kind: 'shutdown'; id: string }
+
 /** What the voice session hands back so semantic-plane text can reach the user. */
 export interface VoiceAttentionSpeaker {
   /** Voice turn currently in flight; 0 before the first Realtime turn. */
   currentTurn(): number
   /** `spoken: false` means stable text only — something else already owns saying it. */
   present(item: { text: string; spoken: boolean }): void
+  /**
+   * Optional sink for {@link VoicePermissionNotice}. Optional because a speaker with no
+   * model behind it has nothing to tell, and because losing a notice must never be able to
+   * cost a permission: the request is spoken and answerable either way.
+   */
+  notify?(notice: VoicePermissionNotice): void
 }
 
 export interface VoiceAttentionBridgeOptions {
@@ -151,6 +174,14 @@ export class VoiceAttentionBridge {
       speechOwnershipReason('blocking', this.ownership, this.screenReaderActive)
         === 'direct-speech-owner',
     )
+    // Said out loud above; told to the model here. Without this the session has no idea a
+    // decision is outstanding, so a user answering "allow" reaches a model whose only
+    // truthful reply is that it cannot approve anything — which is what it then says.
+    this.notify({
+      kind: 'pending',
+      id: accessible.id,
+      summary: plainBounded(accessible.summary, 256),
+    })
   })
 
   /** The controller's `onAnnouncement` sink. */
@@ -169,6 +200,15 @@ export class VoiceAttentionBridge {
   attach(speaker: VoiceAttentionSpeaker): void {
     this.speaker = speaker
     for (const item of this.queued.splice(0)) speaker.present(item)
+    // Notices are re-derived from live state rather than queued like text. A queue could
+    // replay a decision that has since been made; the pending map cannot be stale.
+    for (const record of this.pending.values()) {
+      this.notify({
+        kind: 'pending',
+        id: record.id,
+        summary: plainBounded(record.request.summary, 256),
+      })
+    }
   }
 
   detach(): void {
@@ -192,6 +232,7 @@ export class VoiceAttentionBridge {
         permissionId: record.id,
         ms: this.meter.now() - record.waitingSince,
       })
+      this.notify({ kind: 'shutdown', id: record.id })
       record.resolve('deny')
     }
     this.speaker = null
@@ -259,6 +300,7 @@ export class VoiceAttentionBridge {
       permissionId: record.id,
       ms: this.meter.now() - record.waitingSince,
     })
+    this.notify({ kind: 'resolved', id: record.id, action })
     record.resolve(answer)
     return { ok: true, id: record.id, action, answer }
   }
@@ -267,12 +309,27 @@ export class VoiceAttentionBridge {
     // The refusal reason is already a closed union, so it is a counter label as it stands;
     // the clarification sentence it maps to is never persisted.
     this.meter.record({ event: 'permission.refused', label: reason })
+    this.notify({ kind: 'refused', reason })
     return { ok: false, reason, clarification: REFUSALS[reason], pendingIds }
   }
 
   private remember(id: string): void {
     this.resolved.push(id)
     while (this.resolved.length > this.maxRemembered) this.resolved.shift()
+  }
+
+  /**
+   * Never fatal, by construction. A notice is the least essential thing the bridge does:
+   * the request has already been spoken from its canonical record, and the answer path does
+   * not run through here, so a speaker that throws must cost a turn nothing.
+   */
+  private notify(notice: VoicePermissionNotice): void {
+    try {
+      this.speaker?.notify?.(notice)
+    } catch {
+      // Deliberately silent: the caller of askUser is a harness turn waiting on a decision,
+      // and there is nothing it could usefully do about a model that missed a hint.
+    }
   }
 
   private emit(text: string, spoken: boolean): void {

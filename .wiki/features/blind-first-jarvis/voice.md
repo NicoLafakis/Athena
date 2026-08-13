@@ -82,6 +82,34 @@ target, and the consequence. It is deliberately not routed through a model round
 that would both delay a blocker and license a paraphrase that changes what the user
 believes they allowed.
 
+### Context without authority
+
+Speaking locally left the Realtime session blind: it was never told a decision existed, so
+a user saying "allow" reached a model whose instructions correctly forbid inventing an
+approval, and it narrated an explanation instead of calling `local_control`. Live dogfood
+on 2026-08-13 walked straight into that loop.
+
+The fix is context, never authority. Whenever the bridge announces, resolves, refuses, or
+shutdown-denies a permission it emits a `VoicePermissionNotice`, and the session seeds it
+into the live conversation as one bounded `system` item through
+`conversation.item.create` — with **no** `response.create` behind it. An item on its own
+never generates a reply
+([Realtime conversations](https://developers.openai.com/api/docs/guides/realtime-conversations)),
+so the model gains the identity and the fact of an outstanding decision for the turn the
+user answers on, while the spoken blocker stays exactly what Athena said herself. Role
+`system` (whose parts are `input_text`) is deliberate: `assistant` would assert Athena had
+said it aloud and `user` would assert the user had — and one of those looks like consent.
+
+Every invariant above still holds unchanged, because the notice touches none of them. It
+is not a turn: it never rides the turn chain and never increments the Realtime turn
+counter, so a same-turn answer is still refused and a legitimate later one still lands. It
+authorizes nothing: only a validated `local_control` call reaching
+`VoiceAttentionBridge.resolve` decides anything. And it is never load-bearing — a notice
+that cannot be delivered leaves the permission spoken, answerable, and reported in stable
+text, counted as `realtime.context/not-delivered`. A reconnect gets the same context
+re-seeded through its session instructions, because a replacement conversation starts
+empty and would otherwise reopen the same blind spot.
+
 An answer is refused unless it identifies exactly one pending request:
 
 - a **stale** identity (already decided), an **unknown** identity, or an **ambiguous**

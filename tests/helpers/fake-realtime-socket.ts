@@ -94,6 +94,25 @@ export class FakeRealtimeSocket extends EventEmitter {
     })
   }
 
+  /**
+   * The out-of-band `system` items the client seeded (`note`), in order. Separate from
+   * {@link userInputs} on purpose: a note must never reach the wire dressed as the user.
+   */
+  systemNotes(): string[] {
+    return this.sent.flatMap((event) => {
+      if (event['type'] !== 'conversation.item.create') return []
+      const item = event['item'] as {
+        type?: string
+        role?: string
+        content?: Array<{ type?: string; text?: string }>
+      }
+      if (item?.type !== 'message' || item.role !== 'system') return []
+      return (item.content ?? [])
+        .filter((part) => part.type === 'input_text' && typeof part.text === 'string')
+        .map((part) => part.text as string)
+    })
+  }
+
   /** The tool results the client returned, in order, as raw JSON strings. */
   functionOutputs(): string[] {
     return this.sent.flatMap((event) => {

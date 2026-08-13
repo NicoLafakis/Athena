@@ -347,6 +347,19 @@ probe. Rollback must never delete an Athena session, credential, trace, or usage
   change nothing; voice reaches `allow-once` and never `allow-always`; shutdown denies
   everything outstanding rather than parking the engine on a decision nobody will give.
   `athena exec` keeps its documented auto-deny, pinned by a regression test.
+  A third defect surfaced in live dogfood the same day and was fixed on 2026-08-13:
+  speaking the blocker locally is correct, but it left the Realtime session unaware a
+  decision existed at all, so an "allow" reached a model that truthfully replied it could
+  not approve anything and told the user to go and change something by hand. Nothing was
+  ever authorized and the user went in circles. The session is now seeded with one bounded
+  `system` conversation item per permission state change, sent with no `response.create`
+  behind it so it produces no spoken turn and no paraphrase of the canonical text. It is
+  context, not authority: it never rides the turn chain or the Realtime turn counter (so
+  same-turn refusal is untouched in both directions), it authorizes nothing without a
+  validated `local_control` call, and a failure to deliver it is counted as
+  `realtime.context/not-delivered` while the permission stays spoken and answerable. A
+  replacement session is re-seeded through its instructions, since its conversation starts
+  empty.
 - [x] **5. Spoken lifecycle:** add Marin ready, waiting, permission, completion, failure,
   and recovery behavior under screen-reader ownership policy.
   Completed 2026-08-13: the controller's `onAnnouncement` now reaches the voice session,

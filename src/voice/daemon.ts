@@ -1,7 +1,11 @@
 import { createInterface } from 'node:readline/promises'
 import { plainBounded } from '../interaction/format.js'
 import type { HarnessSessionController } from '../harness/controller.js'
-import { parseVoicePermissionCommand, type VoiceAttentionBridge } from './attention.js'
+import {
+  parseVoicePermissionCommand,
+  type VoiceAttentionBridge,
+  type VoicePermissionNotice,
+} from './attention.js'
 import {
   VoicePermissionAnswerSchema,
   VoiceTurnSubmissionSchema,
@@ -18,7 +22,11 @@ import {
   type RealtimeTurnResult,
   type RealtimeVoiceModel,
 } from './realtime.js'
-import { NULL_VOICE_TELEMETRY, type VoiceTelemetryRecorder } from './telemetry.js'
+import {
+  NULL_VOICE_TELEMETRY,
+  type VoiceEventLabel,
+  type VoiceTelemetryRecorder,
+} from './telemetry.js'
 import {
   playWindowsPcm,
   probeWindowsSpeech,
@@ -573,6 +581,54 @@ export interface VoiceRealtimeClient {
   close(): void
   /** Absolute provider deadline, when this session reports one. */
   expiresAt?(): number | null
+  /**
+   * Seeds one conversation item without asking for a reply. Optional: a session with no
+   * such channel still speaks every permission locally and still answers it, so this is
+   * context the model gains, never a step the permission path depends on.
+   */
+  note?(text: string): Promise<void>
+}
+
+/** Which closed counter label each notice kind writes; the summary never becomes one. */
+const PERMISSION_NOTICE_LABELS: Record<VoicePermissionNotice['kind'], VoiceEventLabel> = {
+  pending: 'permission-pending',
+  resolved: 'permission-resolved',
+  refused: 'permission-refused',
+  shutdown: 'permission-shutdown',
+}
+
+/**
+ * What the live model session is told about a permission — and the exact limit of it.
+ *
+ * Athena has already spoken the canonical request herself, straight from the accessible
+ * record, so this text must not invite a repeat of it and must not read as a cue to reply.
+ * It is added to the conversation with no `response.create` behind it; its whole job is to
+ * put the identity and the fact of an outstanding decision where the model can reach them
+ * on the turn the user actually answers. It confers nothing: only a validated
+ * `local_control` call arriving at `VoiceAttentionBridge.resolve` decides anything.
+ */
+export function permissionNoticeText(notice: VoicePermissionNotice): string {
+  switch (notice.kind) {
+    case 'pending':
+      return 'Athena runtime notice, not something the user said: permission ' +
+        `${notice.id} is now waiting for the user's decision — ${notice.summary}. ` +
+        'I have already asked for it out loud in my own voice, so do not repeat the request ' +
+        'and do not reply to this notice. When the user answers on a later turn, call ' +
+        `local_control with action allow or deny and request_id ${notice.id}. Your own words ` +
+        'authorize nothing; only that tool result does.'
+    case 'resolved':
+      return `Athena runtime notice: permission ${notice.id} is now ` +
+        `${notice.action === 'allow' ? 'allowed once' : 'denied'} and is no longer waiting. ` +
+        'Do not reply to this notice.'
+    case 'refused':
+      return 'Athena runtime notice: the last permission answer was refused ' +
+        `(${notice.reason}); nothing was authorized and nothing changed. ` +
+        'Do not reply to this notice.'
+    case 'shutdown':
+      return `Athena runtime notice: permission ${notice.id} was denied automatically ` +
+        'because the voice session is shutting down, and is no longer waiting. ' +
+        'Do not reply to this notice.'
+  }
 }
 
 /** Per-utterance state the tool handler needs and the recovery path reads back. */
@@ -634,7 +690,17 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
         'Do not mention the reconnection unless the user asks about it.'
       : 'Your voice connection was just reopened, so you remember nothing said before now. ' +
         'Do not mention the reconnection unless the user asks about it.'
-    return `${base} ${continuity}`
+    // A replacement conversation is EMPTY, so any decision still outstanding would be
+    // invisible to the new session — which is exactly the blind spot the mid-session notes
+    // exist to close, reopened by a reconnect. Bounded like every other seeded value.
+    const waiting = (options.attention?.pendingPermissions() ?? []).slice(0, 4)
+    if (waiting.length === 0) return `${base} ${continuity}`
+    const described = waiting
+      .map((item) => `${item.id} (${plainBounded(item.summary, 256)})`)
+      .join('; ')
+    return `${base} ${continuity} Decisions already waiting on the user, which I asked for ` +
+      `out loud before the reconnection: ${described}. When the user answers one, call ` +
+      'local_control with allow or deny and that request_id. You cannot grant one yourself.'
   }
 
   const client: VoiceRealtimeClient = options.client ?? new ReconnectingRealtimeClient({
@@ -738,6 +804,40 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
       }).catch((error: unknown) => {
         status(`Athena: could not speak an announcement: ${(error as Error).message}`)
       })
+    },
+    /**
+     * Context for the model, and nothing else. The item carries no `response.create`, so
+     * Marin says nothing about it and the canonical blocker spoken above stays the only
+     * thing the user hears. It deliberately does NOT ride `enqueueTurn` and does not touch
+     * `turnSeq`: a note is not a turn, and inflating the counter would make a legitimate
+     * later answer read as same-turn — or, worse, the reverse.
+     */
+    notify: (notice) => {
+      const identity = 'id' in notice ? { permissionId: notice.id } : {}
+      // Counted as DISPATCHED, not acknowledged: a WebSocket send has no receipt, and no
+      // permission may wait on one. Between sessions there is no live conversation to seed,
+      // and a replacement is re-seeded through its instructions instead.
+      const delivery = client.note?.(permissionNoticeText(notice))
+      if (!delivery) {
+        meter.record({ event: 'realtime.context', label: 'not-delivered', ...identity })
+        return
+      }
+      void delivery.then(
+        () => meter.record({
+          event: 'realtime.context',
+          label: PERMISSION_NOTICE_LABELS[notice.kind],
+          ...identity,
+        }),
+        (error: unknown) => {
+          meter.record({ event: 'realtime.context', label: 'not-delivered', ...identity })
+          status(
+            'Athena: the voice session did not take that permission context ' +
+            `(${plainBounded((error as Error).message, 200)}). ` +
+            'The spoken request above still stands, and you can still answer it by voice or ' +
+            'by typing allow or deny.',
+          )
+        },
+      )
     },
   })
 
