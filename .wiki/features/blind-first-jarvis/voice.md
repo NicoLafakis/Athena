@@ -169,8 +169,14 @@ Realtime for a concise spoken summary; the model cannot manufacture the engine s
 session, then stores it under `voice/openai` in the per-machine OS vault and verifies
 readback. `OPENAI_API_KEY` remains the zero-file override. A failed replacement attempts
 to restore the prior working vault entry. `athena voice probe` audibly asks the user to
-say `Athena voice probe`, allows three audible ten-second attempts, and verifies the
-constrained local wake gate. It then sends that captured raw utterance to Realtime and
+say `Athena voice probe`, then runs the wake stage against the **production**
+`WindowsPersistentWakeInput` — process spawn, readiness round trip, JSONL framing,
+`realtimePcmFromWave`, and the wake state machine — for three bounded twenty-second
+attempts with a spoken retry cue between them. One listener per attempt, always closed
+before the cue is spoken, so the listener cannot hear Athena say `Athena voice probe` and
+pass itself. A failure names what the listener reported (readiness never proven, ready but
+silent, wake word heard with no command, or restart budget exhausted) instead of only
+"failed". It then sends that captured raw utterance to Realtime and
 requires an actual spoken response and playback, proving microphone capture, format
 conversion, provider speech understanding, and speaker output along the production path.
 Diagnostics name the Windows default-input route, recognizer, and locally selected prompt

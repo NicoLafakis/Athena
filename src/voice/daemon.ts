@@ -85,6 +85,12 @@ export interface WindowsPersistentWakeOptions {
   now?: () => number
   /** Fired when a bare wake word opens the capture window (cue hook). */
   onListening?: () => void
+  /**
+   * Fired once per attempt when the listener proves microphone readiness, carrying the
+   * recognizer it opened. Without it a caller cannot tell "ready but silent" apart from
+   * "never came up" — the exact distinction `athena voice probe` has to report.
+   */
+  onReady?: (recognizer: string | null) => void
   onWarn?: (message: string) => void
   sleep?: (ms: number) => Promise<void>
 }
@@ -116,6 +122,7 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
   private readonly listeningWindowMs: number
   private readonly now: () => number
   private readonly onListening: () => void
+  private readonly onReady: (recognizer: string | null) => void
   private readonly onWarn: (message: string) => void
   private readonly sleep: (ms: number) => Promise<void>
 
@@ -140,6 +147,7 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
     this.listeningWindowMs = options.listeningWindowMs ?? 6_000
     this.now = options.now ?? (() => Date.now())
     this.onListening = options.onListening ?? (() => {})
+    this.onReady = options.onReady ?? (() => {})
     this.onWarn = options.onWarn ?? (() => {})
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
   }
@@ -217,7 +225,13 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
   private onLine(attempt: WakeAttempt, line: string): void {
     const trimmed = line.trim()
     if (!trimmed) return
-    let parsed: { ready?: unknown; text?: unknown; confidence?: unknown; wave?: unknown }
+    let parsed: {
+      ready?: unknown
+      recognizer?: unknown
+      text?: unknown
+      confidence?: unknown
+      wave?: unknown
+    }
     try {
       parsed = JSON.parse(trimmed) as typeof parsed
     } catch {
@@ -230,6 +244,8 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
         attempt.settled = true
         if (attempt.timer) clearTimeout(attempt.timer)
         attempt.timer = null
+        const recognizer = typeof parsed.recognizer === 'string' ? parsed.recognizer.trim() : ''
+        this.onReady(recognizer || null)
       }
       return
     }
@@ -347,27 +363,143 @@ export interface WakeProbeResult {
   heard: string[]
   command: string | null
   audio: Buffer | null
+  /** What the persistent listener itself reported, bounded to one report line. */
+  detail: string | null
 }
 
-export async function waitForWakeProbe(
-  recognize: () => Promise<RecognizedPhrase | null> = () => recognizeWindowsPhrase(undefined, 10),
-  onRetry: () => Promise<void> = () => speakWindowsText(
+export interface WakeProbeOptions {
+  /** Builds the listener under test; defaults to the production persistent listener. */
+  createInput?: (options: WindowsPersistentWakeOptions) => VoiceCommandInput
+  onRetry?: () => Promise<void>
+  maxAttempts?: number
+  /** Budget for one spoken attempt, spawn and readiness included. */
+  attemptTimeoutMs?: number
+  /** Listener seams (`spawn`, `now`, `sleep`, timings). Production defaults otherwise. */
+  listener?: WindowsPersistentWakeOptions
+}
+
+/**
+ * Longer than the listener's own 15 s readiness budget on purpose: when readiness stalls
+ * the listener must be the one to time out and say so, otherwise the probe reports a
+ * generic "heard nothing" for what is actually a microphone that never opened.
+ */
+const WAKE_PROBE_ATTEMPT_MS = 20_000
+
+interface WakeAttemptObservation {
+  ready: boolean
+  bareWake: boolean
+  recognizer: string | null
+  warnings: string[]
+  fatal: Error | null
+}
+
+/** One bounded, actionable sentence naming what the listener reported, not just "failed". */
+function describeWakeAttempt(seen: WakeAttemptObservation): string {
+  if (seen.fatal) return plainBounded(seen.fatal.message, 240)
+  const base = !seen.ready
+    ? 'the listener never proved microphone readiness'
+    : seen.bareWake
+      ? 'heard the wake word Athena, but no command followed inside the capture window'
+      : `listener ready (${seen.recognizer ?? 'recognizer unreported'}), but no Athena wake phrase arrived`
+  const reported = seen.warnings.at(-1)
+  return plainBounded(reported ? `${base}; listener reported: ${reported}` : base, 240)
+}
+
+/**
+ * `next()` waits forever by design, so this timeout is what keeps the diagnostic from
+ * becoming the same hang it exists to explain. Resolves null when the budget expires.
+ */
+async function awaitWakeCommand(
+  input: VoiceCommandInput,
+  timeoutMs: number,
+): Promise<VoiceCommand | null> {
+  let expire: (value: 'timeout') => void = () => {}
+  const expiry = new Promise<'timeout'>((resolve) => {
+    expire = resolve
+  })
+  const timer = setTimeout(() => expire('timeout'), timeoutMs)
+  timer.unref?.()
+  try {
+    for (;;) {
+      // A null from the input is "nothing usable yet"; only the deadline ends the attempt.
+      const settled = await Promise.race([input.next(), expiry])
+      if (settled === 'timeout') return null
+      if (settled) return settled
+    }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * Drive the PRODUCTION wake path end to end — process spawn, readiness round trip, JSONL
+ * framing, `realtimePcmFromWave`, and the wake state machine — and report on it. Every
+ * voice failure message sends the user here, so probing a different recognizer than the
+ * one that failed made this command worthless as a diagnostic: it could pass while the
+ * real listener was broken, or fail while it was fine.
+ *
+ * One listener per attempt, closed before the retry cue is spoken: a listener left open
+ * across the cue would hear Athena say "Athena voice probe" and pass itself.
+ */
+export async function waitForWakeProbe(options: WakeProbeOptions = {}): Promise<WakeProbeResult> {
+  const createInput = options.createInput
+    ?? ((listener: WindowsPersistentWakeOptions) => new WindowsPersistentWakeInput(listener))
+  const onRetry = options.onRetry ?? (() => speakWindowsText(
     'I did not hear Athena. Please say Athena voice probe now.',
-  ),
-  maxAttempts = 3,
-): Promise<WakeProbeResult> {
+  ))
+  const attempts = Math.max(1, Math.round(options.maxAttempts ?? 3))
+  const attemptTimeoutMs = Math.max(1, Math.round(options.attemptTimeoutMs ?? WAKE_PROBE_ATTEMPT_MS))
   const heard: string[] = []
-  const attempts = Math.max(1, Math.round(maxAttempts))
+  let detail = 'the wake listener was never started'
   for (let attempt = 0; attempt < attempts; attempt++) {
-    const phrase = await recognize()
-    if (phrase) heard.push(phrase.text)
-    const command = phrase && phrase.confidence >= WINDOWS_WAKE_MINIMUM_CONFIDENCE
-      ? stripWakePhrase(phrase.text)
-      : null
-    if (command) return { passed: true, heard, command, audio: phrase!.audio }
+    const seen: WakeAttemptObservation = {
+      ready: false, bareWake: false, recognizer: null, warnings: [], fatal: null,
+    }
+    const input = createInput({
+      ...options.listener,
+      onReady: (recognizer) => {
+        seen.ready = true
+        seen.recognizer = recognizer
+      },
+      onListening: () => {
+        // A pause after "Athena" is a legitimate way to reach the command; recording it
+        // turns a silent retry into "I heard the wake word, the command never came".
+        seen.bareWake = true
+        heard.push('Athena')
+      },
+      onWarn: (message) => {
+        seen.warnings.push(message)
+        if (seen.warnings.length > 4) seen.warnings.shift()
+      },
+    })
+    let command: VoiceCommand | null = null
+    try {
+      command = await awaitWakeCommand(input, attemptTimeoutMs)
+    } catch (error) {
+      seen.fatal = error as Error
+    } finally {
+      // Unconditional: a probe that leaks a listener holds the microphone the session the
+      // user is about to start needs. `close()` asks for `exit` and escalates to a kill.
+      input.close()
+    }
+    if (command?.kind === 'audio') {
+      heard.push(command.wakeTranscript)
+      return {
+        passed: true,
+        heard,
+        // A fluid "Athena, <command>" carries the wake word; a command spoken after a
+        // bare wake word does not, and is already the command itself.
+        command: stripWakePhrase(command.wakeTranscript) ?? command.wakeTranscript,
+        audio: command.pcm,
+        detail: `persistent wake listener, recognizer: ${seen.recognizer ?? 'unreported'}`,
+      }
+    }
+    detail = describeWakeAttempt(seen)
+    // Asking the user to speak again cannot fix a listener that will not stay running.
+    if (seen.fatal) break
     if (attempt + 1 < attempts) await onRetry()
   }
-  return { passed: false, heard, command: null, audio: null }
+  return { passed: false, heard, command: null, audio: null, detail }
 }
 
 export interface DelegateResult {
@@ -708,20 +840,21 @@ export async function runVoiceProbe(apiKey: string, model: RealtimeVoiceModel): 
   }
   await speakWindowsText('Athena voice probe. Please say Athena voice probe now.')
   const wake = await waitForWakeProbe()
+  const backend = wake.detail ? `; ${plainBounded(wake.detail, 240)}` : ''
   if (!wake.passed) {
     const heard = wake.heard.length > 0
       ? ` (heard: ${plainBounded(wake.heard.join(' | '), 128)})`
       : ''
-    report.push(`Microphone wake probe: failed${heard}`)
+    report.push(`Microphone wake probe: failed${backend}${heard}`)
     report.push('Recovery: check the default microphone and Windows speech language, then rerun `athena voice probe`.')
     return report
   }
   if (wake.command?.toLowerCase() === 'voice probe') {
-    report.push('Microphone wake probe: passed (Athena voice probe).')
+    report.push(`Microphone wake probe: passed (Athena voice probe${backend}).`)
   } else {
     report.push(
       `Microphone wake probe: passed (wake word Athena; heard command: ` +
-      `${plainBounded(wake.command ?? 'unknown', 128)}).`,
+      `${plainBounded(wake.command ?? 'unknown', 128)}${backend}).`,
     )
     report.push('Wake diagnostic note: Windows only gates on Athena; OpenAI receives the raw audio.')
   }

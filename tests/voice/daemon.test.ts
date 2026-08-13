@@ -1,10 +1,19 @@
+import type { ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { HarnessSessionController } from '../../src/harness/controller.js'
 import type {
   RealtimeToolCall,
   RealtimeTurnResult,
 } from '../../src/voice/realtime.js'
+import {
+  probeWindowsSpeech,
+  runPowerShell,
+  spawnWindowsWakeListener,
+} from '../../src/voice/windows-speech.js'
 import {
   WindowsPersistentWakeInput,
   WindowsWakeCommandInput,
@@ -38,6 +47,10 @@ function pcmWave(sampleRate = 16_000, samples = [0, 1, -1, 2]): Buffer {
 
 function phraseLine(text: string, confidence: number): string {
   return JSON.stringify({ text, confidence, wave: pcmWave().toString('base64') })
+}
+
+function readyLine(recognizer = 'Athena Test Recognizer'): string {
+  return JSON.stringify({ ready: true, recognizer }) + '\n'
 }
 
 class FakeWakeProcess implements WakeListenerProcess {
@@ -112,35 +125,6 @@ describe('voice conductor composition', () => {
     const input = new WindowsWakeCommandInput(0.6, async () => phrases.shift() ?? null)
     await expect(input.next()).resolves.toEqual({
       kind: 'audio', pcm: Buffer.from([3]), wakeTranscript: 'Athena status',
-    })
-  })
-
-  it('gives the wake probe bounded retries instead of failing on the first bad transcript', async () => {
-    const phrases = [
-      { text: 'The things that was', confidence: 0.92, audio: Buffer.from([1]) },
-      { text: 'Athena probe', confidence: 0.2, audio: Buffer.from([2]) },
-      { text: 'Athena probe', confidence: 0.95, audio: Buffer.from([3]) },
-    ]
-    const retry = vi.fn(async () => {})
-    await expect(waitForWakeProbe(
-      async () => phrases.shift() ?? null,
-      retry,
-      3,
-    )).resolves.toEqual({
-      passed: true,
-      heard: ['The things that was', 'Athena probe', 'Athena probe'],
-      command: 'probe',
-      audio: Buffer.from([3]),
-    })
-    expect(retry).toHaveBeenCalledTimes(2)
-  })
-
-  it('separates a working Athena wake word from an imperfect command transcript', async () => {
-    await expect(waitForWakeProbe(
-      async () => ({ text: 'Athena status', confidence: 0.92, audio: Buffer.from([4]) }),
-      async () => {},
-    )).resolves.toEqual({
-      passed: true, heard: ['Athena status'], command: 'status', audio: Buffer.from([4]),
     })
   })
 
@@ -488,4 +472,191 @@ describe('WindowsPersistentWakeInput', () => {
     await expect(pending).resolves.toMatchObject({ wakeTranscript: 'fresh command' })
     input.close()
   })
+})
+
+describe('athena voice probe wake stage', () => {
+  it('drives the production persistent listener and returns its captured microphone audio', async () => {
+    const processes: FakeWakeProcess[] = []
+    const probe = waitForWakeProbe({
+      onRetry: async () => {},
+      attemptTimeoutMs: 5_000,
+      listener: { spawn: fakeSpawner(processes), sleep: async () => {}, closeGraceMs: 1 },
+    })
+    await vi.waitFor(() => expect(processes).toHaveLength(1))
+    const listener = processes[0]!
+    listener.emitStdout(readyLine())
+    listener.emitStdout(phraseLine('Athena voice probe', 0.95) + '\n')
+    const result = await probe
+    expect(result).toMatchObject({
+      passed: true,
+      command: 'voice probe',
+      heard: ['Athena voice probe'],
+      detail: 'persistent wake listener, recognizer: Athena Test Recognizer',
+    })
+    // Real audio off the production path, not a stub: four 16 kHz frames resampled to 24 kHz.
+    expect(result.audio?.length).toBe(12)
+    // The probe reports only after the microphone is handed back.
+    expect(listener.written).toContain('exit\n')
+    expect(listener.ended).toBe(true)
+    await vi.waitFor(() => expect(listener.killed).toBe(true))
+  })
+
+  it('still passes when the user pauses after the wake word instead of failing instantly', async () => {
+    const processes: FakeWakeProcess[] = []
+    let clock = 1_000
+    const probe = waitForWakeProbe({
+      onRetry: async () => {},
+      attemptTimeoutMs: 5_000,
+      listener: { spawn: fakeSpawner(processes), sleep: async () => {}, now: () => clock },
+    })
+    await vi.waitFor(() => expect(processes).toHaveLength(1))
+    const listener = processes[0]!
+    listener.emitStdout(readyLine())
+    listener.emitStdout(phraseLine('Athena', 0.96) + '\n')
+    clock = 3_000
+    listener.emitStdout(phraseLine('voice probe', 0.94) + '\n')
+    await expect(probe).resolves.toMatchObject({
+      passed: true,
+      command: 'voice probe',
+      heard: ['Athena', 'voice probe'],
+    })
+  })
+
+  it('bounds a listener that never proves readiness and names why, without hanging', async () => {
+    const processes: FakeWakeProcess[] = []
+    const retry = vi.fn(async () => {})
+    const result = await waitForWakeProbe({
+      onRetry: retry,
+      maxAttempts: 3,
+      attemptTimeoutMs: 5,
+      listener: { spawn: fakeSpawner(processes), sleep: async () => {}, closeGraceMs: 1 },
+    })
+    expect(result).toMatchObject({
+      passed: false,
+      command: null,
+      audio: null,
+      detail: 'the listener never proved microphone readiness',
+    })
+    expect(processes).toHaveLength(3)
+    expect(retry).toHaveBeenCalledTimes(2)
+    // No orphan listener from any attempt, including the ones that failed.
+    for (const listener of processes) {
+      expect(listener.written).toContain('exit\n')
+      expect(listener.ended).toBe(true)
+    }
+    await vi.waitFor(() => expect(processes.every((listener) => listener.killed)).toBe(true))
+  })
+
+  it('reports a ready listener that heard nothing differently from one that never came up', async () => {
+    const processes: FakeWakeProcess[] = []
+    const result = await waitForWakeProbe({
+      onRetry: async () => {},
+      maxAttempts: 1,
+      attemptTimeoutMs: 20,
+      listener: {
+        spawn: () => {
+          const listener = new FakeWakeProcess()
+          processes.push(listener)
+          queueMicrotask(() => listener.emitStdout(readyLine('Microsoft Speech Recognizer')))
+          return listener
+        },
+        sleep: async () => {},
+        closeGraceMs: 1,
+      },
+    })
+    expect(result.passed).toBe(false)
+    expect(result.detail).toBe(
+      'listener ready (Microsoft Speech Recognizer), but no Athena wake phrase arrived',
+    )
+  })
+
+  it('surfaces an exhausted restart budget instead of coaxing a listener that cannot stay up', async () => {
+    const processes: FakeWakeProcess[] = []
+    const retry = vi.fn(async () => {})
+    const result = await waitForWakeProbe({
+      onRetry: retry,
+      maxAttempts: 3,
+      attemptTimeoutMs: 5_000,
+      listener: {
+        spawn: () => {
+          const listener = new FakeWakeProcess()
+          processes.push(listener)
+          queueMicrotask(() => listener.emitExit(1))
+          return listener
+        },
+        maxRestarts: 1,
+        restartDelayMs: 0,
+        sleep: async () => {},
+      },
+    })
+    expect(result.passed).toBe(false)
+    expect(result.detail).toMatch(/stopped repeatedly.*athena voice probe/)
+    // The listener already burned its own restart budget; a spoken retry cue cannot help.
+    expect(retry).not.toHaveBeenCalled()
+    expect(processes).toHaveLength(2)
+  })
+
+  it.runIf(process.platform === 'win32')(
+    'proves the whole production wake chain through the real listener subprocess',
+    async (ctx) => {
+      const backend = await probeWindowsSpeech()
+      if (!backend.available) ctx.skip()
+      // Synthesize the wake phrase locally: the WAV sentinel drives the exact production
+      // script, so the probe's own chain is proven end to end without a microphone.
+      const directory = await mkdtemp(join(tmpdir(), 'athena-probe-test-'))
+      const waveFile = join(directory, 'wake.wav')
+      const children: ChildProcess[] = []
+      try {
+        await runPowerShell(String.raw`
+$ErrorActionPreference='Stop'
+Add-Type -AssemblyName System.Speech
+$synth=New-Object System.Speech.Synthesis.SpeechSynthesizer
+try {
+  $synth.SetOutputToWaveFile($args[0])
+  $synth.Speak('Athena status')
+} finally { $synth.Dispose() }
+`, [waveFile], 30_000)
+
+        const result = await waitForWakeProbe({
+          onRetry: async () => {},
+          maxAttempts: 1,
+          attemptTimeoutMs: 45_000,
+          listener: {
+            spawn: () => {
+              const child = spawnWindowsWakeListener(waveFile)
+              children.push(child)
+              return child
+            },
+          },
+        })
+        expect(result.passed, `probe reported: ${result.detail ?? 'nothing'}`).toBe(true)
+        expect(result.heard.join(' | ')).toMatch(/athena|status/i)
+        expect(result.command).toBeTruthy()
+        expect(result.audio?.length ?? 0).toBeGreaterThan(0)
+        expect(result.detail).toContain('persistent wake listener')
+        expect(children).toHaveLength(1)
+        // No orphan PowerShell: the probe's close() drove the real child to exit.
+        await Promise.all(children.map((child) => new Promise<void>((resolve) => {
+          if (child.exitCode !== null || child.signalCode !== null) {
+            resolve()
+            return
+          }
+          const timer = setTimeout(() => {
+            child.kill()
+            resolve()
+          }, 15_000)
+          timer.unref?.()
+          child.once('exit', () => {
+            clearTimeout(timer)
+            resolve()
+          })
+        })))
+        expect(children[0]!.exitCode === 0 || children[0]!.signalCode !== null).toBe(true)
+      } finally {
+        await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+          .catch((error) => console.error(`test cleanup: ${(error as Error).message}`))
+      }
+    },
+    120_000,
+  )
 })

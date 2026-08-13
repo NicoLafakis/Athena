@@ -72,6 +72,7 @@ export {
   waitForWakeProbe,
   type DelegateResult,
   type DelegateRunner,
+  type WakeProbeOptions,
   type WakeProbeResult,
   type VoiceCommandInput,
   type VoiceCommand,

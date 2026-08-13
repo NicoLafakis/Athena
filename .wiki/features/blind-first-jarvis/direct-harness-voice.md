@@ -302,6 +302,15 @@ Rollback must never delete an Athena session, credential, trace, or usage record
   queue, restarts a crashed listener three times with one warning each, and fails loudly
   with the `athena voice probe` recovery path. A win32-gated test drives the production
   script with a locally synthesized WAV sentinel — no microphone needed.
+  Corrected 2026-08-13: `athena voice probe` was still calling the retired one-shot
+  `recognizeWindowsPhrase`, so the command every wake failure names exercised a different
+  backend than the one that failed — it could pass while the persistent listener was
+  broken. `waitForWakeProbe` now builds a real `WindowsPersistentWakeInput` and awaits
+  `next()` under a per-attempt deadline (`next()` waits forever by design), closes it on
+  every path including timeout and throw, and reports the listener's own verdict through
+  a new `onReady` seam plus the existing `onWarn`/`onListening` callbacks. A win32-gated
+  test drives the probe through the real subprocess with the same WAV sentinel and
+  asserts the child exits, so no orphan `powershell.exe` survives.
 - [x] **3. Direct turn bridge:** replace `delegate` with `submit_turn`; route normal speech
   into the shared controller and return its authoritative result.
   Upgraded 2026-08-12 after live dogfood: `submit_turn` is now non-blocking — it returns
