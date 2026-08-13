@@ -1,7 +1,15 @@
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 import WebSocket from 'ws'
-import { RealtimeVoiceClient, buildVoiceInstructions } from '../../src/voice/realtime.js'
+import {
+  REALTIME_SESSION_MAX_MS,
+  ReconnectingRealtimeClient,
+  RealtimeTransportError,
+  RealtimeVoiceClient,
+  buildVoiceInstructions,
+  isRealtimeTransportFailure,
+  type RealtimeTurnResult,
+} from '../../src/voice/realtime.js'
 
 class FakeSocket extends EventEmitter {
   readyState: number = WebSocket.CONNECTING
@@ -132,6 +140,61 @@ describe('OpenAI Realtime voice transport', () => {
     await expect(client.connect()).rejects.not.toThrow(/super-secret-key/)
   })
 
+  it('takes the session deadline from session.created and falls back to the documented maximum', async () => {
+    const reported = new FakeSocket()
+    const withExpiry = new RealtimeVoiceClient({
+      apiKey: 'test',
+      webSocketFactory: () => reported as unknown as WebSocket,
+    })
+    expect(withExpiry.expiresAt()).toBeNull()
+    reported.open()
+    reported.server({ type: 'session.created', session: { id: 'sess_1', expires_at: 1_800_000 } })
+    reported.server({ type: 'session.updated' })
+    await withExpiry.connect()
+    expect(withExpiry.expiresAt()).toBe(1_800_000_000)
+
+    const silent = new FakeSocket()
+    const withoutExpiry = new RealtimeVoiceClient({
+      apiKey: 'test',
+      webSocketFactory: () => silent as unknown as WebSocket,
+    })
+    const before = Date.now()
+    silent.open()
+    silent.server({ type: 'session.updated' })
+    await withoutExpiry.connect()
+    // No expires_at on the wire still yields a deadline, so renewal never depends on the
+    // provider volunteering one.
+    expect(withoutExpiry.expiresAt()).toBeGreaterThanOrEqual(before + REALTIME_SESSION_MAX_MS)
+  })
+
+  it('classifies a session_expired error as a dead transport, not a failed request', async () => {
+    const expired = new FakeSocket()
+    const client = new RealtimeVoiceClient({
+      apiKey: 'test',
+      webSocketFactory: () => expired as unknown as WebSocket,
+    })
+    expired.open()
+    expired.server({ type: 'session.updated' })
+    await client.connect()
+    const turn = client.ask('hello', async () => ({}))
+    await tick()
+    expired.server({
+      type: 'error',
+      error: {
+        type: 'invalid_request_error',
+        code: 'session_expired',
+        message: 'Your session hit the maximum duration of 60 minutes.',
+      },
+    })
+    const error = await turn.catch((reason: unknown) => reason)
+    expect(error).toBeInstanceOf(RealtimeTransportError)
+    expect((error as RealtimeTransportError).code).toBe('session_expired')
+    expect(isRealtimeTransportFailure(error)).toBe(true)
+    // A request-level complaint leaves the socket usable and must not trigger a reconnect.
+    expect(isRealtimeTransportFailure(new RealtimeTransportError('bad tool argument', 'invalid_value')))
+      .toBe(false)
+  })
+
   it('does not silently accept a failed response as empty speech', async () => {
     const socket = new FakeSocket()
     const client = new RealtimeVoiceClient({
@@ -148,5 +211,140 @@ describe('OpenAI Realtime voice transport', () => {
       response: { status: 'failed', status_details: { error: { message: 'model unavailable' } } },
     })
     await expect(turn).rejects.toThrow(/model unavailable/)
+  })
+})
+
+describe('Realtime session renewal and reconnection', () => {
+  const reply = (text: string): RealtimeTurnResult =>
+    ({ transcript: text, audio: Buffer.alloc(0), usage: [] })
+
+  interface FakeSessionOptions {
+    connect?: () => Promise<void>
+    ask?: (text: string) => Promise<RealtimeTurnResult>
+    expiresAt?: () => number | null
+  }
+
+  function fakeSession(generation: number, options: FakeSessionOptions = {}) {
+    return {
+      generation,
+      closed: false,
+      connect: options.connect ?? (async () => {}),
+      ask: options.ask ?? (async (text: string) => reply(`${generation}:${text}`)),
+      askAudio: async () => reply(`${generation}:audio`),
+      close(): void {
+        this.closed = true
+      },
+      expiresAt: options.expiresAt ?? (() => null),
+    }
+  }
+
+  it('replaces an expiring session before the deadline, transparently to the caller', async () => {
+    let clock = 0
+    const opened: ReturnType<typeof fakeSession>[] = []
+    const client = new ReconnectingRealtimeClient({
+      open: (generation) => {
+        const session = fakeSession(generation, {
+          // Only the first session is near its deadline; the replacement is fresh.
+          expiresAt: () => (generation === 1 ? 5_000 : 1_000_000),
+        })
+        opened.push(session)
+        return session
+      },
+      renewMarginMs: 1_000,
+      now: () => clock,
+      sleep: async () => {},
+    })
+    await client.connect()
+    await expect(client.ask('first', async () => ({}))).resolves.toMatchObject({ transcript: '1:first' })
+    expect(client.generation()).toBe(1)
+
+    clock = 4_500
+    await expect(client.ask('second', async () => ({}))).resolves.toMatchObject({ transcript: '2:second' })
+    expect(client.generation()).toBe(2)
+    // The expiring session is retired, not left holding a socket that is about to die.
+    expect(opened[0]!.closed).toBe(true)
+    expect(opened[1]!.closed).toBe(false)
+    client.close()
+  })
+
+  it('discards a dead session and opens another one on the next call', async () => {
+    const reasons: string[] = []
+    const client = new ReconnectingRealtimeClient({
+      open: (generation) => fakeSession(generation, {
+        ask: async (text) => {
+          if (generation === 1) throw new RealtimeTransportError('Realtime connection closed.', 'connection_closed')
+          return reply(`${generation}:${text}`)
+        },
+      }),
+      backoffMs: 0,
+      sleep: async () => {},
+      onSession: ({ reason }) => reasons.push(reason),
+    })
+    await client.connect()
+    await expect(client.ask('dropped', async () => ({}))).rejects.toThrow(/connection closed/)
+    await expect(client.ask('after', async () => ({}))).resolves.toMatchObject({ transcript: '2:after' })
+    expect(reasons).toEqual(['initial', 'recovery'])
+    client.close()
+  })
+
+  it('keeps a usable session after a request-level failure that did not kill the transport', async () => {
+    const client = new ReconnectingRealtimeClient({
+      open: (generation) => fakeSession(generation, {
+        ask: async (text) => {
+          if (text === 'bad') throw new RealtimeTransportError('Realtime API error: bad tool argument', 'invalid_value')
+          return reply(`${generation}:${text}`)
+        },
+      }),
+      sleep: async () => {},
+    })
+    await client.connect()
+    await expect(client.ask('bad', async () => ({}))).rejects.toThrow(/bad tool argument/)
+    await expect(client.ask('next', async () => ({}))).resolves.toMatchObject({ transcript: '1:next' })
+    expect(client.generation()).toBe(1)
+    client.close()
+  })
+
+  it('bounds reconnect attempts, backs off, and warns once per episode', async () => {
+    const warnings: string[] = []
+    const waits: number[] = []
+    let attempts = 0
+    const client = new ReconnectingRealtimeClient({
+      open: (generation) => fakeSession(generation, {
+        connect: async () => {
+          attempts += 1
+          if (attempts > 1) throw new Error('getaddrinfo ENOTFOUND api.openai.com')
+        },
+        ask: async () => {
+          throw new RealtimeTransportError('Realtime connection closed.', 'connection_closed')
+        },
+      }),
+      maxAttempts: 3,
+      backoffMs: 10,
+      sleep: async (ms) => {
+        waits.push(ms)
+      },
+      onWarn: (message) => warnings.push(message),
+    })
+    await client.connect()
+    await expect(client.ask('lost', async () => ({}))).rejects.toThrow(/connection closed/)
+    await expect(client.connect()).rejects.toThrow(/could not reopen the OpenAI Realtime connection/)
+    await expect(client.connect()).rejects.toThrow(/athena voice probe/)
+    // Three attempts per episode, two backoffs between them, and never a busy-loop.
+    expect(attempts).toBe(7)
+    expect(waits).toEqual([10, 20, 10, 20])
+    // One line per episode, not one per attempt.
+    expect(warnings).toHaveLength(2)
+    expect(warnings[0]).toContain('reconnecting')
+    client.close()
+  })
+
+  it('refuses to reopen anything once closed', async () => {
+    const client = new ReconnectingRealtimeClient({
+      open: (generation) => fakeSession(generation),
+      sleep: async () => {},
+    })
+    await client.connect()
+    client.close()
+    await expect(client.connect()).rejects.toThrow(/closed/)
   })
 })

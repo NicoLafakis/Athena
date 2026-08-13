@@ -1579,6 +1579,32 @@ async function main(): Promise<void> {
         onAnnouncement: (announcement) => attention.announce(announcement),
       })
       const usageFile = join(paths.brainDir, 'voice-usage.jsonl')
+      // Ctrl+C is the documented immediate keyboard fallback, and without a handler the
+      // process dies before `controller.close` runs — losing the SessionEnd hook and the
+      // trace's closing record, which are the evidence a shut-down session is meant to
+      // keep. Abort the turn, release the microphone, and let the normal teardown run.
+      // A second Ctrl+C is the hard escape for a teardown that is itself stuck.
+      let voiceInterrupted = false
+      function onVoiceSigint(): void {
+        if (voiceInterrupted) {
+          process.exit(CLI_EXIT.aborted)
+          return
+        }
+        voiceInterrupted = true
+        console.error('Athena voice stopping: aborting the current turn and closing the session.')
+        controller.abort()
+        voiceInput.close()
+      }
+      const voiceInput = cmd.keyboard
+        ? new KeyboardVoiceCommandInput({ onInterrupt: onVoiceSigint })
+        : new WindowsPersistentWakeInput({
+          onWarn: (message) => console.error(message),
+          onListening: () => {
+            console.log('Athena: listening…')
+            void playListeningCue().catch(() => {})
+          },
+        })
+      process.on('SIGINT', onVoiceSigint)
       try {
         await runVoiceSession({
           apiKey: resolvedVoice.key,
@@ -1586,15 +1612,7 @@ async function main(): Promise<void> {
           controller,
           attention,
           persona: loadConstitution(paths) ?? undefined,
-          input: cmd.keyboard
-            ? new KeyboardVoiceCommandInput()
-            : new WindowsPersistentWakeInput({
-              onWarn: (message) => console.error(message),
-              onListening: () => {
-                console.log('Athena: listening…')
-                void playListeningCue().catch(() => {})
-              },
-            }),
+          input: voiceInput,
           onStandby: cmd.keyboard
             ? undefined
             : () => {
@@ -1607,9 +1625,21 @@ async function main(): Promise<void> {
             { encoding: 'utf8', mode: 0o600 },
           ),
         })
+      } catch (error) {
+        // An interrupt tears the wake listener down on purpose; reporting that as a voice
+        // failure would send the user to `athena voice probe` for something they did.
+        if (!voiceInterrupted) throw error
       } finally {
+        process.off('SIGINT', onVoiceSigint)
         attention.close()
-        await controller.close('shutdown')
+        await controller.close(voiceInterrupted ? 'interrupted' : 'shutdown')
+      }
+      if (voiceInterrupted) {
+        console.log(
+          `Athena voice stopped. Session ${controller.session.id} is preserved; ` +
+          'pick it up with `athena --resume`.',
+        )
+        process.exitCode = CLI_EXIT.aborted
       }
     } catch (error) {
       console.error(

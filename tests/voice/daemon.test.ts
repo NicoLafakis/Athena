@@ -3,13 +3,15 @@ import { EventEmitter } from 'node:events'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { PassThrough } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 import type { HarnessSessionController } from '../../src/harness/controller.js'
 import type { PermissionAnswer } from '../../src/engine/types.js'
 import { VoiceAttentionBridge } from '../../src/voice/attention.js'
-import type {
-  RealtimeToolCall,
-  RealtimeTurnResult,
+import {
+  RealtimeTransportError,
+  type RealtimeToolCall,
+  type RealtimeTurnResult,
 } from '../../src/voice/realtime.js'
 import {
   probeWindowsSpeech,
@@ -17,6 +19,7 @@ import {
   spawnWindowsWakeListener,
 } from '../../src/voice/windows-speech.js'
 import {
+  KeyboardVoiceCommandInput,
   WindowsPersistentWakeInput,
   WindowsWakeCommandInput,
   athenaDelegateArgs,
@@ -306,6 +309,370 @@ describe('voice conductor composition', () => {
     expect(outcomes[0]).toMatchObject({ status: 'started' })
     expect(outcomes[1]).toMatchObject({ error: expect.stringContaining('still working') })
     expect(controller.submitTurn).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('voice session renewal, idempotency, and playback recovery', () => {
+  const reply = (text: string): RealtimeTurnResult =>
+    ({ transcript: text, audio: Buffer.alloc(0), usage: [] })
+
+  const dropped = (): RealtimeTransportError =>
+    new RealtimeTransportError('Realtime connection closed.', 'connection_closed')
+
+  /** A controller whose harness turn never finishes, so it stays in flight for the test. */
+  function stallingController(): HarnessSessionController {
+    return {
+      submitTurn: vi.fn(() => new Promise(() => {})),
+      getSnapshot: vi.fn(() => undefined),
+      lastAnnouncement: vi.fn(() => undefined),
+    } as unknown as HarnessSessionController
+  }
+
+  function finishingController(sessionId = 's-1'): HarnessSessionController {
+    return {
+      submitTurn: vi.fn(async (text: string) => ({
+        status: 'completed' as const,
+        summary: `Finished ${text} in session ${sessionId}`,
+        sessionId,
+      })),
+      getSnapshot: vi.fn(() => undefined),
+      lastAnnouncement: vi.fn(() => undefined),
+    } as unknown as HarnessSessionController
+  }
+
+  it('reopens a dropped Realtime session and keeps serving later turns', async () => {
+    const opened: number[] = []
+    const statuses: string[] = []
+    const spoken: string[] = []
+    const heard: string[] = []
+    await runVoiceSession({
+      apiKey: 'test',
+      model: 'gpt-realtime-2.1-mini',
+      input: new ScriptedInput(['first', 'second', 'third', 'exit']),
+      clientFactory: (generation) => {
+        opened.push(generation)
+        return {
+          connect: async () => {},
+          close: () => {},
+          ask: async (text) => {
+            if (generation === 1 && text === 'second') throw dropped()
+            heard.push(`${generation}:${text}`)
+            return reply(`heard ${text}`)
+          },
+          askAudio: async () => reply(''),
+        }
+      },
+      reconnect: { backoffMs: 0, sleep: async () => {} },
+      speakFallback: async (text) => {
+        spoken.push(text)
+      },
+      play: async () => {},
+      onStatus: (message) => statuses.push(message),
+    })
+    expect(opened).toEqual([1, 2])
+    // The utterance that died is reported as lost rather than silently swallowed, and the
+    // session keeps working afterwards.
+    expect(spoken.join('\n')).toContain('please say it again')
+    expect(heard).toEqual(['1:first', '2:third'])
+    expect(statuses.join('\n')).toContain('Realtime session 2 (recovery)')
+  })
+
+  it('renews an expiring session transparently, and the harness session is unchanged', async () => {
+    let clock = 0
+    const controller = finishingController('session-abc')
+    const asks: string[] = []
+    const spoken: string[] = []
+    await runVoiceSession({
+      apiKey: 'test',
+      model: 'gpt-realtime-2.1-mini',
+      input: new ScriptedInput(['do the first thing', 'do the second thing', 'exit']),
+      controller,
+      clientFactory: (generation) => ({
+        connect: async () => {},
+        close: () => {},
+        // Only the first session is close to the provider deadline.
+        expiresAt: () => (generation === 1 ? 5_000 : 1_000_000),
+        ask: async (text, handler) => {
+          asks.push(`${generation}:${text}`)
+          if (!text.startsWith('The work you started')) {
+            await handler({ name: 'submit_turn', callId: `c-${asks.length}`, arguments: { text } })
+          }
+          // The renewal boundary sits between the two utterances.
+          clock = 4_500
+          return reply('ok')
+        },
+        askAudio: async () => reply(''),
+      }),
+      reconnect: { renewMarginMs: 1_000, now: () => clock, sleep: async () => {} },
+      speakFallback: async (text) => {
+        spoken.push(text)
+      },
+      play: async () => {},
+      onStatus: () => {},
+    })
+    expect(controller.submitTurn).toHaveBeenCalledTimes(2)
+    // Both turns ran, and the second — spoken by a session opened after the renewal —
+    // still reports the same durable Athena session.
+    const delivered = asks.filter((ask) => ask.includes('The work you started'))
+    expect(delivered).toHaveLength(2)
+    expect(delivered.every((ask) => ask.includes('session-abc'))).toBe(true)
+    expect(asks.some((ask) => ask.startsWith('2:'))).toBe(true)
+    // Planned renewal is not an incident: the user is never asked to repeat anything.
+    expect(spoken.join('\n')).not.toContain('lost the voice connection')
+  })
+
+  it('runs a duplicated submit_turn once, and answers with the same voice turn ID', async () => {
+    const controller = stallingController()
+    const results: unknown[] = []
+    await runVoiceSession({
+      apiKey: 'test',
+      model: 'gpt-realtime-2.1-mini',
+      input: new ScriptedInput(['inspect the failing tests', 'exit']),
+      controller,
+      clientFactory: () => ({
+        connect: async () => {},
+        close: () => {},
+        ask: async (_text, handler) => {
+          if (results.length === 0) {
+            const call = { name: 'submit_turn', arguments: { text: 'inspect the failing tests' } }
+            results.push(await handler({ ...call, callId: 'a' } as RealtimeToolCall))
+            // The exact same request again — a repeated tool call, or a model retrying
+            // after the function-call round trip.
+            results.push(await handler({ ...call, callId: 'b' } as RealtimeToolCall))
+            // Same words, different punctuation and casing: still the same request.
+            results.push(await handler({
+              name: 'submit_turn',
+              callId: 'c',
+              arguments: { text: 'Inspect the failing tests.' },
+            }))
+          }
+          return reply('ok')
+        },
+        askAudio: async () => reply(''),
+      }),
+      reconnect: { sleep: async () => {} },
+      speakFallback: async () => {},
+      play: async () => {},
+      onStatus: () => {},
+    })
+    expect(controller.submitTurn).toHaveBeenCalledTimes(1)
+    const started = results[0] as { status: string; voice_turn_id: string }
+    expect(started.status).toBe('started')
+    for (const repeat of results.slice(1)) {
+      expect(repeat).toMatchObject({
+        error: expect.stringContaining('already have that exact request'),
+        voice_turn_id: started.voice_turn_id,
+        state: 'running',
+      })
+    }
+  })
+
+  it('does not resubmit an in-flight harness turn across a reconnect', async () => {
+    const controller = stallingController()
+    const refusals: unknown[] = []
+    await runVoiceSession({
+      apiKey: 'test',
+      model: 'gpt-realtime-2.1-mini',
+      input: new ScriptedInput(['fix the build', 'anything', 'fix the build', 'exit']),
+      controller,
+      clientFactory: (generation) => ({
+        connect: async () => {},
+        close: () => {},
+        ask: async (text, handler) => {
+          if (generation === 1 && text === 'anything') throw dropped()
+          if (text === 'fix the build') {
+            refusals.push(await handler({
+              name: 'submit_turn',
+              callId: `${generation}`,
+              arguments: { text },
+            }))
+          }
+          return reply('ok')
+        },
+        askAudio: async () => reply(''),
+      }),
+      reconnect: { backoffMs: 0, sleep: async () => {} },
+      speakFallback: async () => {},
+      play: async () => {},
+      onStatus: () => {},
+    })
+    // One harness run, despite the same request arriving again on the reopened session.
+    expect(controller.submitTurn).toHaveBeenCalledTimes(1)
+    expect(refusals[0]).toMatchObject({ status: 'started' })
+    expect(refusals[1]).toMatchObject({ error: expect.stringContaining('still working') })
+  })
+
+  it('tells the user the work survived when the drop happened after the turn started', async () => {
+    const controller = stallingController()
+    const spoken: string[] = []
+    await runVoiceSession({
+      apiKey: 'test',
+      model: 'gpt-realtime-2.1-mini',
+      input: new ScriptedInput(['run the tests', 'exit']),
+      controller,
+      clientFactory: (generation) => ({
+        connect: async () => {},
+        close: () => {},
+        ask: async (text, handler) => {
+          if (generation === 1) {
+            await handler({ name: 'submit_turn', callId: '1', arguments: { text } })
+            throw dropped()
+          }
+          return reply('ok')
+        },
+        askAudio: async () => reply(''),
+      }),
+      reconnect: { backoffMs: 0, sleep: async () => {} },
+      speakFallback: async (text) => {
+        spoken.push(text)
+      },
+      play: async () => {},
+      onStatus: () => {},
+    })
+    expect(controller.submitTurn).toHaveBeenCalledTimes(1)
+    expect(spoken.join('\n')).toContain('you do not need to repeat that')
+    expect(spoken.join('\n')).not.toContain('please say it again')
+  })
+
+  it('rejects a malformed submit_turn without running anything', async () => {
+    const controller = stallingController()
+    const results: unknown[] = []
+    await runVoiceSession({
+      apiKey: 'test',
+      model: 'gpt-realtime-2.1-mini',
+      input: new ScriptedInput(['do something', 'exit']),
+      controller,
+      clientFactory: () => ({
+        connect: async () => {},
+        close: () => {},
+        ask: async (_text, handler) => {
+          if (results.length === 0) {
+            for (const args of [
+              null,
+              {},
+              { text: '' },
+              { text: 42 },
+              { prompt: 'run the tests' },
+              { text: 'run the tests', permission_mode: 'bypass' },
+            ]) {
+              results.push(await handler({ name: 'submit_turn', callId: 'x', arguments: args }))
+            }
+          }
+          return reply('ok')
+        },
+        askAudio: async () => reply(''),
+      }),
+      reconnect: { sleep: async () => {} },
+      speakFallback: async () => {},
+      play: async () => {},
+      onStatus: () => {},
+    })
+    expect(controller.submitTurn).not.toHaveBeenCalled()
+    expect(results).toHaveLength(6)
+    for (const result of results) {
+      expect(result).toMatchObject({ error: expect.stringContaining('not well formed') })
+    }
+  })
+
+  it('survives a playback failure with stable text and local recovery speech', async () => {
+    const statuses: string[] = []
+    const spoken: string[] = []
+    let serve = 0
+    await runVoiceSession({
+      apiKey: 'test',
+      model: 'gpt-realtime-2.1-mini',
+      input: new ScriptedInput(['say something', 'say more', 'exit']),
+      clientFactory: () => ({
+        connect: async () => {},
+        close: () => {},
+        ask: async (text) => {
+          serve += 1
+          return { transcript: `answer to ${text}`, audio: Buffer.from([1, 2, 3]), usage: [] }
+        },
+        askAudio: async () => reply(''),
+      }),
+      reconnect: { sleep: async () => {} },
+      play: async () => {
+        throw new Error('MMSYSERR_NODRIVER')
+      },
+      speakFallback: async (text) => {
+        spoken.push(text)
+      },
+      onStatus: (message) => statuses.push(message),
+    })
+    // A dead audio device does not end the session.
+    expect(serve).toBe(2)
+    const printed = statuses.join('\n')
+    expect(printed).toContain('Athena: answer to say something')
+    expect(printed).toContain('could not play audio through the Windows audio backend')
+    expect(printed).toContain('athena voice probe')
+    // Local speech is the recovery path, and it carries the same words.
+    expect(spoken).toContain('answer to say something')
+    expect(spoken).toContain('answer to say more')
+  })
+
+  it('routes Ctrl+C to the interrupt hook and settles a prompt left open by shutdown', async () => {
+    const input = new PassThrough()
+    // readline only takes over Ctrl+C when it owns a terminal — exactly the case where a
+    // process SIGINT listener never fires. It decides that from the OUTPUT stream.
+    const output = Object.assign(new PassThrough(), { isTTY: true, columns: 80, rows: 24 })
+    const interrupts: string[] = []
+    const keyboard = new KeyboardVoiceCommandInput({
+      input,
+      output,
+      onInterrupt: () => interrupts.push('sigint'),
+    })
+    const answered = keyboard.next()
+    input.write('run the tests\n')
+    await expect(answered).resolves.toEqual({ kind: 'text', text: 'run the tests' })
+
+    const pending = keyboard.next()
+    input.write('')
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(interrupts).toEqual(['sigint'])
+    // The prompt outstanding at shutdown must settle, or teardown deadlocks on it.
+    keyboard.close()
+    await expect(pending).rejects.toThrow()
+  })
+
+  it('stops cleanly with one actionable report when the connection cannot be reopened', async () => {
+    const statuses: string[] = []
+    const spoken: string[] = []
+    let opens = 0
+    await runVoiceSession({
+      apiKey: 'test',
+      model: 'gpt-realtime-2.1-mini',
+      input: new ScriptedInput(['first', 'second', 'third', 'exit']),
+      clientFactory: () => {
+        opens += 1
+        const generation = opens
+        return {
+          connect: async () => {
+            if (generation > 1) throw new Error('getaddrinfo ENOTFOUND api.openai.com')
+          },
+          close: () => {},
+          ask: async (text) => {
+            if (text === 'second') throw dropped()
+            return reply(`heard ${text}`)
+          },
+          askAudio: async () => reply(''),
+        }
+      },
+      reconnect: { maxAttempts: 3, backoffMs: 0, sleep: async () => {} },
+      speakFallback: async (text) => {
+        spoken.push(text)
+      },
+      play: async () => {},
+      onStatus: (message) => statuses.push(message),
+    })
+    // One initial session plus a bounded three attempts, then it stops trying.
+    expect(opens).toBe(4)
+    const reconnecting = statuses.filter((message) => message.includes('reconnecting'))
+    expect(reconnecting).toHaveLength(1)
+    const report = spoken.join('\n')
+    expect(report).toContain('could not reopen the OpenAI Realtime connection')
+    expect(report).toContain('Athena session, trace, and stored key are untouched')
+    expect(report).toContain('athena voice probe')
   })
 })
 

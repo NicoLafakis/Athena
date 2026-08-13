@@ -1,9 +1,56 @@
 import WebSocket from 'ws'
 import { z } from 'zod'
+import { plainBounded } from '../interaction/format.js'
 
 export const REALTIME_MODELS = ['gpt-realtime-2.1-mini', 'gpt-realtime-2.1'] as const
 export type RealtimeVoiceModel = (typeof REALTIME_MODELS)[number]
 export const DEFAULT_REALTIME_MODEL: RealtimeVoiceModel = 'gpt-realtime-2.1-mini'
+
+/**
+ * The provider caps every Realtime session and will not extend one: at the deadline it
+ * sends an `error` event carrying `error.code === 'session_expired'`, so renewal means
+ * opening a NEW session, never prolonging this one.
+ *
+ * 60 minutes is the documented maximum, but it is only the FALLBACK here. The real
+ * deadline is read from `session.created`'s `expires_at`, because this ceiling has already
+ * moved 15 -> 30 -> 60 minutes and a hard-coded lifetime would silently become wrong again.
+ * https://developers.openai.com/api/docs/guides/realtime-conversations
+ * https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/realtime-audio ("Session timeout")
+ */
+export const REALTIME_SESSION_MAX_MS = 60 * 60_000
+
+/**
+ * How far ahead of the deadline a session is replaced. A turn that starts inside the
+ * margin still has to finish, and `responseTimeoutMs` alone is two minutes, so the margin
+ * covers a whole worst-case turn plus playback rather than just a round trip.
+ */
+export const REALTIME_RENEW_MARGIN_MS = 5 * 60_000
+
+/** Failure codes that end the SESSION, not just the request that hit them. */
+const TRANSPORT_CODES = new Set([
+  'connection_closed',
+  'connection_error',
+  'connection_timeout',
+  'response_timeout',
+  'session_expired',
+])
+
+/** A Realtime failure carrying the provider's own code, so callers can classify it. */
+export class RealtimeTransportError extends Error {
+  constructor(message: string, readonly code: string) {
+    super(message)
+    this.name = 'RealtimeTransportError'
+  }
+}
+
+/**
+ * Whether the failure means this session is finished. A model- or request-level error
+ * leaves the socket usable; a closed, timed-out, or expired transport does not, and
+ * reusing it would send into a session whose response state can no longer be accounted for.
+ */
+export function isRealtimeTransportFailure(error: unknown): boolean {
+  return error instanceof RealtimeTransportError && TRANSPORT_CODES.has(error.code)
+}
 
 export interface RealtimeToolCall {
   name: string
@@ -108,6 +155,8 @@ export class RealtimeVoiceClient {
   private connected: Promise<void>
   private resolveConnected!: () => void
   private rejectConnected!: (error: Error) => void
+  private openedAtMs: number | null = null
+  private expiresAtMs: number | null = null
   private pending: {
     handler: RealtimeToolHandler
     transcript: string[]
@@ -132,10 +181,11 @@ export class RealtimeVoiceClient {
       headers: { Authorization: `Bearer ${options.apiKey}` },
     })
     const connectTimer = setTimeout(() => {
-      this.rejectConnected(new Error('Realtime connection timed out.'))
+      this.rejectConnected(new RealtimeTransportError('Realtime connection timed out.', 'connection_timeout'))
       this.socket.terminate()
     }, this.connectTimeoutMs)
     this.socket.on('open', () => {
+      this.openedAtMs = Date.now()
       this.send({
         type: 'session.update',
         session: {
@@ -164,12 +214,16 @@ export class RealtimeVoiceClient {
     })
     this.socket.on('error', (error) => {
       clearTimeout(connectTimer)
-      this.rejectConnected(error)
-      this.fail(error)
+      const failure = new RealtimeTransportError(
+        `Realtime connection failed: ${error.message}`,
+        'connection_error',
+      )
+      this.rejectConnected(failure)
+      this.fail(failure)
     })
     this.socket.on('close', () => {
       clearTimeout(connectTimer)
-      const error = new Error('Realtime connection closed.')
+      const error = new RealtimeTransportError('Realtime connection closed.', 'connection_closed')
       this.rejectConnected(error)
       this.fail(error)
     })
@@ -178,6 +232,16 @@ export class RealtimeVoiceClient {
 
   async connect(): Promise<void> {
     await this.connected
+  }
+
+  /**
+   * Absolute deadline for this session, or null before the socket opens. Prefers the
+   * provider's own `expires_at` and falls back to the documented maximum measured from
+   * connect, so a session that never reports one is still renewed rather than killed.
+   */
+  expiresAt(): number | null {
+    if (this.expiresAtMs !== null) return this.expiresAtMs
+    return this.openedAtMs === null ? null : this.openedAtMs + REALTIME_SESSION_MAX_MS
   }
 
   async ask(text: string, handler: RealtimeToolHandler): Promise<RealtimeTurnResult> {
@@ -213,7 +277,7 @@ export class RealtimeVoiceClient {
     if (this.pending) throw new Error('A Realtime response is already active.')
     const result = new Promise<RealtimeTurnResult>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.fail(new Error('Realtime response timed out.'))
+        this.fail(new RealtimeTransportError('Realtime response timed out.', 'response_timeout'))
       }, this.responseTimeoutMs)
       this.pending = { handler, transcript: [], audio: [], usage: [], resolve, reject, timer }
     })
@@ -244,13 +308,24 @@ export class RealtimeVoiceClient {
     }
     const parsed = ServerEventSchema.parse(value)
     const event = parsed as Record<string, unknown> & { type: string }
+    if (event.type === 'session.created') {
+      // The one event that carries the provider's deadline for this session; renewal is
+      // driven from it rather than from an assumed lifetime.
+      const session = event.session as { expires_at?: unknown } | undefined
+      const seconds = session?.expires_at
+      if (typeof seconds === 'number' && Number.isFinite(seconds)) this.expiresAtMs = seconds * 1_000
+      return
+    }
     if (event.type === 'session.updated') {
       this.resolveConnected()
       return
     }
     if (event.type === 'error') {
-      const detail = event.error as { message?: unknown } | undefined
-      throw new Error(`Realtime API error: ${String(detail?.message ?? 'unknown error')}`)
+      const detail = event.error as { message?: unknown; code?: unknown } | undefined
+      throw new RealtimeTransportError(
+        `Realtime API error: ${String(detail?.message ?? 'unknown error')}`,
+        typeof detail?.code === 'string' ? detail.code : 'api_error',
+      )
     }
     const pending = this.pending
     if (!pending) return
@@ -331,6 +406,182 @@ export class RealtimeVoiceClient {
     clearTimeout(pending.timer)
     this.pending = null
     pending.reject(error)
+  }
+}
+
+/** One live Realtime session: what {@link ReconnectingRealtimeClient} drives and replaces. */
+export interface RealtimeSessionClient {
+  connect(): Promise<void>
+  ask(text: string, handler: RealtimeToolHandler): Promise<RealtimeTurnResult>
+  askAudio(pcm: Buffer, handler: RealtimeToolHandler): Promise<RealtimeTurnResult>
+  close(): void
+  /** Absolute provider deadline, or null when this session does not report one. */
+  expiresAt?(): number | null
+}
+
+export type RealtimeSessionReason = 'initial' | 'renewal' | 'recovery'
+
+export interface ReconnectingRealtimeOptions {
+  /**
+   * Builds one fresh session. Called again for every renewal and reconnect, so the caller
+   * decides what a replacement session is seeded with — a new session starts with no
+   * conversation history at all.
+   */
+  open: (generation: number) => RealtimeSessionClient
+  maxAttempts?: number
+  backoffMs?: number
+  renewMarginMs?: number
+  now?: () => number
+  sleep?: (ms: number) => Promise<void>
+  /** One line per recovery episode, never one per attempt. */
+  onWarn?: (message: string) => void
+  /** Fired once a replacement session is live. */
+  onSession?: (info: { generation: number; reason: RealtimeSessionReason }) => void
+}
+
+const RECONNECT_FAILURE =
+  'Athena voice could not reopen the OpenAI Realtime connection. ' +
+  'Your Athena session, trace, and stored key are untouched. ' +
+  'Run `athena voice probe` to test the microphone, playback, and Realtime access.'
+
+/**
+ * Keeps one usable Realtime session in front of a caller that only wants to speak.
+ *
+ * Two failures are handled, and they are not the same thing. A RENEWAL is planned: the
+ * provider will not extend a session, so a replacement is opened BEFORE the deadline can
+ * kill a turn in flight, and the user never learns it happened. A RECOVERY is unplanned:
+ * the transport died, the dead session is discarded, and the next call opens another one.
+ *
+ * What deliberately does NOT live here is replaying the input. Whether a lost utterance
+ * should be re-sent depends on whether it already reached the harness, which only the
+ * session loop knows; this class reopens the pipe and reports, nothing more.
+ */
+export class ReconnectingRealtimeClient implements RealtimeSessionClient {
+  private readonly openSession: (generation: number) => RealtimeSessionClient
+  private readonly maxAttempts: number
+  private readonly backoffMs: number
+  private readonly renewMarginMs: number
+  private readonly now: () => number
+  private readonly sleep: (ms: number) => Promise<void>
+  private readonly onWarn: (message: string) => void
+  private readonly onSession: (info: { generation: number; reason: RealtimeSessionReason }) => void
+
+  private active: RealtimeSessionClient | null = null
+  private generations = 0
+  private closed = false
+
+  constructor(options: ReconnectingRealtimeOptions) {
+    this.openSession = options.open
+    this.maxAttempts = Math.max(1, Math.round(options.maxAttempts ?? 3))
+    this.backoffMs = Math.max(0, Math.round(options.backoffMs ?? 1_000))
+    this.renewMarginMs = Math.max(0, Math.round(options.renewMarginMs ?? REALTIME_RENEW_MARGIN_MS))
+    this.now = options.now ?? (() => Date.now())
+    this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
+    this.onWarn = options.onWarn ?? (() => {})
+    this.onSession = options.onSession ?? (() => {})
+  }
+
+  /** Sessions opened so far; 1 once the first one is live, 2 after one renewal. */
+  generation(): number {
+    return this.generations
+  }
+
+  expiresAt(): number | null {
+    return this.active?.expiresAt?.() ?? null
+  }
+
+  async connect(): Promise<void> {
+    await this.ensure()
+  }
+
+  async ask(text: string, handler: RealtimeToolHandler): Promise<RealtimeTurnResult> {
+    return this.run((session) => session.ask(text, handler))
+  }
+
+  async askAudio(pcm: Buffer, handler: RealtimeToolHandler): Promise<RealtimeTurnResult> {
+    return this.run((session) => session.askAudio(pcm, handler))
+  }
+
+  close(): void {
+    this.closed = true
+    this.retire()
+  }
+
+  private retire(): void {
+    const active = this.active
+    this.active = null
+    try {
+      active?.close()
+    } catch {
+      // Closing a socket that is already gone is not a failure worth reporting.
+    }
+  }
+
+  private async run(
+    call: (session: RealtimeSessionClient) => Promise<RealtimeTurnResult>,
+  ): Promise<RealtimeTurnResult> {
+    const session = await this.ensure()
+    try {
+      return await call(session)
+    } catch (error) {
+      if (this.active === session && isRealtimeTransportFailure(error)) this.retire()
+      throw error
+    }
+  }
+
+  private async ensure(): Promise<RealtimeSessionClient> {
+    if (this.closed) throw new Error('Athena voice Realtime client is closed.')
+    const active = this.active
+    if (active && !this.expiring(active)) return active
+    const reason: RealtimeSessionReason = active
+      ? 'renewal'
+      : this.generations === 0 ? 'initial' : 'recovery'
+    if (active) this.retire()
+    return this.reopen(reason)
+  }
+
+  private expiring(session: RealtimeSessionClient): boolean {
+    const deadline = session.expiresAt?.() ?? null
+    return deadline !== null && deadline - this.now() <= this.renewMarginMs
+  }
+
+  private async reopen(reason: RealtimeSessionReason): Promise<RealtimeSessionClient> {
+    let announced = false
+    let last: Error | null = null
+    for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
+      const generation = this.generations + 1
+      let session: RealtimeSessionClient | null = null
+      try {
+        session = this.openSession(generation)
+        await session.connect()
+        this.generations = generation
+        this.active = session
+        this.onSession({ generation, reason })
+        return session
+      } catch (error) {
+        last = error as Error
+        try {
+          session?.close()
+        } catch {
+          // The half-open socket is already unusable; the retry below is the recovery.
+        }
+        if (!announced && reason !== 'initial') {
+          // Once per episode. A line per attempt turns a three-attempt recovery into
+          // three interruptions of a user who only needs to know it is being handled.
+          announced = true
+          this.onWarn(
+            'Athena voice lost the OpenAI Realtime connection ' +
+            `(${plainBounded(last.message, 160)}); reconnecting.`,
+          )
+        }
+        if (this.closed) break
+        // Exponential backoff: a provider refusing connections must not be hammered, and
+        // a busy-loop here would burn the machine while saying nothing useful.
+        if (attempt < this.maxAttempts) await this.sleep(this.backoffMs * 2 ** (attempt - 1))
+        if (this.closed) break
+      }
+    }
+    throw new Error(`${RECONNECT_FAILURE} Last error: ${plainBounded(last?.message ?? 'unknown', 200)}`)
   }
 }
 

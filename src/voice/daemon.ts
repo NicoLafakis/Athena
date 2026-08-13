@@ -3,10 +3,18 @@ import { createInterface } from 'node:readline/promises'
 import { plainBounded } from '../interaction/format.js'
 import type { HarnessSessionController } from '../harness/controller.js'
 import { parseVoicePermissionCommand, type VoiceAttentionBridge } from './attention.js'
-import { VoicePermissionAnswerSchema } from './schemas.js'
 import {
+  VoicePermissionAnswerSchema,
+  VoiceTurnSubmissionSchema,
+  type VoiceTurnSource,
+} from './schemas.js'
+import { VoiceTurnLedger } from './turns.js'
+import {
+  ReconnectingRealtimeClient,
   RealtimeVoiceClient,
   buildVoiceInstructions,
+  isRealtimeTransportFailure,
+  type ReconnectingRealtimeOptions,
   type RealtimeToolCall,
   type RealtimeTurnResult,
   type RealtimeVoiceModel,
@@ -349,13 +357,42 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
   }
 }
 
+export interface KeyboardVoiceCommandInputOptions {
+  /**
+   * Ctrl+C while the prompt is open. A terminal readline holds the TTY in raw mode, so the
+   * keystroke arrives as an interface event and never reaches a process SIGINT listener;
+   * without forwarding it, keyboard mode would have no immediate stop at all (FR-011).
+   */
+  onInterrupt?: () => void
+  /** Terminal seams; production reads the real terminal. */
+  input?: NodeJS.ReadableStream
+  output?: NodeJS.WritableStream
+}
+
 export class KeyboardVoiceCommandInput implements VoiceCommandInput {
-  private readonly reader = createInterface({ input: process.stdin, output: process.stdout })
+  private readonly reader: ReturnType<typeof createInterface>
+  private readonly aborter = new AbortController()
+
+  constructor(options: KeyboardVoiceCommandInputOptions = {}) {
+    this.reader = createInterface({
+      input: options.input ?? process.stdin,
+      output: options.output ?? process.stdout,
+    })
+    if (options.onInterrupt) this.reader.on('SIGINT', options.onInterrupt)
+  }
+
   async next(): Promise<VoiceCommand | null> {
-    const answer = (await this.reader.question('Athena voice command: ')).trim()
+    // The signal is load-bearing: a pending question never settles once the interface is
+    // closed, so a shutdown would hang on the very prompt it is trying to leave.
+    const answer = (await this.reader.question(
+      'Athena voice command: ',
+      { signal: this.aborter.signal },
+    )).trim()
     return answer ? { kind: 'text', text: answer } : null
   }
+
   close(): void {
+    this.aborter.abort()
     this.reader.close()
   }
 }
@@ -588,7 +625,15 @@ export interface VoiceSessionOptions {
    */
   attention?: VoiceAttentionBridge
   delegate?: DelegateRunner
+  /**
+   * One fixed session with no renewal or reconnect. This is the single-shot seam; normal
+   * use goes through `clientFactory` so a dropped or expiring session can be replaced.
+   */
   client?: VoiceRealtimeClient
+  /** Builds session `generation`; called again for every renewal and reconnect. */
+  clientFactory?: (generation: number) => VoiceRealtimeClient
+  /** Reconnect bounds and clock seams; production defaults otherwise. */
+  reconnect?: Omit<ReconnectingRealtimeOptions, 'open' | 'onWarn' | 'onSession'>
   play?: (audio: Buffer) => Promise<void>
   speakFallback?: (text: string) => Promise<void>
   onStatus?: (message: string) => void
@@ -605,22 +650,31 @@ export interface VoiceRealtimeClient {
   ask(text: string, handler: (call: RealtimeToolCall) => Promise<unknown>): Promise<RealtimeTurnResult>
   askAudio(pcm: Buffer, handler: (call: RealtimeToolCall) => Promise<unknown>): Promise<RealtimeTurnResult>
   close(): void
+  /** Absolute provider deadline, when this session reports one. */
+  expiresAt?(): number | null
+}
+
+/** Per-utterance state the tool handler needs and the recovery path reads back. */
+interface VoiceTurnContext {
+  /** Monotonic utterance number; the utterance half of the voice turn ID. */
+  utterance: number
+  source: VoiceTurnSource
+  /** Realtime turn in flight, so a permission announced on it cannot answer itself. */
+  answeringTurn: number
+  pendingAtTurnStart: boolean
+  /** Set when this utterance reached the harness, so a drop can say whether it was lost. */
+  submitted: boolean
 }
 
 export async function runVoiceSession(options: VoiceSessionOptions): Promise<void> {
-  const client = options.client ?? new RealtimeVoiceClient({
-    apiKey: options.apiKey,
-    model: options.model,
-    instructions: buildVoiceInstructions(options.persona),
-  })
   const play = options.play ?? playWindowsPcm
   const speakFallback = options.speakFallback ?? speakWindowsText
   const status = options.onStatus ?? ((message) => console.log(message))
+  const turns = new VoiceTurnLedger()
   let pendingDelegate: string | null = null
   let lastDelegate: DelegateResult | null = null
   let commands = 0
   let stopRequested = false
-  let harnessBusy = false
   // What Athena last actually said out loud, so `repeat` replays speech rather than the
   // objective. The announcement plane is the fallback when nothing has been spoken yet.
   let lastSpoken: string | null = null
@@ -642,13 +696,80 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
   const delegate = options.delegate
     ?? ((prompt: string) => runAthenaDelegate(prompt, process.cwd(), process.argv[1], lastDelegate?.sessionId))
 
+  /**
+   * A replacement Realtime session starts with an EMPTY conversation, so continuity has to
+   * be re-seeded deliberately. It goes into the session instructions rather than a replayed
+   * transcript for two reasons: `session.update` is the one channel already proven on this
+   * wire, and the harness — not Realtime — is the authority on what happened, so the only
+   * thing worth carrying across is the objective the user is still in the middle of.
+   */
+  const sessionInstructions = (generation: number): string => {
+    const base = buildVoiceInstructions(options.persona)
+    if (generation <= 1) return base
+    const objective = options.controller?.getSnapshot()?.objective.value
+    const continuity = objective
+      ? 'Your voice connection was just reopened, so you remember nothing said before now. ' +
+        `The work already under way is: ${plainBounded(objective, 512)}. ` +
+        'Do not mention the reconnection unless the user asks about it.'
+      : 'Your voice connection was just reopened, so you remember nothing said before now. ' +
+        'Do not mention the reconnection unless the user asks about it.'
+    return `${base} ${continuity}`
+  }
+
+  const client: VoiceRealtimeClient = options.client ?? new ReconnectingRealtimeClient({
+    ...options.reconnect,
+    open: (generation) => options.clientFactory?.(generation) ?? new RealtimeVoiceClient({
+      apiKey: options.apiKey,
+      model: options.model,
+      instructions: sessionInstructions(generation),
+    }),
+    onWarn: (message) => status(message),
+    onSession: ({ generation, reason }) => {
+      if (reason === 'initial') return
+      status(`Athena voice opened Realtime session ${generation} (${reason}).`)
+    },
+  })
+
+  /**
+   * Playback is the last step of a turn and the least essential one: the transcript is
+   * printed FIRST so a dead audio device still leaves stable text for Braille and review,
+   * and a rejection from the audio backend degrades to local speech instead of ending the
+   * session (which is what an unguarded `await play(...)` did).
+   */
   const present = async (turn: RealtimeTurnResult): Promise<void> => {
     options.onUsage?.(turn.usage)
-    if (turn.audio.length > 0) await play(turn.audio)
-    else if (turn.transcript) await speakFallback(turn.transcript)
     if (turn.transcript) {
       lastSpoken = turn.transcript
       status(`Athena: ${turn.transcript}`)
+    }
+    try {
+      if (turn.audio.length > 0) await play(turn.audio)
+      else if (turn.transcript) await speakFallback(turn.transcript)
+      return
+    } catch (error) {
+      status(
+        'Athena voice could not play audio through the Windows audio backend: ' +
+        `${plainBounded((error as Error).message, 240)}. ` +
+        'The reply text above is the full response. Run `athena voice probe` to test playback.',
+      )
+    }
+    if (turn.audio.length === 0 || !turn.transcript) return
+    try {
+      await speakFallback(turn.transcript)
+    } catch {
+      // Local speech was the recovery path; with both gone the stable text above is all
+      // there is, and saying so twice would add nothing.
+    }
+  }
+
+  /** Stable text plus local speech, with no model in the path and no way to throw. */
+  const announceLocally = async (text: string): Promise<void> => {
+    status(`Athena: ${text}`)
+    lastSpoken = text
+    try {
+      await speakFallback(text)
+    } catch (error) {
+      status(`Athena: could not speak that aloud: ${plainBounded((error as Error).message, 200)}`)
     }
   }
 
@@ -699,54 +820,97 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
   /** Spoken completion for a harness turn that outlived its submit_turn response. */
   const deliverHarnessResult = (result: { status: string; summary: string }): void => {
     const summary = plainBounded(result.summary, 8_192)
+    const prompt =
+      `The work you started has finished with status ${result.status}. ` +
+      'Report it to the user now: concise, faithful, first person, as your own completed work. ' +
+      `Result: ${summary}`
+    const nested = async (): Promise<unknown> =>
+      ({ error: 'Nested delegation is not allowed while summarizing a result.' })
     void enqueueTurn(async () => {
       turnSeq += 1
-      const turn = await client.ask(
-        `The work you started has finished with status ${result.status}. ` +
-        'Report it to the user now: concise, faithful, first person, as your own completed work. ' +
-        `Result: ${summary}`,
-        async () => ({ error: 'Nested delegation is not allowed while summarizing a result.' }),
-      )
+      let turn: RealtimeTurnResult
+      try {
+        turn = await client.ask(prompt, nested)
+      } catch (error) {
+        // The result IS the turn: a transport drop here would swallow the only account of
+        // work that actually ran. The client reopens on the next call, so one retry is it.
+        if (!isRealtimeTransportFailure(error)) throw error
+        turnSeq += 1
+        turn = await client.ask(prompt, nested)
+      }
       await present(turn)
       options.onStandby?.()
     }).catch((error: unknown) => {
       status(`Athena: could not speak the harness result: ${(error as Error).message}`)
+      // Stable text is the floor: an unspeakable result must still be readable.
+      status(`Athena result (${result.status}): ${summary}`)
     })
   }
 
   const handleTool = async (
     call: RealtimeToolCall,
-    pendingAtTurnStart: boolean,
-    answeringTurn: number,
+    context: VoiceTurnContext,
   ): Promise<unknown> => {
+    const { pendingAtTurnStart, answeringTurn } = context
     if (call.name === 'submit_turn') {
-      const args = call.arguments as { text?: unknown } | null
-      const text = typeof args?.text === 'string' ? plainBounded(args.text, 4_096) : ''
-      if (!text) return { error: 'Submit turn text is missing.' }
+      // Model output is untrusted input, and the tool is advertised with exactly one
+      // string field: anything else is a malformed call and runs nothing.
+      const parsed = VoiceTurnSubmissionSchema.safeParse(call.arguments)
+      const text = parsed.success ? plainBounded(parsed.data.text, 4_096) : ''
+      if (!text) {
+        return {
+          error: 'That submit_turn call is not well formed, so nothing was run.',
+          instruction: 'Call submit_turn again with a single text field holding the user request.',
+        }
+      }
       if (options.controller) {
+        const admission = turns.admit({
+          utterance: context.utterance,
+          source: context.source,
+          text,
+        })
+        if (!admission.ok) {
+          context.submitted = true
+          status(`Athena: submit_turn refused (${admission.reason}) for ${admission.record.id}.`)
+          return admission.reason === 'duplicate'
+            ? {
+              error: 'I already have that exact request; it was not started a second time.',
+              voice_turn_id: admission.record.id,
+              state: admission.record.state,
+              instruction: 'Tell the user you already have that request. Do not submit it again.',
+            }
+            : {
+              error: 'Athena is still working on the previous request.',
+              voice_turn_id: admission.record.id,
+              instruction: 'Tell the user you are still working on the previous request.',
+            }
+        }
         // Non-blocking by design: the harness turn can run for minutes, and the
         // Realtime response holding this tool call times out long before that. Return
         // at start; the finished result is spoken via deliverHarnessResult.
-        if (harnessBusy) {
-          return {
-            error: 'Athena is still working on the previous request.',
-            instruction: 'Tell the user you are still working on the previous request.',
-          }
-        }
-        harnessBusy = true
-        status(`Athena harness: ${text}`)
+        context.submitted = true
+        const record = admission.record
+        status(`Athena harness: ${text} (${record.id})`)
         const controller = options.controller
         void controller.submitTurn(text)
-          .then((turnResult) => deliverHarnessResult(turnResult))
-          .catch((error: unknown) => deliverHarnessResult({
-            status: 'failed',
-            summary: `Harness turn failed: ${(error as Error).message}`,
-          }))
-          .finally(() => {
-            harnessBusy = false
+          .then((turnResult) => {
+            turns.settle(
+              record.id,
+              turnResult.status === 'completed' ? 'completed' : 'failed',
+              turnResult.sessionId,
+            )
+            deliverHarnessResult(turnResult)
+          })
+          .catch((error: unknown) => {
+            turns.settle(record.id, 'failed')
+            deliverHarnessResult({
+              status: 'failed',
+              summary: `Harness turn failed: ${(error as Error).message}`,
+            })
           })
         return {
           status: 'started',
+          voice_turn_id: record.id,
           instruction: 'The work has started. Tell the user, briefly and in first person, that you are on it.',
         }
       }
@@ -800,6 +964,9 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
             instruction: 'Tell the user exactly this and ask for clarification. Nothing was authorized.',
           }
         }
+        // The running turn owns the decision that gated it; recording it keeps the turn
+        // record and the spoken account of the turn describing the same thing.
+        turns.recordPermission(outcome.id)
         status(`Athena: permission ${outcome.id} ${outcome.action === 'allow' ? 'allowed once' : 'denied'}.`)
         return {
           status: outcome.action === 'allow' ? 'allowed-once' : 'denied',
@@ -873,6 +1040,35 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
     }
   }
 
+  /**
+   * A Realtime drop is not the end of the session. The harness session, its trace, and any
+   * turn already running are untouched by it, so recovery is: reopen the audio adapter,
+   * then say plainly whether the utterance survived. Swallowing a lost request silently is
+   * what makes a voice interface untrustworthy, and claiming one was received when it was
+   * not is worse. Returns false when voice can no longer be served at all.
+   */
+  const recoverTransport = async (error: unknown, context: VoiceTurnContext): Promise<boolean> => {
+    if (!isRealtimeTransportFailure(error)) {
+      // The session is still usable; only this request failed.
+      await enqueueTurn(() => announceLocally(
+        `I could not complete that: ${plainBounded((error as Error).message, 240)}.`,
+      ))
+      return true
+    }
+    try {
+      await client.connect()
+    } catch (reconnectError) {
+      await enqueueTurn(() => announceLocally(plainBounded((reconnectError as Error).message, 512)))
+      return false
+    }
+    await enqueueTurn(() => announceLocally(context.submitted
+      ? 'I lost the voice connection and reopened it. The work you asked for is still running, ' +
+        'so you do not need to repeat that.'
+      : 'I lost the voice connection and reopened it. I did not get that request, ' +
+        'so please say it again.'))
+    return true
+  }
+
   try {
     await client.connect()
     status(`Athena voice connected with ${options.model}. Say “Athena” followed by a command.`)
@@ -929,14 +1125,26 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
         status(`Athena: ${spoken}`)
         continue
       }
-      const turn = await enqueueTurn(() => {
-        const answeringTurn = ++turnSeq
-        const handler = (call: RealtimeToolCall) =>
-          handleTool(call, pendingAtTurnStart, answeringTurn)
-        return command.kind === 'audio'
-          ? client.askAudio(command.pcm, handler)
-          : client.ask(command.text, handler)
-      })
+      const context: VoiceTurnContext = {
+        utterance: commands,
+        source: command.kind === 'audio' ? 'audio' : 'keyboard',
+        answeringTurn: 0,
+        pendingAtTurnStart,
+        submitted: false,
+      }
+      let turn: RealtimeTurnResult
+      try {
+        turn = await enqueueTurn(() => {
+          context.answeringTurn = ++turnSeq
+          const handler = (call: RealtimeToolCall) => handleTool(call, context)
+          return command.kind === 'audio'
+            ? client.askAudio(command.pcm, handler)
+            : client.ask(command.text, handler)
+        })
+      } catch (error) {
+        if (!(await recoverTransport(error, context))) break
+        continue
+      }
       await present(turn)
       options.onStandby?.()
       if (stopRequested) break
