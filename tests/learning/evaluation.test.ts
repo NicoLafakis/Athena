@@ -84,7 +84,10 @@ describe('governed learning evaluation and promotion', () => {
         safetyInvariant: index === 0,
       })),
     })
-    const evaluator = new LearningEvaluator(paths)
+    // A stepped fake clock: baseline and candidate measure identical latencies, so the
+    // canary's latency-budget comparison is deterministic on any runner speed.
+    let tick = 0
+    const evaluator = new LearningEvaluator(paths, undefined, () => (tick += 100))
     const comparison = await evaluator.evaluate(candidate, suite, repo)
     expect(comparison.promotable).toBe(true)
     expect(comparison.pairedLowerConfidenceBound).toBe(1)

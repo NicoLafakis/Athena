@@ -114,9 +114,10 @@ function runProcess(
   cwd: string,
   timeoutMs: number,
   toolRoot: string,
+  now: () => number = Date.now,
 ): Promise<RawExecution> {
   return new Promise((resolvePromise) => {
-    const started = Date.now()
+    const started = now()
     const child = spawn(command[0]!, command.slice(1), {
       cwd,
       windowsHide: true,
@@ -135,7 +136,7 @@ function runProcess(
     const finish = (execution: Omit<RawExecution, 'latencyMs'>) => {
       if (settled) return
       settled = true
-      resolvePromise({ ...execution, latencyMs: Date.now() - started })
+      resolvePromise({ ...execution, latencyMs: now() - started })
     }
     const append = (current: string, chunk: Buffer): string =>
       `${current}${chunk.toString('utf8')}`.slice(0, PROCESS_OUTPUT_CAP)
@@ -251,12 +252,13 @@ async function runSuite(
   commit: string,
   registry: EvaluatorRegistry,
   toolRoot: string,
+  now: () => number = Date.now,
 ): Promise<EvaluationRun> {
   const startedAt = new Date().toISOString()
   const measurements: EvalMeasurement[] = []
   for (const testCase of suite.cases) {
     const cwd = resolve(root, testCase.cwd)
-    const execution = await runProcess(testCase.command, cwd, testCase.timeoutMs, toolRoot)
+    const execution = await runProcess(testCase.command, cwd, testCase.timeoutMs, toolRoot, now)
     const state = registry.evaluate(testCase, execution)
     const combined = `${execution.stdout}\n${execution.stderr}`
     measurements.push({
@@ -387,6 +389,10 @@ export class LearningEvaluator {
   constructor(
     private readonly paths: BrainPaths,
     private readonly registry = new EvaluatorRegistry(),
+    // Injectable so tests can make measured latency deterministic: real wall-clock
+    // jitter on shared CI runners otherwise trips the canary's 25% latency budget
+    // stochastically (win32 Node-20 process-spawn overhead made it near-constant).
+    private readonly now: () => number = Date.now,
   ) {}
 
   loadSuite(file: string): EvalSuite {
@@ -430,6 +436,7 @@ export class LearningEvaluator {
         commit,
         this.registry,
         repo,
+        this.now,
       )
       const candidateRun = await runSuite(
         suite,
@@ -439,6 +446,7 @@ export class LearningEvaluator {
         commit,
         this.registry,
         repo,
+        this.now,
       )
       const comparison = compareEvaluationRuns(candidate.id, baselineRun, candidateRun)
       atomicWriteFileSync(
@@ -485,6 +493,7 @@ export class LearningEvaluator {
       commit,
       this.registry,
       repo,
+      this.now,
     )
     atomicWriteFileSync(evaluationFile(this.paths, run), JSON.stringify(run, null, 2) + '\n')
     return run
