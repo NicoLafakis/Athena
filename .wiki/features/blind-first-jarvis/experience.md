@@ -3,6 +3,11 @@
 > [Objective overview](00-overview.md) | [Technical design](design.md) |
 > [Implementation tasks](tasks.md)
 
+Cross-project conversation recall and long-horizon personal memory are specified in the
+separate [Conversational Continuity package](../conversational-continuity/00-overview.md).
+Experience remains bounded, project-scoped task-outcome guidance and does not replace
+conversation episodes or durable user memory.
+
 ## Role and authority
 
 The Experiential Layer helps Athena recognize relevant prior situations and offer

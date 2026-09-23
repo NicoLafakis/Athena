@@ -6,9 +6,16 @@ written via the `Memory` tool and injected into every session's context through
 `loadMemoryIndex` (`src/brain/loader.ts:70`). It is a **design spec, not yet
 implemented** — no code referenced below exists today except where noted as existing.
 
-A parallel, separate effort scopes a self-reflection journal. Where this feature would
-naturally consume journal entries or emit into one, that is called out as an **interface
-assumption**, not designed here.
+The broader cross-project conversation timeline and layered working/episodic/semantic
+memory are specified separately in
+[Conversational Continuity](../features/conversational-continuity/00-overview.md). This
+page remains the narrower hygiene lifecycle for durable memory files; continuity
+implementation must extend this lifecycle for source links and validity rather than add a
+competing durable-fact store.
+
+The [self-reflection journal](self-reflection-journal.md) remains operational evidence.
+Continuity may consume it when implemented, but it is neither a transcript archive nor a
+replacement for source-linked conversational episodes.
 
 ## Is this new, or an extension of "governed learning"?
 
@@ -69,7 +76,7 @@ unchecked until first touched.
 
 ```
 ---
-status: active | flagged | superseded | tombstoned
+status: candidate | active | flagged | superseded | tombstoned | rejected
 citations: ["src/brain/paths.ts:44", "flag:--force", "cmd:athena learn consolidate"]
 verifiedAt: 2026-07-27T18:04:00Z
 lastFlaggedAt: 2026-07-27T18:04:00Z
@@ -77,24 +84,44 @@ flagReason: "citation src/brain/paths.ts:44 no longer matches (line moved/change
 supersedes: relative/path/to/older-fact.md
 supersededBy: relative/path/to/newer-fact.md
 reviewedAt: 2026-07-27T18:10:00Z
+sourceRefs: '[{"kind":"session-message","projectId":"project-id","sessionId":"session-id","recordId":"message-line-id","timestamp":"2026-07-27T18:04:00Z"}]'
+scope: global | project
+projectId:
+observedAt: 2026-07-27T18:04:00Z
+validFrom: 2026-07-27T18:04:00Z
+validUntil:
+speechAct: asked | considered | preferred | decided | promised | corrected | retracted
+captureMode: explicit | inferred
+confidence: 0.9
+sensitivity: ordinary | sensitive
 ---
 Free-text body, unchanged. This is the actual fact/lesson and is never rewritten by
 the hygiene system — only frontmatter is patched, so a flag/supersede/tombstone
 action is a pure metadata mutation, never a content edit.
 ```
 
+Continuity-managed fields are optional for legacy files and required/validated for any
+memory promoted from conversational episodes. `sourceRefs` is a JSON-encoded scalar in
+the current simple frontmatter format; parse and validate it as data rather than free
+text. `observedAt` records when Athena learned the claim; `validFrom`/`validUntil` record
+when it applies. Speech-act, capture mode, scope, confidence, and sensitivity preserve
+the distinction between direct instruction and inference. Confidence is not proof;
+source references remain mandatory for promoted inferred memories.
+
 Field notes:
 
 - `citations` — extracted automatically at write/verify time; the agent may hand-author
   but does not need to.
-- `status` transitions mirror `MemoryClaim.status` where they overlap, minus the
-  eval-only states: `active` to `flagged` to `{superseded | tombstoned}`, plus `flagged`
-  back to `active` (reviewer says "still fine," which stamps `reviewedAt` and clears
-  `flagReason` so the same false positive does not re-fire). A `tombstoned` or
-  `superseded` file is **never** automatically reactivated — the terminal-decision rule
-  reused verbatim from `memory.ts:95`.
+- `status` transitions: `candidate` to `{active | rejected}`; `active` to `flagged` to
+  `{active | superseded | tombstoned}`; `active` may also be superseded directly.
+  Restoring a flagged citation-confirmation is distinct from promoting an inferred
+  candidate. `rejected`, `tombstoned`, and `superseded` are terminal and never
+  automatically reactivated — the terminal-decision rule reused from `memory.ts:95`.
 - `supersedes`/`supersededBy` are a bidirectional pair. Both files stay on disk: the old
   file's body is exactly the "why it used to be true" record.
+- Continuity `candidate` and `rejected` memories are omitted from `MEMORY.md`: candidates
+  appear only in explicit review, while rejected memories remain in the audit store and
+  are not retrieved. See the [continuity lifecycle](../features/conversational-continuity/design.md).
 - No physical deletion is ever performed by this system. The existing `Memory` tool
   `delete` op remains the only deletion path, human-invoked, unchanged.
 

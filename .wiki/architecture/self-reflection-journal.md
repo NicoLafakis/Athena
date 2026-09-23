@@ -18,6 +18,11 @@ mechanism. What's new is: (a) treating *divergence from expectation* as the inte
 unit, not "turn completed", and (b) a model-authored channel for predictions,
 resolutions, and surprises that plain event capture cannot produce on its own.
 
+The consumer and the broader user-facing continuity policy are specified in
+[Conversational Continuity](../features/conversational-continuity/00-overview.md). The
+journal remains an operational evidence stream, not a transcript archive or a replacement
+for source-linked conversational episodes.
+
 `src/brain/paths.ts` already reserves `journalDir` (`~/.athena/journal`) and
 `ensureBrainScaffold` (`src/harness/bootstrap.ts:96`) already creates it — the directory
 exists today and is unused. This spec fills it in.

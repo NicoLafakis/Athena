@@ -33,8 +33,9 @@ observe -> reduce to semantic state -> prioritize -> announce or stay quiet
 ## Twenty moves ahead
 
 - **Next wants:** queryable status, calm proactive warnings, accessible permissions,
-  durable objectives, relevant experience, foreground watchers, optional voice, and
-  eventually consented between-session monitoring.
+  durable objectives, relevant experience, foreground watchers, optional voice,
+  cross-project conversational continuity, and eventually consented between-session
+  monitoring.
 - **Breaks at edges:** screen readers interpret terminals differently; animated/cursor
   rewriting output becomes noisy; model-authored status can sound authoritative while
   being wrong; proactivity can become interruption; persistent processes add boot,
@@ -76,7 +77,9 @@ Recommended defaults are recorded in the
 
 - A cinematic persona imitation.
 - A large new TUI panel.
-- A second memory/experience subsystem.
+- A second competing memory/experience subsystem. Cross-project conversational continuity
+  is specified separately in [its own package](../conversational-continuity/00-overview.md)
+  and must reuse the existing source records and memory lifecycle.
 - Always-on background model calls.
 - Automatic tool denial from experiential advice.
 - Cross-machine credentials or accessibility-preference sync.
