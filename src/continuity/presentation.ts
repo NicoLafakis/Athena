@@ -6,6 +6,7 @@ import { loadEpisodeSourceContext, loadEpisodeSourceContexts, searchEpisodes } f
 import { resolveTemporalWindow } from './time.js'
 import type { ManagedSemanticMemory } from '../brain/hygiene.js'
 import type { SemanticCandidateGenerationResult } from './candidates.js'
+import { listAllProjectSessions } from './session-catalog.js'
 
 const semanticCandidateDisplayLimit = 20
 const semanticCandidateSourceDisplayLimit = 5
@@ -70,6 +71,7 @@ export function formatContinuityStatus(store: ContinuityStore): string {
 
 export function formatContinuityRollups(
   store: ContinuityStore,
+  sessionsRoot: string,
   configuredTimeZone?: string,
   granularity?: TimeRollup['granularity'],
 ): string {
@@ -88,14 +90,18 @@ export function formatContinuityRollups(
   if (result.state === 'partial') {
     return 'Continuity index is partial; rebuild the local session catalog before generating historical rollups.'
   }
-  if (result.rollups.length === 0) return 'No source-linked episodes are available for time rollups.'
+  const activeSessionKeys = activeSessionKeySet(sessionsRoot)
+  const activeEpisodes = filterActiveEpisodes(activeSessionKeys, store.listEpisodes())
+  const activeEpisodeIds = new Set(activeEpisodes.map((episode) => episode.id))
+  const activeRollups = filterActiveRollups(result.rollups, activeEpisodeIds)
+  if (activeRollups.length === 0) return 'No source-linked episodes are available for time rollups.'
 
   const chosen = granularity
-    ? result.rollups
+    ? activeRollups
         .filter((item) => item.granularity === granularity)
         .slice(-rollupLimit(granularity))
     : ['day', 'week', 'month', 'quarter', 'year'].flatMap((kind) => {
-        const latest = result.rollups.filter((item) => item.granularity === kind).at(-1)
+        const latest = activeRollups.filter((item) => item.granularity === kind).at(-1)
         return latest ? [latest] : []
       })
   if (chosen.length === 0) return `No ${granularity} rollups are available in the local index.`
@@ -135,6 +141,7 @@ function formatRollup(rollup: TimeRollup): string {
 export function formatContinuityRanking(
   store: ContinuityStore,
   options: {
+    sessionsRoot: string
     query: string
     semanticMemories?: SemanticRecallMemory[]
     working?: WorkingRecallState[]
@@ -159,22 +166,33 @@ export function formatContinuityRanking(
     }
   }
   const status = store.status()
+  const activeSessionKeys = activeSessionKeySet(options.sessionsRoot)
+  const episodes = filterActiveEpisodes(activeSessionKeys, store.listEpisodes())
+  const activeEpisodeIds = new Set(episodes.map((episode) => episode.id))
+  const semanticMemories = options.semanticMemories?.filter((memory) =>
+    memory.sourceRefs.every((source) =>
+      (source.kind !== 'session-message' && source.kind !== 'session-event') ||
+      (source.projectId !== null && source.sessionId !== undefined &&
+        activeSessionKeys.has(sessionKey(source.projectId, source.sessionId))),
+    ) && memory.supportingEpisodeIds.every((episodeId) => activeEpisodeIds.has(episodeId)),
+  )
   const rollupResult = timeZone && status.state === 'ready'
     ? store.buildRollups(timeZone)
     : { state: status.state, rollups: [] }
+  const rollups = filterActiveRollups(rollupResult.rollups, activeEpisodeIds)
   const result = rankContinuityLayers({
     query: options.query,
-    episodes: store.listEpisodes(),
-    semanticMemories: options.semanticMemories,
+    episodes,
+    semanticMemories,
     working: options.working,
-    rollups: rollupResult.rollups,
+    rollups,
     ...(options.currentProjectId ? { currentProjectId: options.currentProjectId } : {}),
     ...(options.projectId ? { projectId: options.projectId } : {}),
     ...(resolution.status === 'resolved' ? { window: resolution.window } : {}),
   })
 
   const statusLine = status.state === 'ready'
-    ? `Episode catalog: ready (${status.episodeCount} episode(s), ${status.projectCount} project(s)).`
+    ? `Episode catalog: ready (${episodes.length} active source-linked episode(s), ${new Set(episodes.map((episode) => episode.projectId)).size} project(s)).`
     : status.state === 'partial'
       ? 'Episode catalog: partial; run `athena memory rebuild` for complete historical ranking.'
       : status.state === 'corrupt'
@@ -207,6 +225,27 @@ export function formatContinuityRanking(
   }))
   lines.push('Use `athena memory show <episode-id>` to inspect source-verified episode context.')
   return lines.join('\n')
+}
+
+function sessionKey(projectId: string, sessionId: string): string {
+  return `${projectId}\0${sessionId}`
+}
+
+function activeSessionKeySet(sessionsRoot: string): Set<string> {
+  return new Set(listAllProjectSessions(sessionsRoot)
+    .map((source) => sessionKey(source.projectId, source.sessionId)))
+}
+
+function filterActiveEpisodes(activeSessions: Set<string>, episodes: ContinuityEpisode[]): ContinuityEpisode[] {
+  return episodes.filter((episode) =>
+    episode.projectId !== null && activeSessions.has(sessionKey(episode.projectId, episode.sessionId)),
+  )
+}
+
+function filterActiveRollups(rollups: TimeRollup[], activeEpisodeIds: Set<string>): TimeRollup[] {
+  return rollups.filter((rollup) =>
+    rollup.sourceEpisodeIds.length > 0 && rollup.sourceEpisodeIds.every((episodeId) => activeEpisodeIds.has(episodeId)),
+  )
 }
 
 export function formatContinuitySearch(

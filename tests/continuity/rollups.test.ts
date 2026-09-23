@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { SessionStore } from '../../src/harness/sessions.js'
 import { ContinuityStore } from '../../src/continuity/store.js'
 import { buildTimeRollups } from '../../src/continuity/rollups.js'
-import { formatContinuityRollups } from '../../src/continuity/presentation.js'
+import { formatContinuityRanking, formatContinuityRollups } from '../../src/continuity/presentation.js'
 import type { ContinuityEpisode, TimeRollup } from '../../src/continuity/schemas.js'
 
 const base = {
@@ -67,11 +67,17 @@ describe('buildTimeRollups', () => {
       generator: 'athena-rollup-v1',
       createdAt: '2026-10-01T00:00:00.000Z',
     }
+    mkdirSync(join(sessionsRoot, 'project-one'), { recursive: true })
+    writeFileSync(join(sessionsRoot, 'project-one', 'session-one.jsonl'), '')
+    const episodes = rollup.sourceEpisodeIds.map((id, index) =>
+      episode(id, `2026-09-${String(index + 1).padStart(2, '0')}T12:00:00.000Z`, `Episode ${index + 1}.`),
+    )
     const fakeStore = {
       buildRollups: () => ({ state: 'ready' as const, rollups: [rollup] }),
+      listEpisodes: () => episodes,
     } as unknown as ContinuityStore
 
-    const formatted = formatContinuityRollups(fakeStore, 'UTC', 'year')
+    const formatted = formatContinuityRollups(fakeStore, sessionsRoot, 'UTC', 'year')
     expect(formatted).toContain('YEAR [2026-01-01, 2027-01-01)')
     expect(formatted).toContain('episode-1, episode-2, episode-3, episode-4, episode-5 (+2 more)')
     expect(formatted).not.toContain('episode-6')
@@ -191,6 +197,59 @@ describe('buildTimeRollups', () => {
     sessions.delete(session.id)
     store.indexSession(sessionsRoot, sessions.projectId, session.id)
     expect(store.buildRollups('America/New_York', ['year'])).toMatchObject({ state: 'ready', rollups: [] })
+  })
+
+  it('hides ranked episodes, linked semantic memories, and rollups as soon as a source session is trashed', () => {
+    const sessions = new SessionStore(sessionsRoot, 'C:/projects/trashed-continuity')
+    const session = sessions.create()
+    session.appendMessage({
+      role: 'user',
+      content: 'I decided that violet lantern continuity memory should remain linked to its session.',
+    })
+    session.appendEvent({ type: 'turn-done' })
+    const store = new ContinuityStore(join(root, 'continuity'), {
+      now: () => new Date('2026-10-01T00:00:00.000Z'),
+    })
+    store.rebuild(sessionsRoot)
+    const indexedEpisode = store.listEpisodes()[0]!
+    const semanticMemory = {
+      schemaVersion: 1 as const,
+      memoryId: '11111111-1111-4111-8111-111111111111',
+      description: 'A linked decision',
+      sourceRefs: indexedEpisode.sourceRefs,
+      supportingEpisodeIds: [indexedEpisode.id],
+      observedAt: indexedEpisode.observedAt,
+      scope: 'global' as const,
+      status: 'active' as const,
+      confidence: 1,
+      speechAct: 'decided' as const,
+      captureMode: 'explicit' as const,
+      supersedes: [],
+      sensitivity: 'ordinary' as const,
+      createdAt: indexedEpisode.observedAt,
+      updatedAt: indexedEpisode.observedAt,
+      content: 'I decided that violet lantern continuity memory should remain linked to its session.',
+    }
+    const rankOptions = {
+      sessionsRoot,
+      query: 'What did I decide about violet lantern continuity memory?',
+      semanticMemories: [semanticMemory],
+      timeZone: 'UTC',
+    }
+
+    expect(formatContinuityRanking(store, rankOptions)).toContain(indexedEpisode.id)
+    expect(formatContinuityRanking(store, rankOptions)).toContain(semanticMemory.memoryId)
+    expect(formatContinuityRollups(store, sessionsRoot, 'UTC', 'year'))
+      .toContain('violet lantern continuity memory')
+
+    sessions.delete(session.id)
+
+    const ranking = formatContinuityRanking(store, rankOptions)
+    const rollups = formatContinuityRollups(store, sessionsRoot, 'UTC', 'year')
+    expect(ranking).not.toContain(indexedEpisode.id)
+    expect(ranking).not.toContain(semanticMemory.memoryId)
+    expect(rollups).not.toContain('violet lantern continuity memory')
+    expect(rollups).toContain('No source-linked episodes are available')
   })
 
   it('does not summarize an unbuilt partial archive as complete history', () => {

@@ -100,10 +100,13 @@ forget source-retention choice is still awaiting the product owner's answer.
 - [x] 4.2 Add deterministic ranking across working, episodic, semantic, and rollup
   layers. `athena memory rank <query>` and `/memory rank <query>` provide a local-only,
   explainable preview: explicit time/project bounds, source/status/sensitivity filters,
-  layer/intent and lexical ranking, rollup digest validation, top-five results, and only
+  live-session availability checks, layer/intent and lexical ranking, rollup digest
+  validation, top-five results, and only
   identifiers/metadata/reasons. The in-session command includes bounded current working
   text as a ranking input but never returns it; outputs expose counts, timing, and source
-  IDs only. This is not wired into model prompts.
+  IDs only. Trashing a source session suppresses its indexed episodes, linked semantic
+  memories, and dependent rollups from ranking immediately, without waiting for rebuild.
+  This is not wired into model prompts.
 - [ ] 4.3 Dogfood across realistic multi-project histories; calibrate candidate promotion,
   relevance, time interpretation, latency, and correction rates without relaxing evidence
   requirements to chase recall volume.
@@ -123,3 +126,26 @@ forget source-retention choice is still awaiting the product owner's answer.
     semantic candidates; explicit sensitive storage uses the separate remember path.
   - [ ] Complete delete/restore/tombstone review after the source-retention choice and
     provider-prompt privacy review after handoff authorization.
+
+## Optional Phase 5 — Jev decision model (proposed, not implemented)
+
+Jev is a TypeSafe System One model that returns structured judgments; it is not Athena's
+conversation or answer model. The researched integration boundary and vendor-data review
+are in [ADR 0003](adr/0003-jev-decision-model.md). A product question about which first
+slice to pursue is still pending; recommendation is staged work with recall routing first.
+
+- [ ] 5.1 Build a labeled synthetic recall-intent corpus and measure the current local
+  routing baseline before selecting Jev thresholds or an adoption bar.
+- [ ] 5.2 Define an optional `DecisionClient` separate from streaming `ModelClient`; test
+  typed output validation, fallback, timeout/rate-limit handling, zero calls while disabled,
+  and content-free telemetry with a fake transport.
+- [ ] 5.3 If recall routing is selected, add the TypeSafe adapter behind an explicit
+  opt-in. Send only the redacted current user request for the first slice; no source
+  excerpts, summaries, memory text, IDs, or project paths. Keep local time, project,
+  sensitivity, availability, and ranking rules authoritative.
+- [ ] 5.4 Consider Jev-assisted speech-act/correction/commitment candidate detection only
+  after the routing evaluation and a separate labeled precision study. Persisted source
+  verification and explicit review remain required; no Jev decision promotes memory.
+- [ ] 5.5 Pin the evaluated model version and document observed quality, latency, input
+  volume, cost, and privacy limits before enabling a release default. `jev-latest` can
+  change independently and is not suitable for calibrated rollout without reevaluation.

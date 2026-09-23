@@ -19,6 +19,7 @@ and source history vs. active semantic memories.
 | False autobiographical memory | A hypothetical is saved as a plan or preference | Speech-act labels, source context, conservative promotion, inspect/reject controls |
 | Context collapse | A summary omits “I was considering” or later reversal | Source refs, adjacent-turn reconstruction, temporal/versioned claims |
 | Cross-project disclosure | Private project history appears in an unrelated task or leaves the machine | Current continuity search/show output is local CLI/slash only; no historical episode text enters provider prompts. Any future handoff requires explicit authorization, scoped retrieval, verified source refs, and prompt-isolation tests |
+| Secondary-provider disclosure | An optional intent model receives user text without the user expecting a second vendor | Jev stays disabled by default and requires separate opt-in; the proposed first slice sends only a redacted current request, no prior history, source IDs, or project paths; provider terms and retention are reviewed before release |
 | Secret propagation | Credential appears in a memory summary or search result | Existing redaction plus summary-specific redaction tests; never copy full transcripts |
 | Stale memory | Old decision is stated as current | Observed/valid time, supersession, freshness ranking, current source precedence |
 | Index poisoning | Model supplies a forged source path or ID | Server-authored identifiers; strict schema; resolve only under known local roots |
@@ -54,6 +55,11 @@ and source history vs. active semantic memories.
 - Forgetting and source-session trash/restore integration are not implemented yet. Their
   eventual behavior must follow the user's source-retention choice and prevent rebuild
   resurrection.
+- A future Jev adapter is an additional network boundary, even when it receives no
+  historical context. Its result is untrusted advisory data: validate the option and
+  probability shape locally, keep all source/scope/permission gates local, and fall back
+  on disabled mode, timeout, rate limits, or malformed responses. Do not log state,
+  question text, or response content.
 - Retrieval returns no more content than the query needs.
 
 ## Review gates
@@ -63,6 +69,9 @@ and source history vs. active semantic memories.
 - Before adding any provider handoff, inspect every prompt path and ensure authorized
   historical content is bounded, source-verified, clearly delimited as untrusted context,
   and cannot set system instructions.
+- Before enabling Jev, review TypeSafe's then-current model and privacy terms separately
+  from the configured answer provider. Test the exact request payload and confirm the
+  consent setting covers the current user text sent for routing.
 - Verify secret/redaction behavior across summaries, time rollups, CLI output, prompt
   context, logs, and deletion tombstones.
 - Test cross-project and restore/delete behavior with two independent project stores.

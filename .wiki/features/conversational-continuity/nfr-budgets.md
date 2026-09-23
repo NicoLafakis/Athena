@@ -40,8 +40,16 @@ sample; representative live-history performance remains unmeasured.
 
 ## Privacy and cost
 
-- No new provider/network request for capture, indexing, or ranking.
-- No duplicate raw transcript store or new paid service.
+- No provider/network request for capture, indexing, or ranking while optional decision
+  providers are disabled; Jev is disabled by default.
+- If enabled in a future Jev routing slice, allow at most one request for an eligible
+  user turn, after local cheap gates. Send only the redacted current request and fixed
+  choice labels; do not send retrieved history, memory text, source IDs, or project paths.
+- Measure the Jev request latency, input tokens, and cost on the labeled synthetic corpus
+  before setting release budgets. Timeout, rate limit, or provider error must fall back to
+  local routing without blocking the turn.
+- No duplicate raw transcript store or new paid service by default; an enabled Jev
+  integration is a separately opted-in paid provider path.
 - Logs contain no query strings, content, user facts, or project paths.
 - Secret-shaped fixtures produce zero leaks in indexes, rollups, prompt context, or logs.
 - Local index size is measured on representative histories; an initial target is under

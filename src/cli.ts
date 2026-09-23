@@ -1042,6 +1042,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         } else if (cmd.action === 'rank') {
           const semanticStore = new MemoryHygieneStore(paths.memoryDir, { onWarn: info })
           info(formatContinuityRanking(memoryStore, {
+            sessionsRoot: paths.sessionsDir,
             query: cmd.value ?? '',
             semanticMemories: semanticStore.listAll(),
             working: currentWorkingRecallState(engine.getMessages(), session?.id ?? null, store.projectId),
@@ -1052,6 +1053,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         } else if (cmd.action === 'rollup') {
           info(formatContinuityRollups(
             memoryStore,
+            paths.sessionsDir,
             timeZone,
             cmd.value as 'day' | 'week' | 'month' | 'quarter' | 'year' | undefined,
           ))
@@ -1599,6 +1601,7 @@ async function main(): Promise<void> {
       if (cmd.action === 'rollup') {
         console.log(formatContinuityRollups(
           store,
+          paths.sessionsDir,
           timeZone,
           cmd.args[0] as 'day' | 'week' | 'month' | 'quarter' | 'year' | undefined,
         ))
@@ -1611,6 +1614,7 @@ async function main(): Promise<void> {
         })
         const currentProjectId = new SessionStore(paths.sessionsDir, cwd).projectId
         console.log(formatContinuityRanking(store, {
+          sessionsRoot: paths.sessionsDir,
           query: cmd.args.join(' '),
           semanticMemories: semanticStore.listAll(),
           currentProjectId,

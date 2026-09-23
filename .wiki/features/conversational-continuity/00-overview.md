@@ -2,7 +2,7 @@
 
 - **Tier:** 3 — major / high trust impact
 - **Date:** 2026-09-23
-- **Status:** implementation in progress; local linked-episode catalog, CLI/slash inspection, source-verified semantic candidate generation/review, on-demand time rollups, and explainable local ranking previews are implemented
+- **Status:** implementation in progress; local linked-episode catalog, CLI/slash inspection, source-verified semantic candidate generation/review, on-demand time rollups, explainable local ranking previews, and immediate suppression of trashed sources are implemented; provider prompt handoff and Jev integration are not implemented
 - **Product owner:** Nico
 
 ## What was asked
@@ -64,6 +64,9 @@ plausible-sounding recollection.
   are not decisions.
 - No automatic age-based deletion. Explicit source deletion/forgetting invalidates its
   derived records. Retention controls can be added without changing source identity.
+- No provider call is made for continuity by default. [Jev decision routing](adr/0003-jev-decision-model.md)
+  is a proposal for an explicit opt-in; its first slice would send only the redacted
+  current request and leave source selection and memory policy local.
 
 ### Dropping
 
