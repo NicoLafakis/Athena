@@ -270,8 +270,9 @@ that record while preserving the earlier statement and its source link. `memory 
 generates review-only records only when the same direct user preference, decision, or
 promise appears in at least two distinct, source-digest-verified sessions. Candidate
 generation is local and explicit; tentative, question, assistant-authored, stale, or
-incomplete evidence is skipped. Cross-project support broadens a candidate to global scope;
-sensitive candidates remain marked and cannot be promoted. Review is an explicit local
+incomplete or credential-bearing evidence is skipped. Cross-project support broadens a
+candidate to global scope; sensitive claims are not copied into inferred semantic
+candidates. Review is an explicit local
 `promote` or `reject` command; promotion verifies every source again at decision time, and
 rejected/terminal decisions suppress recreation. Semantic records are not added to the
 prompt-injected `MEMORY.md` index. Forget and source-session

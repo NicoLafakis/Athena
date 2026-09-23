@@ -2,7 +2,7 @@ import type { ContinuityEpisode, TimeRollup } from './schemas.js'
 import type { SemanticRecallMemory, WorkingRecallState } from './ranking.js'
 import { rankContinuityLayers } from './ranking.js'
 import type { ContinuityStore } from './store.js'
-import { loadEpisodeSourceContext, searchEpisodes } from './retrieval.js'
+import { loadEpisodeSourceContext, loadEpisodeSourceContexts, searchEpisodes } from './retrieval.js'
 import { resolveTemporalWindow } from './time.js'
 import type { ManagedSemanticMemory } from '../brain/hygiene.js'
 import type { SemanticCandidateGenerationResult } from './candidates.js'
@@ -229,10 +229,8 @@ export function formatContinuitySearch(
     ...(options.projectId ? { projectId: options.projectId } : {}),
     limit: 8,
   })
-  const available = hits.flatMap((hit) => {
-    const context = loadEpisodeSourceContext(sessionsRoot, hit.episode)
-    return context.status === 'ok' ? [context.episode] : []
-  })
+  const available = loadEpisodeSourceContexts(sessionsRoot, hits.map((hit) => hit.episode))
+    .flatMap((context) => context.status === 'ok' ? [context.episode] : [])
   if (available.length === 0) return 'No source-verified conversation episodes matched that request.'
   return available.map((episode) => formatEpisodeListItem(episode)).join('\n')
 }

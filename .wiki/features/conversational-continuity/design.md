@@ -73,6 +73,11 @@ history to a model.
 - Rollups must overlap the requested local-calendar window, cover only eligible episodes,
   and match the digest recomputed from current episode records. Partial catalogs produce no
   rollups.
+- Search, ranking, and rollup reads reuse only immutable episode objects validated from a
+  complete index. `ContinuityStore` caches that validated snapshot for the store instance
+  by SHA-256 of the exact index bytes; a changed or corrupt file invalidates the cache.
+  Source-session digests are still checked independently before source text is displayed
+  or an inferred candidate is promoted.
 - Scoring combines phrase/token relevance, inferred intent, layer preference, explicit
   versus corroborated source authority, speech-act/correction labels, a small current-
   project preference, and bounded recency. Time and project filters happen before score.
@@ -323,10 +328,13 @@ added without changing session-line identity.
   normalized full claim must appear in at least two distinct `(project, session)` sources;
   each episode digest is verified before its user message is used. Tentative/question text,
   assistant messages, stale sources, incomplete catalogs, and oversized/truncated episode
-  contexts are skipped. Support is bounded to 32 source episodes, preserving the newest
+  contexts are skipped. A message that the shared redactor would change is also excluded,
+  so credential-shaped text in older sessions cannot enter an inferred candidate. Support
+  is bounded to 32 source episodes, preserving the newest
   support for each project where possible. A candidate stays project-scoped until selected
-  support crosses project boundaries, then it becomes global. Sensitive cues are
-  conservatively flagged and the existing lifecycle store blocks their promotion.
+  support crosses project boundaries, then it becomes global. Sensitive claims are skipped
+  before semantic storage and remain in their original source sessions; explicit remember is
+  a separate user-directed operation.
   Idempotent upsert merges support for the same speech act and normalized claim while
   preserving explicit, rejected, superseded, or tombstoned decisions. No candidate is
   promoted automatically. Immediately before promotion, every inferred source is checked

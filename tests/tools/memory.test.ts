@@ -152,6 +152,27 @@ describe('memoryTool', () => {
     expect(saved).toContain('"recordId":"line-one"')
   })
 
+  it('stores sensitive content only through an explicit remember request', async () => {
+    const ctx = makeCtx(dir, { getCurrentUserSourceRef: () => sourceRef })
+    const res = await memoryTool.execute(
+      {
+        op: 'remember',
+        description: 'Explicitly requested sensitive detail',
+        content: 'Please remember this sensitive detail.',
+        speechAct: 'stated',
+        scope: 'global',
+        sensitivity: 'sensitive',
+      },
+      ctx,
+    )
+
+    expect(res.isError).toBe(false)
+    const store = new MemoryHygieneStore(join(dir, 'memory'))
+    expect(store.listActive()).toMatchObject([
+      { captureMode: 'explicit', sensitivity: 'sensitive', status: 'active', content: 'Please remember this sensitive detail.' },
+    ])
+  })
+
   it('prevents generic memory writes and deletes from bypassing semantic lifecycle metadata', async () => {
     const ctx = makeCtx(dir, { getCurrentUserSourceRef: () => sourceRef })
     const remembered = await memoryTool.execute(

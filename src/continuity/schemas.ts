@@ -1,10 +1,22 @@
 import { z } from 'zod'
 
+const validatedTimeZones = new Map<string, true>()
+const MAX_VALIDATED_TIME_ZONES = 256
+
 function isIanaTimeZone(value: string): boolean {
+  if (validatedTimeZones.has(value)) return true
   try {
     // Use the runtime's timezone database instead of maintaining a stale hand-written list.
     new Intl.DateTimeFormat('en-US', { timeZone: value }).format(0)
-    return !/^[+-]\d{2}(?::?\d{2})?$/.test(value)
+    const valid = !/^[+-]\d{2}(?::?\d{2})?$/.test(value)
+    if (valid) {
+      if (validatedTimeZones.size >= MAX_VALIDATED_TIME_ZONES) {
+        const oldest = validatedTimeZones.keys().next().value as string | undefined
+        if (oldest) validatedTimeZones.delete(oldest)
+      }
+      validatedTimeZones.set(value, true)
+    }
+    return valid
   } catch {
     return false
   }
@@ -315,3 +327,32 @@ export type SemanticMemoryLink = z.infer<typeof SemanticMemoryLinkSchema>
 export type SemanticMemoryRecord = z.infer<typeof SemanticMemoryRecordSchema>
 export type TimeRollup = z.infer<typeof TimeRollupSchema>
 export type TemporalWindow = z.infer<typeof TemporalWindowSchema>
+
+const validatedEpisodes = new WeakSet<object>()
+
+function deepFreeze<T>(value: T): T {
+  if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value
+  for (const child of Object.values(value)) deepFreeze(child)
+  return Object.freeze(value)
+}
+
+function freezeValidatedEpisode(episode: ContinuityEpisode): ContinuityEpisode {
+  deepFreeze(episode)
+  validatedEpisodes.add(episode)
+  return episode
+}
+
+/** Parse once at the trust boundary, then safely reuse this immutable episode in read paths. */
+export function parseContinuityEpisode(input: unknown): ContinuityEpisode {
+  if (typeof input === 'object' && input !== null && validatedEpisodes.has(input)) {
+    return input as ContinuityEpisode
+  }
+  return freezeValidatedEpisode(ContinuityEpisodeSchema.parse(input))
+}
+
+/** Validate and freeze an index so its episode values can be reused without reparsing. */
+export function parseContinuityIndex(input: unknown): ContinuityIndex {
+  const index = ContinuityIndexSchema.parse(input)
+  for (const episode of index.episodes) freezeValidatedEpisode(episode)
+  return deepFreeze(index)
+}

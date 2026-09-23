@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -139,6 +139,32 @@ describe('buildTimeRollups', () => {
     const options = { timeZone: 'America/New_York', now: new Date('2026-10-01T00:00:00.000Z') }
     expect(buildTimeRollups(input, options)).toEqual(buildTimeRollups(input, options))
     expect(() => buildTimeRollups(input, { ...options, timeZone: 'No/Such_Zone' })).toThrow()
+  })
+
+  it('reuses timezone formatters across large episode sets and repeated rollup views', () => {
+    const timezone = 'Pacific/Marquesas'
+    const episodes = Array.from({ length: 20 }, (_, index) =>
+      episode(`formatter-${index}`, `2026-09-${String(index + 1).padStart(2, '0')}T12:00:00.000Z`, `Episode ${index}.`),
+    )
+    const originalDateTimeFormat = Intl.DateTimeFormat
+    const dateTimeFormat = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(
+      (locales, formatOptions) => new originalDateTimeFormat(locales, formatOptions),
+    )
+    try {
+      const options = {
+        timeZone: timezone,
+        granularities: ['day' as const],
+        now: new Date('2026-10-01T00:00:00.000Z'),
+      }
+      const first = buildTimeRollups(episodes, options)
+      const second = buildTimeRollups(episodes, options)
+      expect(second).toEqual(first)
+      const timezoneProbes = dateTimeFormat.mock.calls.filter(([, formatOptions]) => formatOptions?.timeZone === timezone)
+      // One IANA-zone validation plus one cached calendar formatter; none per episode or later view.
+      expect(timezoneProbes).toHaveLength(2)
+    } finally {
+      dateTimeFormat.mockRestore()
+    }
   })
 
   it('builds only from a complete index and reflects source correction/deletion immediately', () => {

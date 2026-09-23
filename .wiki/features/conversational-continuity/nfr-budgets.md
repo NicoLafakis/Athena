@@ -17,6 +17,11 @@
 These are initial guardrails to validate on representative histories; tests use generous
 regression limits across CI hosts.
 
+The first synthetic 10,000-episode and 10,000-session-file measurements are recorded in
+[the calibration snapshot](calibration.md). Warm indexed search, five-source context
+expansion, and the shared CLI/slash search presenter are within their targets in that
+sample; representative live-history performance remains unmeasured.
+
 ## Prompt and result bounds
 
 - Automatic recall: at most 5 episode/fact candidates and 4,000 characters total by

@@ -6,6 +6,7 @@ import { redactSessionValue, stableSessionLineId } from '../harness/sessions.js'
 import {
   ContinuityIndexSchema,
   ContinuityEpisodeSchema,
+  parseContinuityIndex,
   TimeZoneSchema,
   type ContinuityEpisode,
   type ContinuityIndex,
@@ -287,6 +288,8 @@ function extractSessionEpisodes(
 export class ContinuityStore {
   private readonly indexFile: string
   private readonly warned = new Set<string>()
+  private cachedIndexDigest: string | undefined
+  private cachedIndex: ContinuityIndex | null = null
 
   constructor(
     root: string,
@@ -404,13 +407,25 @@ export class ContinuityStore {
   }
 
   readIndex(): ContinuityIndex | null {
-    if (!existsSync(this.indexFile)) return null
+    if (!existsSync(this.indexFile)) {
+      this.cachedIndexDigest = undefined
+      this.cachedIndex = null
+      return null
+    }
     try {
       const statLimit = this.options.maxIndexBytes ?? 64 * 1024 * 1024
-      const content = readFileSync(this.indexFile, 'utf8')
-      if (Buffer.byteLength(content, 'utf8') > statLimit) throw new Error('index exceeds size limit')
-      return ContinuityIndexSchema.parse(JSON.parse(content) as unknown)
+      const contentBytes = readFileSync(this.indexFile)
+      if (contentBytes.byteLength > statLimit) throw new Error('index exceeds size limit')
+      const content = contentBytes.toString('utf8')
+      const contentDigest = createHash('sha256').update(contentBytes).digest('hex')
+      if (contentDigest === this.cachedIndexDigest) return this.cachedIndex
+      const index = parseContinuityIndex(JSON.parse(content) as unknown)
+      this.cachedIndexDigest = contentDigest
+      this.cachedIndex = index
+      return index
     } catch {
+      this.cachedIndexDigest = undefined
+      this.cachedIndex = null
       this.warn(`index ${this.indexFile} is corrupt or unreadable`)
       return null
     }
@@ -477,10 +492,14 @@ export class ContinuityStore {
       throw new Error('Continuity rebuild exceeds the configured index size limit')
     }
     atomicWriteFileSync(this.indexFile, content)
-    const verified = ContinuityIndexSchema.parse(JSON.parse(readFileSync(this.indexFile, 'utf8')) as unknown)
+    const verifiedContentBytes = readFileSync(this.indexFile)
+    const verifiedContent = verifiedContentBytes.toString('utf8')
+    const verified = parseContinuityIndex(JSON.parse(verifiedContent) as unknown)
     if (JSON.stringify(verified) !== JSON.stringify(index)) {
       throw new Error(`Continuity index ${this.indexFile} did not match its verified replacement`)
     }
+    this.cachedIndexDigest = createHash('sha256').update(verifiedContentBytes).digest('hex')
+    this.cachedIndex = verified
   }
 
   private warn(reason: string): void {

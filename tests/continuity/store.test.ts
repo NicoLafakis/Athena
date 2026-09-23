@@ -60,6 +60,35 @@ describe('ContinuityStore', () => {
     expect(second).toEqual(first)
   })
 
+  it('reuses immutable validated index snapshots and invalidates them when index bytes change', () => {
+    const session = new SessionStore(sessionsRoot, 'C:/projects/snapshot-cache').create()
+    session.appendMessage({ role: 'user', content: 'A source-linked snapshot.' })
+    session.appendEvent({ type: 'turn-done' })
+    const store = new ContinuityStore(join(root, 'continuity'))
+    store.rebuild(sessionsRoot)
+
+    const first = store.readIndex()!
+    expect(store.readIndex()).toBe(first)
+    expect(Object.isFrozen(first)).toBe(true)
+    expect(Object.isFrozen(first.episodes)).toBe(true)
+    expect(Object.isFrozen(first.episodes[0])).toBe(true)
+    expect(Object.isFrozen(first.episodes[0]!.sourceRefs)).toBe(true)
+    expect(() => {
+      ;(first.episodes[0] as { summary: string }).summary = 'Mutated in-memory snapshot.'
+    }).toThrow()
+
+    const indexFile = join(root, 'continuity', 'index.json')
+    const changed = JSON.parse(readFileSync(indexFile, 'utf8')) as {
+      episodes: Array<{ summary: string }>
+    }
+    changed.episodes[0]!.summary = 'Updated validated snapshot.'
+    writeFileSync(indexFile, JSON.stringify(changed), 'utf8')
+
+    const second = store.readIndex()!
+    expect(second).not.toBe(first)
+    expect(second.episodes[0]?.summary).toBe('Updated validated snapshot.')
+  })
+
   it('warns on a corrupt index, provides no unvalidated records, and can rebuild it', () => {
     const warnings: string[] = []
     const store = new ContinuityStore(join(root, 'continuity'), { onWarn: (message) => warnings.push(message) })

@@ -118,6 +118,8 @@ local-history/provider boundary. `athena memory candidates` / `/memory candidate
 generate local review candidates only from repeated direct user claims in at least two
 distinct, digest-verified sessions; the bounded listing includes linked episode IDs.
 `athena memory review <id> <promote|reject>` and `/memory review ...` apply an explicit
-decision. Sensitive candidates cannot be promoted, and existing explicit or terminal
-decisions suppress duplicates. Forget/deletion suppression, dogfood calibration, and
-provider handoff remain open.
+decision. Sensitive claims are excluded from inferred semantic storage; the original
+session remains canonical, and explicit remember is a separate user-directed path. Existing
+explicit or terminal decisions suppress duplicates. Synthetic quality and latency
+calibration is documented; live-history dogfood and correction rates remain open alongside
+forget/deletion suppression and provider handoff.

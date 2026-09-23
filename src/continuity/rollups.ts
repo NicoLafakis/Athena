@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import {
-  ContinuityEpisodeSchema,
+  parseContinuityEpisode,
   TimeRollupSchema,
   TimeZoneSchema,
   type ContinuityEpisode,
@@ -8,6 +8,8 @@ import {
 } from './schemas.js'
 
 const GRANULARITY_ORDER: TimeRollup['granularity'][] = ['day', 'week', 'month', 'quarter', 'year']
+const MAX_TIMEZONE_FORMATTERS = 32
+const dateFormatters = new Map<string, Intl.DateTimeFormat>()
 
 export interface BuildTimeRollupOptions {
   timeZone: string
@@ -39,12 +41,21 @@ function dateKey(date: CalendarDate): string {
 }
 
 function localDate(instant: string, timeZone: string): CalendarDate {
-  const parts = new Intl.DateTimeFormat('en-US-u-ca-gregory-nu-latn', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date(instant))
+  let dateFormatter = dateFormatters.get(timeZone)
+  if (!dateFormatter) {
+    dateFormatter = new Intl.DateTimeFormat('en-US-u-ca-gregory-nu-latn', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    })
+    if (dateFormatters.size >= MAX_TIMEZONE_FORMATTERS) {
+      const oldest = dateFormatters.keys().next().value as string | undefined
+      if (oldest) dateFormatters.delete(oldest)
+    }
+    dateFormatters.set(timeZone, dateFormatter)
+  }
+  const parts = dateFormatter.formatToParts(new Date(instant))
   const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value)
   return { year: value('year'), month: value('month'), day: value('day') }
 }
@@ -141,7 +152,7 @@ export function buildTimeRollups(
   if (!Number.isInteger(maxRollups) || maxRollups < 1) throw new Error('maxRollups must be a positive integer')
   const now = (options.now ?? new Date()).toISOString()
   const episodes = inputEpisodes
-    .map((episode) => ContinuityEpisodeSchema.parse(episode))
+    .map(parseContinuityEpisode)
     .sort(
       (left, right) =>
         left.observedAt.localeCompare(right.observedAt) ||

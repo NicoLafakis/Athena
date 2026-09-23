@@ -39,8 +39,18 @@ and source history vs. active semantic memories.
 - Every semantic fact links to a persisted source message or event and may also identify
   supporting episodes; rollups link to source episodes. No unlinked personal claim is
   eligible for durable retrieval.
-- No inferred sensitive trait is promoted. Sensitive material stays source-only unless
-  the user explicitly asks Athena to remember it and policy permits it.
+- Sensitive claims are excluded from inferred semantic-memory records; the linked episode
+  index may still contain a bounded local summary under the episode policy. The original
+  session remains canonical. An explicit remember request is separate and follows the
+  explicit-memory policy; an inferred candidate cannot silently move sensitive text into
+  durable semantic memory.
+- The local candidate scanner skips newly encountered sensitive claims before semantic
+  write. A synthetic regression fixture verifies that repeated salary text produces no
+  candidate record. This does not erase legacy candidate files already present on a user
+  machine; cleanup requires a separately designed lifecycle action.
+- Candidate generation also skips a directly sourced message when the shared credential
+  redactor would change it. This prevents old or manually edited unredacted credential text
+  from being copied into a new semantic candidate.
 - Forgetting and source-session trash/restore integration are not implemented yet. Their
   eventual behavior must follow the user's source-retention choice and prevent rebuild
   resurrection.

@@ -2,10 +2,10 @@ import { createHash } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import { z } from 'zod'
 import {
-  ContinuityEpisodeSchema,
   SemanticMemoryRecordSchema,
   TemporalWindowSchema,
   TimeRollupSchema,
+  parseContinuityEpisode,
   type ContinuityEpisode,
   type SemanticMemoryRecord,
   type SpeechAct,
@@ -279,7 +279,7 @@ export function rankContinuityLayers(options: RankContinuityLayersOptions): Reca
   const intent = inferIntent(query, window)
   const limit = Math.max(1, Math.min(options.limit ?? 5, 8))
   const candidates: RankedRecallCandidate[] = []
-  const episodes = (options.episodes ?? []).map((item) => ContinuityEpisodeSchema.parse(item))
+  const episodes = (options.episodes ?? []).map(parseContinuityEpisode)
   const episodeById = new Map(episodes.map((episode) => [episode.id, episode]))
 
   for (const input of options.working ?? []) {

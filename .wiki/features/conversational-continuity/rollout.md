@@ -44,9 +44,10 @@ the `Memory` tool's explicit remember, review, and correction/supersession paths
 place. Explicit `athena memory candidates` / `/memory candidates` commands generate
 review-only semantic candidates from repeated direct user claims in distinct,
 source-digest-verified sessions; local bounded listings and `memory review` commands
-allow explicit promotion or rejection. Sensitive claims cannot be promoted, and a
-single-session repetition is insufficient; every source is verified again at promotion
-time. Forget/source deletion integration is still open pending the source-retention choice.
+allow explicit promotion or rejection. Repeated sensitive claims are excluded from inferred
+semantic storage; a user-directed explicit remember request is a separate path. A
+single-session repetition is insufficient; every inferred source is verified again at
+promotion time. Forget/source deletion integration is still open pending the source-retention choice.
 Semantic records remain local and are not injected into provider prompts.
 
 **Exit:** tombstone/rebuild tests, correction tests, and sensitive-data review pass.

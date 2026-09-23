@@ -140,8 +140,9 @@ does not make optional continuity a boot precondition.
   user-authored in at least two distinct sessions and every source digest verifies. A
   repeated line within one session, a question, tentative wording, assistant-authored text,
   or stale/incomplete source creates no inferred candidate. Same-project evidence remains
-  project-scoped; cross-project evidence is global-scoped. Sensitive candidates cannot be
-  promoted. An explicit “remember this” request may create an active memory immediately.
+  project-scoped; cross-project evidence is global-scoped. Sensitive claims stay in their
+  source sessions and are not copied into inferred candidates. An explicit “remember this”
+  request may create an active memory immediately, subject to the explicit-memory policy.
 - **AC-006:** Given a correction or forget request, when retrieval and rebuild run, then
   the corrected/forgotten value is not returned as current memory and source history is
   handled according to the user’s deletion choice.

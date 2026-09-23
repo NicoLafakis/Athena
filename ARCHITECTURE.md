@@ -74,8 +74,10 @@ and local slash-command handler.
   nested fork-lineage resolution, local episode indexing/rebuild, timezone-aware date
   windows, deterministic search and four-layer ranking previews, on-demand
   day/week/month/quarter/year rollups from a complete catalog, source-digest validation
-  for CLI/slash inspection, and explicit generation/review of repeated source-verified
-  semantic candidates. Candidate text stays local; ranking does not feed model prompts.
+  for CLI/slash inspection, immutable digest-invalidated index snapshots, and explicit
+  generation/review of repeated source-verified semantic candidates. Newly inferred
+  sensitive claims are excluded from semantic-memory storage. Candidate text stays local;
+  ranking does not feed model prompts.
   Automatic answer-time transfer to model prompts remains pending explicit authorization.
 - `src/experience/` — deterministic capture, compilation, storage, and retrieval of
   bounded experiential guidance.

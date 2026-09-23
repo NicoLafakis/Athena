@@ -249,41 +249,42 @@ describe('source-verified semantic candidate generation', () => {
     expect(semanticStore.get(candidate.memoryId)?.status).toBe('candidate')
   })
 
-  it('does not promote a sensitive source after its candidate metadata is altered', () => {
-    addTurn('C:/projects/sensitive-a', 'I prefer keeping my salary private.')
-    addTurn('C:/projects/sensitive-b', 'I prefer keeping my salary private.')
-    continuityStore.rebuild(sessionsRoot)
-    generateSemanticCandidates(continuityStore, sessionsRoot, semanticStore)
-    const candidate = semanticStore.listAll()[0]!
-    mutateSemanticRecord(candidate.memoryId, (record) => { record.sensitivity = 'ordinary' })
-
-    expect(() => reviewSemanticCandidate(
-      semanticStore,
-      continuityStore,
-      sessionsRoot,
-      candidate.memoryId,
-      'promote',
-    )).toThrow(/sensitive/i)
-    expect(semanticStore.get(candidate.memoryId)?.status).toBe('candidate')
-  })
-
-  it('marks sensitive repeated claims as sensitive candidates and keeps incomplete catalogs read-only', () => {
+  it('keeps sensitive repeated claims source-only and keeps incomplete catalogs read-only', () => {
     addTurn('C:/projects/alpha', 'I prefer keeping my salary details private.')
     addTurn('C:/projects/beta', 'I prefer keeping my salary details private.')
     continuityStore.rebuild(sessionsRoot)
     const generated = generateSemanticCandidates(continuityStore, sessionsRoot, semanticStore)
-    const [candidate] = semanticStore.listAll()
-    expect(generated.createdCount).toBe(1)
-    expect(candidate).toMatchObject({ scope: 'global', sensitivity: 'sensitive', status: 'candidate' })
-    expect(() => semanticStore.promote(candidate!.memoryId)).toThrow(/sensitive.*cannot be promoted/i)
-    const review = formatSemanticCandidateReview(generated, [candidate!])
-    expect(review).toContain('sensitive; promotion blocked')
-    expect(review).toContain(candidate!.supportingEpisodeIds[0]!)
-    expect(review).not.toContain(candidate!.file)
+    expect(generated.createdCount).toBe(0)
+    expect(semanticStore.listAll()).toEqual([])
+    const review = formatSemanticCandidateReview(generated, [])
+    expect(review).toContain('No repeated direct claims met the source-verification and independence rules.')
+    expect(review).not.toContain('salary')
 
     const partialStore = new ContinuityStore(join(root, 'partial'))
     partialStore.indexSession(sessionsRoot, new SessionStore(sessionsRoot, 'C:/projects/alpha').projectId, 'missing-session')
     const result = generateSemanticCandidates(partialStore, sessionsRoot, semanticStore)
     expect(result.state).toBe('partial')
+  })
+
+  it('does not copy an unredacted credential-shaped source into inferred semantic memory', () => {
+    const secret = 'sk-ant-api03-supersecretvalue123'
+    const text = `I prefer source-linked memory. ${secret}`
+    const first = addTurn('C:/projects/secret-a', text)
+    const second = addTurn('C:/projects/secret-b', text)
+    for (const session of [first, second]) {
+      const lines = readFileSync(session.file, 'utf8').trimEnd().split('\n')
+      const userLineIndex = lines.findIndex((line) => line.includes('"role":"user"'))
+      const userLine = JSON.parse(lines[userLineIndex]!) as { data: { content: string } }
+      userLine.data.content = userLine.data.content.replace('[REDACTED]', secret)
+      lines[userLineIndex] = JSON.stringify(userLine)
+      writeFileSync(session.file, `${lines.join('\n')}\n`, 'utf8')
+    }
+    continuityStore.rebuild(sessionsRoot)
+
+    const result = generateSemanticCandidates(continuityStore, sessionsRoot, semanticStore)
+
+    expect(result.createdCount).toBe(0)
+    expect(semanticStore.listAll()).toEqual([])
+    expect(continuityStore.listEpisodes().every((episode) => !episode.summary.includes(secret))).toBe(true)
   })
 })

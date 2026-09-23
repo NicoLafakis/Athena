@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   ContinuityEpisodeSchema,
   ContinuityIndexSchema,
@@ -27,6 +27,19 @@ describe('continuity schemas', () => {
     expect(TimeZoneSchema.parse('UTC')).toBe('UTC')
     expect(TimeZoneSchema.safeParse('Mars/Olympus_Mons').success).toBe(false)
     expect(TimeZoneSchema.safeParse('+05:00').success).toBe(false)
+  })
+
+  it('validates each repeated valid timezone against Intl once', () => {
+    const timezoneProbe = 'Africa/Bamako'
+    const dateTimeFormat = vi.spyOn(Intl, 'DateTimeFormat')
+    try {
+      for (let index = 0; index < 20; index++) {
+        expect(TimeZoneSchema.parse(timezoneProbe)).toBe(timezoneProbe)
+      }
+      expect(dateTimeFormat).toHaveBeenCalledTimes(1)
+    } finally {
+      dateTimeFormat.mockRestore()
+    }
   })
 
   it('keeps speech-act categories distinct and closed', () => {

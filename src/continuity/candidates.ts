@@ -1,4 +1,5 @@
 import { MemoryHygieneStore, type ManagedSemanticMemory } from '../brain/hygiene.js'
+import { redactSessionValue } from '../harness/sessions.js'
 import type { SourceRef, SpeechAct } from './schemas.js'
 import type { ContinuityStatus, ContinuityStore } from './store.js'
 import { loadEpisodeSourceContexts, type ContextMessage, type EpisodeSourceContext } from './retrieval.js'
@@ -121,7 +122,7 @@ export function generateSemanticCandidates(
     for (const message of context.messages) {
       if (message.role !== 'user') continue
       const content = messageText(message)
-      if (!content) continue
+      if (!content || redactSessionValue(content) !== content) continue
       const speechAct = directClaim(content, context.episode.speechActs)
       if (!speechAct) continue
       const sourceRef = context.episode.sourceRefs.find(
@@ -152,9 +153,11 @@ export function generateSemanticCandidates(
     if (occurrencesBySession.size < 2) continue
     const support = boundedIndependentSupport([...occurrencesBySession.values()])
     if (support.length < 2) continue
+    // Do not copy sensitive claims into inferred semantic memory merely to create a
+    // candidate that policy will not promote.
+    if (support.some((item) => SENSITIVE_CUES.test(item.content))) continue
     const projectIds = [...new Set(support.map((item) => item.projectId))]
     const scope = projectIds.length > 1 ? 'global' : 'project'
-    const sensitive = support.some((item) => SENSITIVE_CUES.test(item.content))
     const latest = support.at(-1)!
     const upsert = semanticStore.upsertInferredCandidate({
       description: latest.content.slice(0, 256),
@@ -167,7 +170,7 @@ export function generateSemanticCandidates(
       speechAct: latest.speechAct,
       captureMode: 'inferred',
       confidence: 0.5,
-      sensitivity: sensitive ? 'sensitive' : 'ordinary',
+      sensitivity: 'ordinary',
     })
     if (upsert.outcome === 'created') result.createdCount++
     else if (upsert.outcome === 'updated') result.updatedCount++

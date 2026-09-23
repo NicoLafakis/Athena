@@ -63,7 +63,8 @@ Progress (2026-09-23): the versioned semantic record schema and lifecycle store,
 remember/review/correction paths, conservative source-verified candidate generation, and
 local CLI/slash review commands are implemented. Inferred candidates are generated only
 from the same direct user claim in at least two distinct, digest-verified sessions; they
-remain candidates until an explicit review. Sensitive candidates cannot be promoted.
+remain candidates until an explicit review. Sensitive claims are not copied into inferred
+semantic storage; explicit memory remains a separate user-directed path.
 Forget/source-deletion integration and full Phase 3 verification remain open. The
 forget source-retention choice is still awaiting the product owner's answer.
 
@@ -76,8 +77,10 @@ forget source-retention choice is still awaiting the product owner's answer.
     lifecycle store; inferred records cannot be promoted from one source.
   - [x] Generate candidates only from repeated, direct user preferences/decisions/promises
     across distinct, source-digest-verified sessions; reject tentative, interrogative,
-    assistant-authored, stale, incomplete, and truncated evidence. Scope stays project-local
-    until evidence spans projects; sensitive candidates remain blocked from promotion.
+    assistant-authored, stale, incomplete, truncated, and credential-bearing evidence.
+    Scope stays project-local
+    until evidence spans projects; sensitive claims are excluded from inferred semantic
+    storage.
   - [x] Add explicit `athena memory candidates` / `/memory candidates` generation and
     bounded local review listings, plus `athena memory review <id> <promote|reject>` /
     `/memory review <id> <promote|reject>`. Never auto-promote or send candidate text to a
@@ -104,5 +107,19 @@ forget source-retention choice is still awaiting the product owner's answer.
 - [ ] 4.3 Dogfood across realistic multi-project histories; calibrate candidate promotion,
   relevance, time interpretation, latency, and correction rates without relaxing evidence
   requirements to chase recall volume.
+  - [x] Add a deterministic synthetic gold corpus for candidate precision, scoped/time
+    relevance, temporal interpretation, and current-versus-historical correction behavior;
+    see [calibration snapshot](calibration.md).
+  - [x] Profile a synthetic 10,000-episode index and cache only fully validated, immutable
+    index/episode values by exact file digest. Warm indexed search measured 34.77–54.96 ms
+    across 10 samples; see the checked-in benchmark script and report.
+  - [x] Measure grouped source expansion and the shared CLI/slash search presenter against
+    a synthetic 10,000-file session catalog; see [calibration snapshot](calibration.md).
+  - [ ] Dogfood representative live histories and review usefulness, correction rates, and
+    index-size ratio before tuning recall beyond the exact repeated-claim policy.
 - [ ] 4.4 Complete threat/privacy review, update all linked memory docs, and run the full
   repository gates on the exact implementation state.
+  - [x] Exclude inferred sensitive claims and credential-bearing source messages from
+    semantic candidates; explicit sensitive storage uses the separate remember path.
+  - [ ] Complete delete/restore/tombstone review after the source-retention choice and
+    provider-prompt privacy review after handoff authorization.

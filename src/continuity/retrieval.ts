@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { lstatSync } from 'node:fs'
-import { ContinuityEpisodeSchema, type ContinuityEpisode, type TemporalWindow } from './schemas.js'
+import { parseContinuityEpisode, type ContinuityEpisode, type TemporalWindow } from './schemas.js'
 import { canonicalSessionRecords, listAllProjectSessions, readSessionLineRecords } from './session-catalog.js'
 import { stableSessionLineId } from '../harness/sessions.js'
 import type { SessionLineRecord } from '../harness/sessions.js'
@@ -83,7 +83,10 @@ export function searchEpisodes(
   const start = options.window ? Date.parse(options.window.start) : Number.NEGATIVE_INFINITY
   const end = options.window ? Date.parse(options.window.end) : Number.POSITIVE_INFINITY
   const candidates = episodes
-    .map((episode) => ({ episode: ContinuityEpisodeSchema.parse(episode), score: scoreEpisode(episode, queryTerms, query) }))
+    .map((input) => {
+      const episode = parseContinuityEpisode(input)
+      return { episode, score: scoreEpisode(episode, queryTerms, query) }
+    })
     .filter(({ episode, score }) => {
       const time = Date.parse(episode.observedAt)
       return (
@@ -217,7 +220,7 @@ export function loadEpisodeSourceContext(
   maxMessages = 8,
   includeAdjacentTurns = false,
 ): EpisodeSourceContextResult {
-  const episode = ContinuityEpisodeSchema.parse(input)
+  const episode = parseContinuityEpisode(input)
   const source = listAllProjectSessions(sessionsRoot).find(
     (item) => item.projectId === episode.projectId && item.sessionId === episode.sessionId,
   )
@@ -243,7 +246,7 @@ export function loadEpisodeSourceContexts(
   inputs: ContinuityEpisode[],
   maxMessages = 8,
 ): EpisodeSourceContextResult[] {
-  const episodes = inputs.map((episode) => ContinuityEpisodeSchema.parse(episode))
+  const episodes = inputs.map(parseContinuityEpisode)
   const sources = new Map(
     listAllProjectSessions(sessionsRoot).map((source) => [`${source.projectId}\0${source.sessionId}`, source]),
   )
