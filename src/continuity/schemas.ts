@@ -40,6 +40,7 @@ export const TimeZoneSchema = z
 
 export const SpeechActSchema = z.enum([
   'asked',
+  'stated',
   'considered',
   'preferred',
   'decided',
@@ -178,12 +179,91 @@ export const SemanticMemoryLinkSchema = z
     if (memory.scope === 'global' && memory.projectId) {
       ctx.addIssue({ code: 'custom', path: ['projectId'], message: 'Global memory cannot carry a project ID' })
     }
-    if (
-      memory.validFrom &&
-      memory.validUntil &&
-      Date.parse(memory.validUntil) <= Date.parse(memory.validFrom)
-    ) {
+    if (memory.validFrom && memory.validUntil && Date.parse(memory.validUntil) <= Date.parse(memory.validFrom)) {
       ctx.addIssue({ code: 'custom', path: ['validUntil'], message: 'validUntil must be later than validFrom' })
+    }
+  })
+
+export const SemanticMemoryRecordSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    memoryId: z.string().uuid(),
+    description: z.string().trim().min(1).max(256),
+    sourceRefs: z.array(SourceRefSchema).min(1).max(256),
+    supportingEpisodeIds: z.array(IdSchema).max(32),
+    observedAt: UtcInstantSchema,
+    validFrom: UtcInstantSchema.optional(),
+    validUntil: UtcInstantSchema.optional(),
+    scope: z.enum(['global', 'project']),
+    projectId: ProjectIdSchema.optional(),
+    status: z.enum(['candidate', 'active', 'flagged', 'superseded', 'rejected', 'tombstoned']),
+    confidence: z.number().min(0).max(1),
+    speechAct: SpeechActSchema,
+    captureMode: z.enum(['explicit', 'inferred']),
+    supersedes: z.array(z.string().uuid()).max(256),
+    supersededBy: z.string().uuid().optional(),
+    sensitivity: z.enum(['ordinary', 'sensitive']),
+    createdAt: UtcInstantSchema,
+    updatedAt: UtcInstantSchema,
+    reviewedAt: UtcInstantSchema.optional(),
+  })
+  .strict()
+  .superRefine((memory, ctx) => {
+    if (memory.scope === 'project' && !memory.projectId) {
+      ctx.addIssue({ code: 'custom', path: ['projectId'], message: 'Project-scoped memory requires a project ID' })
+    }
+    if (memory.scope === 'global' && memory.projectId) {
+      ctx.addIssue({ code: 'custom', path: ['projectId'], message: 'Global memory cannot carry a project ID' })
+    }
+    if (memory.validFrom && memory.validUntil && Date.parse(memory.validUntil) <= Date.parse(memory.validFrom)) {
+      ctx.addIssue({ code: 'custom', path: ['validUntil'], message: 'validUntil must be later than validFrom' })
+    }
+    if (memory.captureMode === 'inferred') {
+      if (new Set(memory.supportingEpisodeIds).size < 2) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['supportingEpisodeIds'],
+          message: 'Inferred memory requires support from at least two independent episodes',
+        })
+      }
+      if (memory.sourceRefs.length < 2) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['sourceRefs'],
+          message: 'Inferred memory requires at least two source references',
+        })
+      }
+      if (memory.sensitivity === 'sensitive' && memory.status === 'active') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['status'],
+          message: 'Sensitive inferred memories cannot be active',
+        })
+      }
+    }
+    if (new Set(memory.supportingEpisodeIds).size !== memory.supportingEpisodeIds.length) {
+      ctx.addIssue({ code: 'custom', path: ['supportingEpisodeIds'], message: 'Supporting episode IDs must be unique' })
+    }
+    if (memory.supersedes.includes(memory.memoryId)) {
+      ctx.addIssue({ code: 'custom', path: ['supersedes'], message: 'A memory cannot supersede itself' })
+    }
+    if (new Set(memory.supersedes).size !== memory.supersedes.length) {
+      ctx.addIssue({ code: 'custom', path: ['supersedes'], message: 'Superseded memory IDs must be unique' })
+    }
+    if (memory.status === 'superseded' && !memory.supersededBy) {
+      ctx.addIssue({ code: 'custom', path: ['supersededBy'], message: 'Superseded memory requires a replacement ID' })
+    }
+    if (memory.status !== 'superseded' && memory.supersededBy) {
+      ctx.addIssue({ code: 'custom', path: ['supersededBy'], message: 'Only superseded memory can link to a replacement' })
+    }
+    const sourceIds = new Set<string>()
+    for (const source of memory.sourceRefs) {
+      const sourceId = `${source.kind}\0${source.projectId ?? ''}\0${source.sessionId ?? ''}\0${source.recordId}`
+      if (sourceIds.has(sourceId)) {
+        ctx.addIssue({ code: 'custom', path: ['sourceRefs'], message: 'Source references must be unique' })
+        break
+      }
+      sourceIds.add(sourceId)
     }
   })
 
@@ -232,5 +312,6 @@ export type SpeechAct = z.infer<typeof SpeechActSchema>
 export type ContinuityEpisode = z.infer<typeof ContinuityEpisodeSchema>
 export type ContinuityIndex = z.infer<typeof ContinuityIndexSchema>
 export type SemanticMemoryLink = z.infer<typeof SemanticMemoryLinkSchema>
+export type SemanticMemoryRecord = z.infer<typeof SemanticMemoryRecordSchema>
 export type TimeRollup = z.infer<typeof TimeRollupSchema>
 export type TemporalWindow = z.infer<typeof TemporalWindowSchema>

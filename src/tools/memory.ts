@@ -10,12 +10,21 @@ import {
 import { join, resolve, relative, dirname, sep } from 'node:path'
 import { z } from 'zod'
 import type { ToolDefinition } from '../engine/types.js'
+import { MemoryHygieneStore } from '../brain/hygiene.js'
+import { SpeechActSchema } from '../continuity/schemas.js'
 
 const MemoryInput = z.object({
-  op: z.enum(['list', 'read', 'write', 'delete']),
+  op: z.enum(['list', 'read', 'write', 'delete', 'remember', 'review', 'supersede']),
   path: z.string().optional(), // relative to memory dir; required for read/write/delete
   content: z.string().optional(), // required for write
   description: z.string().optional(), // index line annotation for write
+  speechAct: SpeechActSchema.optional(),
+  scope: z.enum(['global', 'project']).optional(),
+  sensitivity: z.enum(['ordinary', 'sensitive']).optional(),
+  validFrom: z.string().optional(),
+  validUntil: z.string().optional(),
+  memoryId: z.string().uuid().optional(),
+  decision: z.enum(['promote', 'reject']).optional(),
 })
 
 function memoryDirOf(brainDir: string): string {
@@ -60,7 +69,7 @@ function walk(dir: string): string[] {
 export const memoryTool: ToolDefinition<z.infer<typeof MemoryInput>> = {
   name: 'Memory',
   description:
-    'List, read, write, or delete Brain memory files (one fact per file). Writes and deletes keep MEMORY.md in sync.',
+    'List, read, write, or delete Brain memory files. For current personal facts, use only semantic records marked active and within their valid dates; treat candidates as unconfirmed and superseded records as historical. Use remember only when the user explicitly asks to retain a fact; questions and hypotheticals are not facts. Use review only after the user accepts or rejects a candidate, and supersede only when the user explicitly corrects an active memory. Source links come from the persisted user message. Writes and deletes keep MEMORY.md in sync.',
   schema: MemoryInput,
   readOnly: false,
   async execute(input, ctx) {
@@ -69,10 +78,95 @@ export const memoryTool: ToolDefinition<z.infer<typeof MemoryInput>> = {
       const files = walk(memDir).map((f) => relative(memDir, f).replaceAll('\\', '/'))
       return { output: files.length ? files.join('\n') : '(memory is empty)', isError: false }
     }
+    if (input.op === 'remember') {
+      if (!input.content?.trim()) return { output: 'remember requires content', isError: true }
+      if (!input.speechAct) return { output: 'remember requires a speechAct classification', isError: true }
+      const sourceRef = ctx.getCurrentUserSourceRef?.()
+      if (!sourceRef) {
+        return {
+          output: 'Cannot remember this fact without a persisted user message; use an active persisted conversation.',
+          isError: true,
+        }
+      }
+      const scope = input.scope ?? 'global'
+      if (scope === 'project' && !sourceRef.projectId) {
+        return { output: 'Project-scoped memory requires a known persisted project source.', isError: true }
+      }
+      try {
+        const memory = new MemoryHygieneStore(memDir).create({
+          description: (input.description ?? input.content.split('\n')[0] ?? 'Remembered fact').slice(0, 256),
+          content: input.content,
+          sourceRefs: [sourceRef],
+          observedAt: sourceRef.timestamp,
+          ...(input.validFrom ? { validFrom: input.validFrom } : {}),
+          ...(input.validUntil ? { validUntil: input.validUntil } : {}),
+          scope,
+          ...(scope === 'project' && sourceRef.projectId ? { projectId: sourceRef.projectId } : {}),
+          speechAct: input.speechAct,
+          captureMode: 'explicit',
+          confidence: 1,
+          sensitivity: input.sensitivity ?? 'ordinary',
+        })
+        return {
+          output: `Active semantic memory saved: ${memory.memoryId} (linked to the current persisted user message).`,
+          isError: false,
+        }
+      } catch (error) {
+        return { output: `Could not save semantic memory: ${(error as Error).message}`, isError: true }
+      }
+    }
+    if (input.op === 'review') {
+      if (!input.memoryId || !input.decision) return { output: 'review requires memoryId and decision', isError: true }
+      try {
+        const store = new MemoryHygieneStore(memDir)
+        const memory = input.decision === 'promote' ? store.promote(input.memoryId) : store.reject(input.memoryId)
+        return { output: `Semantic memory ${memory.memoryId} reviewed: ${memory.status}.`, isError: false }
+      } catch (error) {
+        return { output: `Could not review semantic memory: ${(error as Error).message}`, isError: true }
+      }
+    }
+    if (input.op === 'supersede') {
+      if (!input.memoryId || !input.content?.trim()) {
+        return { output: 'supersede requires an active memoryId and replacement content', isError: true }
+      }
+      const sourceRef = ctx.getCurrentUserSourceRef?.()
+      if (!sourceRef) {
+        return {
+          output: 'Cannot correct memory without a persisted user message; use an active persisted conversation.',
+          isError: true,
+        }
+      }
+      try {
+        const store = new MemoryHygieneStore(memDir)
+        const previous = store.get(input.memoryId)
+        if (!previous || previous.status !== 'active') {
+          return { output: `No active semantic memory ${input.memoryId} to correct.`, isError: true }
+        }
+        const replacement = store.supersede(input.memoryId, {
+          description: (input.description ?? input.content.split('\n')[0] ?? previous.description).slice(0, 256),
+          content: input.content,
+          sourceRefs: [sourceRef],
+          observedAt: sourceRef.timestamp,
+          scope: previous.scope,
+          ...(previous.projectId ? { projectId: previous.projectId } : {}),
+          speechAct: 'corrected',
+          captureMode: 'explicit',
+          confidence: 1,
+          sensitivity: previous.sensitivity,
+        })
+        return {
+          output: `Semantic memory corrected; replacement ${replacement.memoryId} supersedes ${input.memoryId}.`,
+          isError: false,
+        }
+      } catch (error) {
+        return { output: `Could not correct semantic memory: ${(error as Error).message}`, isError: true }
+      }
+    }
     if (!input.path) return { output: `op ${input.op} requires path`, isError: true }
     const abs = safeResolve(memDir, input.path)
     if (!abs) return { output: `Path escapes memory dir: ${input.path}`, isError: true }
     const rel = relative(memDir, abs)
+    const relPosix = rel.replaceAll('\\', '/')
     // MEMORY.md is the index this tool maintains; direct writes/deletes would corrupt it.
     const isIndex = rel.replaceAll('\\', '/').toLowerCase() === 'memory.md'
     if (isIndex && (input.op === 'write' || input.op === 'delete')) {
@@ -81,9 +175,29 @@ export const memoryTool: ToolDefinition<z.infer<typeof MemoryInput>> = {
         isError: true,
       }
     }
+    if (relPosix.toLowerCase().startsWith('semantic/') && (input.op === 'write' || input.op === 'delete')) {
+      return {
+        output: 'Managed semantic memories cannot be edited or deleted as free text; use their lifecycle actions.',
+        isError: true,
+      }
+    }
     switch (input.op) {
       case 'read': {
         if (!existsSync(abs)) return { output: `No memory at ${rel}`, isError: true }
+        if (relPosix.toLowerCase().startsWith('semantic/')) {
+          const memoryId = relPosix.split('/').at(-1)!.replace(/\.md$/i, '')
+          const memory = new MemoryHygieneStore(memDir).get(memoryId)
+          if (!memory || memory.file.toLowerCase() !== abs.toLowerCase()) {
+            return { output: `No managed semantic memory at ${rel}`, isError: true }
+          }
+          return {
+            output:
+              `Status: ${memory.status}; scope: ${memory.scope}; speech act: ${memory.speechAct}; ` +
+              `observed: ${memory.observedAt}; valid: ${memory.validFrom ?? 'unbounded'} to ${memory.validUntil ?? 'unbounded'}; ` +
+              `confidence: ${memory.confidence}; sensitivity: ${memory.sensitivity}\n\n${memory.content}`,
+            isError: false,
+          }
+        }
         return { output: readFileSync(abs, 'utf8'), isError: false }
       }
       case 'write': {

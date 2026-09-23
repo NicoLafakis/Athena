@@ -31,6 +31,10 @@
   records. Source text is shown only after every linked line verifies.
 - CLI/slash/controller tests cover local status, rebuild, timeline, search, show, and
   indexing after persisted turns. A non-persisted session does not create an index entry.
+- Semantic-memory tests cover strict metadata validation, explicit persisted-message
+  source resolution, candidate support thresholds, sensitive-inference promotion guards,
+  review, correction/supersession links, body preservation, and isolation from the
+  prompt-injected memory index.
 - No answer-time provider handoff is implemented. Requirements that depend on retrieved
   history entering a model prompt remain future integration tests and are not claimed as
   covered by these local retrieval tests.

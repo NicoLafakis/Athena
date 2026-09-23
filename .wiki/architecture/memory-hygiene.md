@@ -1,17 +1,44 @@
 # Memory hygiene / anti-rot
 
 This page specifies how Athena keeps her own stored knowledge accurate: the free-text
-brain-memory files under `~/.athena/memory/` (and per-project `.athena/memory/`) that are
-written via the `Memory` tool and injected into every session's context through
-`loadMemoryIndex` (`src/brain/loader.ts:70`). It is a **design spec, not yet
-implemented** — no code referenced below exists today except where noted as existing.
+brain-memory files under `~/.athena/memory/` written via the `Memory` tool, plus
+source-linked semantic records stored in the same memory tree. The legacy free-text
+`MEMORY.md` index and `LEARNED.md` view are injected into sessions through
+`loadMemoryIndex` (`src/brain/loader.ts:70`); the new semantic records are deliberately
+not indexed there or injected into provider prompts yet.
 
 The broader cross-project conversation timeline and layered working/episodic/semantic
 memory are specified separately in
-[Conversational Continuity](../features/conversational-continuity/00-overview.md). This
-page remains the narrower hygiene lifecycle for durable memory files; continuity
-implementation must extend this lifecycle for source links and validity rather than add a
-competing durable-fact store.
+[Conversational Continuity](../features/conversational-continuity/00-overview.md). The
+semantic-memory implementation extends this tree under `memory/semantic/`; it does not
+create a second root or a full-transcript archive.
+
+## Implemented semantic-memory foundation
+
+`src/continuity/schemas.ts` defines the strict versioned `SemanticMemoryRecordSchema`.
+`src/brain/hygiene.ts` implements `MemoryHygieneStore` over
+`~/.athena/memory/semantic/<memory-id>.md`, using validated JSON frontmatter and an
+unchanged statement body capped at 2,000 characters. It supports explicit active records,
+inferred candidates that need two distinct episode IDs and at least two source references,
+candidate promotion/rejection, explicit correction links, supersession, and tombstoning.
+Sensitive inferred records cannot be promoted. Rejected, superseded, and tombstoned
+records cannot be reactivated by this store. Active retrieval excludes records outside
+their valid-time interval.
+
+The `Memory` tool exposes `remember`, `review`, and `supersede`. `remember` is reserved
+for an explicit user request. Source IDs and timestamps are resolved by the harness from
+the latest persisted human message; unpersisted sessions and damaged trailing session
+records cannot create a source-linked memory. A correction is linked to the correction
+message, and the old statement and its source remain unchanged. Generic free-text writes
+and deletes cannot modify files under `memory/semantic/`.
+
+Managed records are not added to `MEMORY.md`, and `loadMemoryIndex` does not load them.
+They are locally inspectable through the `Memory` tool, but automatic answer-time use is
+still gated on the separately documented provider handoff. Candidate generation from
+episode retrieval, a human-facing candidate review surface, source-session forget/delete
+integration, and citation-verification hooks remain unfinished. The user has not yet
+selected the source-retention behavior for a forget action, so no semantic forget command
+is exposed.
 
 The [self-reflection journal](self-reflection-journal.md) remains operational evidence.
 Continuity may consume it when implemented, but it is neither a transcript archive nor a
@@ -66,13 +93,17 @@ produces that state; no new code is needed there.
 
 ## What is stored, and in what shape
 
-Every memory fact is one file under `<memoryDir>/*.md` (nested paths allowed, per
-`walk()` in `src/tools/memory.ts:49`). Today the body is unstructured prose with an
-optional first line used as the index description. This spec adds **optional
+Each legacy free-text fact is one file under `<memoryDir>/*.md` (nested paths allowed,
+per `walk()` in `src/tools/memory.ts`). Its body is unstructured prose with an optional
+first line used as the index description. This citation-hygiene design adds **optional
 frontmatter**, parsed with the same `parseFrontmatter()` already used for
 skills/agents/commands (`src/brain/loader.ts:55`). A file with no frontmatter is legacy:
 treated as `status: active` with no citations, never blocked from retrieval, just
 unchecked until first touched.
+
+This format describes the planned citation state for legacy prose files. Continuity
+semantic records use a validated `athena-semantic-record` JSON frontmatter field and are
+kept in `memory/semantic/`; they do not enter the legacy `MEMORY.md` index.
 
 ```
 ---
@@ -122,8 +153,9 @@ Field notes:
 - Continuity `candidate` and `rejected` memories are omitted from `MEMORY.md`: candidates
   appear only in explicit review, while rejected memories remain in the audit store and
   are not retrieved. See the [continuity lifecycle](../features/conversational-continuity/design.md).
-- No physical deletion is ever performed by this system. The existing `Memory` tool
-  `delete` op remains the only deletion path, human-invoked, unchanged.
+- Citation-state mutations never physically delete legacy memory files. The semantic
+  store also preserves tombstoned bodies; generic `Memory delete` is blocked for managed
+  semantic paths. The separate source-session forget/delete behavior remains pending.
 
 `MEMORY.md`'s per-entry index line gains a status marker so retrieval-time scanning is
 cheap without opening files:
@@ -137,10 +169,14 @@ cheap without opening files:
 `updateIndex()` (`src/tools/memory.ts:33`) is extended to render this marker by reading
 each file's frontmatter status. That is the only change needed to `MEMORY.md` generation.
 
-## New component: `src/brain/hygiene.ts`
+## Planned free-text citation hygiene extension
 
-A single module mirroring the shape of `src/learning/memory.ts` but operating on
-frontmatter'd `.md` files instead of `MemoryClaim` JSONL:
+The current `src/brain/hygiene.ts` implements the semantic-memory foundation described
+above. The following citation-checking functions and hooks remain planned work; they are
+not present in the current module.
+
+The planned citation extension would add the following to the existing
+`src/brain/hygiene.ts`, alongside its current semantic-memory store:
 
 - `extractCitations(body)` — the citation-verification algorithm below.
 - `verifyCitations(paths, scope, touchedFiles?)` — mechanical, no LLM call.
@@ -251,9 +287,12 @@ Index ordering (new; today's list is unordered walk order): `active` alphabetica
 `flagged` most-recently-flagged first, then `superseded` grouped near their superseder,
 then `tombstoned` at the bottom or omitted per the N-day rule.
 
-## New `Memory` tool ops
+## Planned free-text citation hygiene tool ops
 
-`MemoryInput` gains four ops alongside `list|read|write|delete`, each a thin frontmatter
+These operations apply to citation flags on legacy free-text memory files. They are
+separate from the currently implemented semantic `remember`/`review`/`supersede` actions.
+
+`MemoryInput` could gain four ops alongside `list|read|write|delete`, each a thin frontmatter
 patch that never touches the body:
 
 - `flag` — `{ op: 'flag', path, description }` (description becomes `flagReason`)

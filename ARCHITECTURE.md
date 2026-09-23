@@ -65,8 +65,9 @@ and local slash-command handler.
   checks, and opt-in watcher primitives.
 - `src/tools/` — built-in tool definitions and the registry used by the main engine and
   delegated agents.
-- `src/brain/` — paths, settings, credentials and vaults, models, plugins, and local brain
-  loading. Accessibility preferences and the optional IANA `timeZone` setting are
+- `src/brain/` — paths, settings, credentials and vaults, models, plugins, local brain
+  loading, and `MemoryHygieneStore` for source-linked semantic records under the existing
+  memory tree. Accessibility preferences and the optional IANA `timeZone` setting are
   global/user-controlled and are not overridden by project settings. The continuity path
   is under `~/.athena/continuity/`.
 - `src/continuity/` — versioned source schemas, safe all-project session discovery,

@@ -247,6 +247,13 @@ turns update their own session entries. The equivalent `/memory status`, `/memor
 presentations; show includes bounded same-session turns around an episode with their source
 line IDs. Automatic recall inside provider prompts is pending explicit authorization.
 
+The `Memory` tool can also save an explicitly requested durable fact as a semantic-memory
+record tied to the current persisted user message. A clear user correction can supersede
+that record while preserving the earlier statement and its source link. Candidate review
+is available through the same tool; candidate generation, a direct review screen, and
+forget/source-deletion controls are still under implementation. Semantic records are not
+added to the prompt-injected `MEMORY.md` index.
+
 Independent of every mode above, a write fence covers operating-system directories
 (`%SystemRoot%`, the Program Files trees, `%ProgramData%`, and the boot/recovery
 roots; `/boot`, `/proc`, `/sys`, `/System` on POSIX). It refuses writes only —

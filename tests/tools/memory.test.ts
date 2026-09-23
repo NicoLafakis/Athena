@@ -1,9 +1,19 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { memoryTool } from '../../src/tools/memory.js'
+import { MemoryHygieneStore } from '../../src/brain/hygiene.js'
 import { makeCtx } from '../helpers/tool-ctx.js'
+
+const sourceRef = {
+  kind: 'session-message' as const,
+  projectId: 'project-one',
+  sessionId: 'session-one',
+  recordId: 'line-one',
+  timestamp: '2026-09-23T15:00:00.000Z',
+  timeZone: 'America/New_York',
+}
 
 let dir: string
 beforeEach(() => {
@@ -100,5 +110,121 @@ describe('memoryTool', () => {
     const res = await memoryTool.execute({ op: 'list' }, ctx)
     expect(res.isError).toBe(false)
     expect(res.output).toBe('(memory is empty)')
+  })
+
+  it('requires a persisted current-user source before remembering a semantic fact', async () => {
+    const ctx = makeCtx(dir)
+    const res = await memoryTool.execute(
+      { op: 'remember', content: 'I prefer linked episodes.', speechAct: 'preferred' },
+      ctx,
+    )
+    expect(res.isError).toBe(true)
+    expect(res.output).toMatch(/persisted user message/i)
+    expect(existsSync(join(dir, 'memory', 'semantic'))).toBe(false)
+  })
+
+  it('stores explicit memories with server-authored source references outside the injected index', async () => {
+    const ctx = makeCtx(dir, { getCurrentUserSourceRef: () => sourceRef })
+    const res = await memoryTool.execute(
+      {
+        op: 'remember',
+        description: 'Continuity preference',
+        content: 'I prefer linked episodes across projects.',
+        speechAct: 'preferred',
+        scope: 'global',
+        sensitivity: 'ordinary',
+      },
+      ctx,
+    )
+
+    expect(res.isError).toBe(false)
+    expect(res.output).toMatch(/active semantic memory/i)
+    const files = await memoryTool.execute({ op: 'list' }, ctx)
+    expect(files.output).toContain('semantic/')
+    expect(existsSync(indexFile())).toBe(false)
+    const semanticDir = join(dir, 'memory', 'semantic')
+    const file = readdirSync(semanticDir).find((name) => name.endsWith('.md'))!
+    const saved = readFileSync(join(semanticDir, file), 'utf8')
+    expect(saved).toContain('I prefer linked episodes across projects.')
+    expect(saved).toContain('"recordId":"line-one"')
+  })
+
+  it('prevents generic memory writes and deletes from bypassing semantic lifecycle metadata', async () => {
+    const ctx = makeCtx(dir, { getCurrentUserSourceRef: () => sourceRef })
+    const remembered = await memoryTool.execute(
+      { op: 'remember', content: 'I prefer citations.', speechAct: 'preferred' },
+      ctx,
+    )
+    expect(remembered.isError).toBe(false)
+    const listed = await memoryTool.execute({ op: 'list' }, ctx)
+    const path = listed.output.split('\n').find((line) => line.startsWith('semantic/'))!
+    const write = await memoryTool.execute({ op: 'write', path, content: 'untracked replacement' }, ctx)
+    const remove = await memoryTool.execute({ op: 'delete', path }, ctx)
+    expect(write.isError).toBe(true)
+    expect(remove.isError).toBe(true)
+  })
+
+  it('renders managed semantic memory without exposing its internal source identifiers', async () => {
+    const ctx = makeCtx(dir, { getCurrentUserSourceRef: () => sourceRef })
+    const created = new MemoryHygieneStore(join(dir, 'memory')).create({
+      description: 'A remembered preference',
+      content: 'I prefer linked episodes.',
+      sourceRefs: [sourceRef],
+      speechAct: 'preferred',
+      captureMode: 'explicit',
+      confidence: 1,
+      sensitivity: 'ordinary',
+    })
+    const res = await memoryTool.execute({ op: 'read', path: `semantic/${created.memoryId}.md` }, ctx)
+    expect(res.isError).toBe(false)
+    expect(res.output).toContain('I prefer linked episodes.')
+    expect(res.output).not.toContain('line-one')
+  })
+
+  it('reviews only source-backed inferred candidates', async () => {
+    const ctx = makeCtx(dir)
+    const store = new MemoryHygieneStore(join(dir, 'memory'))
+    const candidate = store.create({
+      description: 'Repeated preference',
+      content: 'The user repeatedly prefers linked episodes.',
+      sourceRefs: [
+        sourceRef,
+        { ...sourceRef, sessionId: 'session-two', recordId: 'line-two', timestamp: '2026-09-21T13:00:00.000Z' },
+      ],
+      supportingEpisodeIds: ['episode-one', 'episode-two'],
+      speechAct: 'preferred',
+      captureMode: 'inferred',
+      confidence: 0.7,
+      sensitivity: 'ordinary',
+    })
+
+    const res = await memoryTool.execute({ op: 'review', memoryId: candidate.memoryId, decision: 'promote' }, ctx)
+    expect(res.isError).toBe(false)
+    expect(store.get(candidate.memoryId)?.status).toBe('active')
+    expect(store.get(candidate.memoryId)?.content).toBe(candidate.content)
+  })
+
+  it('supersedes an active semantic memory with the current correction source', async () => {
+    const ctx = makeCtx(dir, { getCurrentUserSourceRef: () => sourceRef })
+    const store = new MemoryHygieneStore(join(dir, 'memory'))
+    const prior = store.create({
+      description: 'Theme preference',
+      content: 'The user prefers dark mode.',
+      sourceRefs: [{ ...sourceRef, recordId: 'old-line' }],
+      speechAct: 'preferred',
+      captureMode: 'explicit',
+      confidence: 1,
+      sensitivity: 'ordinary',
+    })
+
+    const res = await memoryTool.execute(
+      { op: 'supersede', memoryId: prior.memoryId, content: 'The user now prefers light mode.' },
+      ctx,
+    )
+    const updated = store.get(prior.memoryId)!
+    expect(res.isError).toBe(false)
+    expect(updated.status).toBe('superseded')
+    expect(updated.content).toBe('The user prefers dark mode.')
+    expect(store.get(updated.supersededBy!)?.sourceRefs).toEqual([sourceRef])
   })
 })

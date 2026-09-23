@@ -22,7 +22,7 @@ and source history vs. active semantic memories.
 | Secret propagation | Credential appears in a memory summary or search result | Existing redaction plus summary-specific redaction tests; never copy full transcripts |
 | Stale memory | Old decision is stated as current | Observed/valid time, supersession, freshness ranking, current source precedence |
 | Index poisoning | Model supplies a forged source path or ID | Server-authored identifiers; strict schema; resolve only under known local roots |
-| Forgotten data resurrection | Rebuild recreates a deleted memory from source history | Durable tombstones/suppression records participate in every rebuild |
+| Forgotten data resurrection | Rebuild recreates a deleted memory from source history | Required mitigation is source-aware tombstones in every rebuild; integration is not implemented yet |
 | Search side-channel | Query diagnostics leak private topic/content | Log counts, durations, index version, source IDs only; never query or result text |
 | Corrupt/hostile records | Malformed JSON or control characters enter context | Zod validation, bounds, safe text formatting, per-record isolation, atomic writes |
 | Unauthorized project setting | Project asks to add all history or sync it externally | Global user policy only; no network retrieval or project-controlled retention changes |
@@ -36,12 +36,14 @@ and source history vs. active semantic memories.
   transcript. Source text is reloaded from the local session and digest-checked before it
   is shown. At this implementation checkpoint, even verified source text is not sent to
   the configured model provider.
-- Every semantic fact and rollup points to source episode(s); no unlinked personal claim
-  is eligible for durable retrieval.
+- Every semantic fact links to a persisted source message or event and may also identify
+  supporting episodes; rollups link to source episodes. No unlinked personal claim is
+  eligible for durable retrieval.
 - No inferred sensitive trait is promoted. Sensitive material stays source-only unless
   the user explicitly asks Athena to remember it and policy permits it.
-- Forgetting applies to derived records and future rebuilds; source session trash/restore
-  remains governed by the existing explicit session commands.
+- Forgetting and source-session trash/restore integration are not implemented yet. Their
+  eventual behavior must follow the user's source-retention choice and prevent rebuild
+  resurrection.
 - Retrieval returns no more content than the query needs.
 
 ## Review gates

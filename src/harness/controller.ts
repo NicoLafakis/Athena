@@ -21,7 +21,12 @@ import { ProtectedPaths } from './protected-paths.js'
 import { ResourcePolicy } from './resource-policy.js'
 import { HookRunner } from './hooks.js'
 import { McpManager } from './mcp.js'
-import { Session, SessionStore } from './sessions.js'
+import {
+  latestUserMessageSourceRef,
+  sessionLastLineNumber,
+  Session,
+  SessionStore,
+} from './sessions.js'
 import { RunTraceWriter } from './traces.js'
 import { AgentOrchestrator } from './agents.js'
 import { projectId } from './trust.js'
@@ -438,6 +443,7 @@ export class HarnessSessionController {
       modelWindowTokens: activeCapabilities.contextWindowTokens,
     })
 
+    let currentUserTurn: { prompt: string; afterLineNumber: number } | null = null
     const toolContext: ToolContext = {
       cwd,
       brainDir: paths.brainDir,
@@ -450,6 +456,17 @@ export class HarnessSessionController {
       resolvePath: (path, access) => resourcePolicy.resolvePath(path, access),
       sandboxMode,
       runId: trace.runId,
+      ...(journal
+        ? {
+            setCurrentUserTurnPrompt: (prompt) => {
+              currentUserTurn = { prompt, afterLineNumber: sessionLastLineNumber(session.file) }
+            },
+            getCurrentUserSourceRef: () =>
+              currentUserTurn
+                ? latestUserMessageSourceRef(session.file, store.projectId, session.id, currentUserTurn)
+                : null,
+          }
+        : {}),
     }
 
     const engine = new Engine({

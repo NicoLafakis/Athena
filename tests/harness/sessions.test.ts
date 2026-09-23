@@ -3,7 +3,15 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFil
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
-import { parseSessionLineRecords, Session, SessionStore, projectSlug } from '../../src/harness/sessions.js'
+import {
+  latestUserMessageSourceRef,
+  parseSessionLineRecords,
+  readSessionLineRecords,
+  sessionLastLineNumber,
+  Session,
+  SessionStore,
+  projectSlug,
+} from '../../src/harness/sessions.js'
 
 let sessionsRoot: string
 beforeEach(() => {
@@ -95,6 +103,58 @@ describe('Session', () => {
     ])
     // All four lines are still on disk — events are journaled, not dropped.
     expect(readFileSync(session.file, 'utf8').trim().split('\n')).toHaveLength(4)
+  })
+
+  it('resolves only the latest persisted human prompt and ignores tool-result user messages', () => {
+    const store = new SessionStore(sessionsRoot, 'C:/projects/source-ref')
+    const session = store.create()
+    session.appendMessage({ role: 'user', content: 'earlier prompt' })
+    session.appendMessage({ role: 'assistant', content: [{ type: 'text', text: 'answer', citations: null }] })
+    session.appendMessage({ role: 'user', content: 'remember my preference' })
+    session.appendMessage({
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: 'tool-1', content: 'stored', is_error: false }],
+    })
+
+    const source = latestUserMessageSourceRef(session.file, store.projectId, session.id)
+    const messages = readSessionLineRecords(session.file).filter((record) => record.line.kind === 'message')
+    expect(source).toMatchObject({
+      kind: 'session-message',
+      projectId: store.projectId,
+      sessionId: session.id,
+      recordId: messages[2]!.line.id,
+    })
+    expect(source?.timestamp).toBe(messages[2]!.line.ts)
+  })
+
+  it('does not assign a source link when a malformed line follows the latest prompt', () => {
+    const store = new SessionStore(sessionsRoot, 'C:/projects/bad-source-ref')
+    const session = store.create()
+    session.appendMessage({ role: 'user', content: 'remember this' })
+    appendFileSync(session.file, '{malformed\n', 'utf8')
+    expect(latestUserMessageSourceRef(session.file, store.projectId, session.id)).toBeNull()
+  })
+
+  it('does not reuse an older identical prompt when the current write has not persisted', () => {
+    const store = new SessionStore(sessionsRoot, 'C:/projects/repeated-prompt')
+    const session = store.create()
+    session.appendMessage({ role: 'user', content: 'remember this preference' })
+    const turnStartLine = sessionLastLineNumber(session.file)
+    expect(
+      latestUserMessageSourceRef(session.file, store.projectId, session.id, {
+        expectedContent: 'remember this preference',
+        afterLineNumber: turnStartLine,
+      }),
+    ).toBeNull()
+
+    session.appendMessage({ role: 'user', content: 'remember this preference' })
+    const current = readSessionLineRecords(session.file).at(-1)!
+    expect(
+      latestUserMessageSourceRef(session.file, store.projectId, session.id, {
+        expectedContent: 'remember this preference',
+        afterLineNumber: turnStartLine,
+      })?.recordId,
+    ).toBe(current.line.id)
   })
 
   it('rewrite appends an immutable checkpoint and reconstructs from it', () => {

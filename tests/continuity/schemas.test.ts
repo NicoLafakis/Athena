@@ -3,6 +3,7 @@ import {
   ContinuityEpisodeSchema,
   ContinuityIndexSchema,
   SemanticMemoryLinkSchema,
+  SemanticMemoryRecordSchema,
   SpeechActSchema,
   SourceRefSchema,
   TemporalWindowSchema,
@@ -29,7 +30,7 @@ describe('continuity schemas', () => {
   })
 
   it('keeps speech-act categories distinct and closed', () => {
-    const acts = ['asked', 'considered', 'preferred', 'decided', 'promised', 'corrected', 'retracted']
+    const acts = ['asked', 'stated', 'considered', 'preferred', 'decided', 'promised', 'corrected', 'retracted']
     for (const act of acts) expect(SpeechActSchema.parse(act)).toBe(act)
     expect(SpeechActSchema.safeParse('asserted').success).toBe(false)
   })
@@ -141,6 +142,75 @@ describe('continuity schemas', () => {
     expect(SemanticMemoryLinkSchema.safeParse({ ...memory, confidence: 1.1 }).success).toBe(false)
     expect(SemanticMemoryLinkSchema.safeParse({ ...memory, validUntil: '2026-08-01T00:00:00.000Z' }).success).toBe(false)
     expect(SemanticMemoryLinkSchema.safeParse({ ...memory, sourceRefs: [] }).success).toBe(false)
+  })
+
+  it('validates durable semantic memory records and requires independent support for inferences', () => {
+    const secondSourceRef = { ...sourceRef, recordId: 'line-2', timestamp: '2026-09-21T13:00:00.000Z' }
+    const memory = {
+      schemaVersion: 1,
+      memoryId: 'a5f06819-fac0-4d47-a12b-b53f23833e14',
+      description: 'Cross-project memory preference',
+      sourceRefs: [sourceRef, secondSourceRef],
+      supportingEpisodeIds: [],
+      observedAt: stamp,
+      scope: 'global',
+      status: 'active',
+      confidence: 1,
+      speechAct: 'preferred',
+      captureMode: 'explicit',
+      supersedes: [],
+      sensitivity: 'ordinary',
+      createdAt: stamp,
+      updatedAt: stamp,
+    }
+    expect(SemanticMemoryRecordSchema.parse(memory)).toEqual(memory)
+    expect(SemanticMemoryRecordSchema.safeParse({ ...memory, scope: 'project' }).success).toBe(false)
+    expect(SemanticMemoryRecordSchema.safeParse({ ...memory, validFrom: stamp, validUntil: stamp }).success).toBe(false)
+    expect(
+      SemanticMemoryRecordSchema.safeParse({
+        ...memory,
+        captureMode: 'inferred',
+        supportingEpisodeIds: ['episode-one'],
+      }).success,
+    ).toBe(false)
+    expect(
+      SemanticMemoryRecordSchema.safeParse({
+        ...memory,
+        captureMode: 'inferred',
+        supportingEpisodeIds: ['episode-one', 'episode-one'],
+      }).success,
+    ).toBe(false)
+    expect(
+      SemanticMemoryRecordSchema.safeParse({
+        ...memory,
+        captureMode: 'inferred',
+        supportingEpisodeIds: ['episode-one', 'episode-two'],
+      }).success,
+    ).toBe(true)
+    expect(
+      SemanticMemoryRecordSchema.safeParse({
+        ...memory,
+        sourceRefs: [sourceRef],
+        captureMode: 'inferred',
+        supportingEpisodeIds: ['episode-one', 'episode-two'],
+      }).success,
+    ).toBe(false)
+    expect(
+      SemanticMemoryRecordSchema.safeParse({
+        ...memory,
+        captureMode: 'inferred',
+        supportingEpisodeIds: ['episode-one', 'episode-two'],
+        sensitivity: 'sensitive',
+        status: 'active',
+        reviewedAt: stamp,
+      }).success,
+    ).toBe(false)
+    expect(
+      SemanticMemoryRecordSchema.safeParse({ ...memory, supersedes: [memory.memoryId] }).success,
+    ).toBe(false)
+    expect(
+      SemanticMemoryRecordSchema.safeParse({ ...memory, status: 'superseded' }).success,
+    ).toBe(false)
   })
 
   it('validates rollup calendar bounds, timezone, digest, and unique coverage', () => {

@@ -15,6 +15,7 @@ import { basename, join } from 'node:path'
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
 import { canonicalProjectPath } from './trust.js'
 import { redactSessionValue } from './redaction.js'
+import { SourceRefSchema, type SourceRef } from '../continuity/schemas.js'
 
 export { redactSessionValue } from './redaction.js'
 
@@ -123,6 +124,49 @@ export function readSessionLineRecordsDetailed(file: string): SessionLineReadRes
 
 export function readSessionLineRecords(file: string): SessionLineRecord[] {
   return readSessionLineRecordsDetailed(file).records
+}
+
+export function sessionLastLineNumber(file: string): number {
+  if (!existsSync(file)) return 0
+  const result = readSessionLineRecordsDetailed(file)
+  return Math.max(0, ...result.records.map((record) => record.lineNumber), ...result.malformedLineNumbers)
+}
+
+/** Resolve the latest human-authored text prompt to its persisted, stable source identity. */
+export function latestUserMessageSourceRef(
+  file: string,
+  projectId: string,
+  sessionId: string,
+  options: { expectedContent?: string; afterLineNumber?: number } = {},
+): SourceRef | null {
+  if (!existsSync(file)) return null
+  try {
+    const result = readSessionLineRecordsDetailed(file)
+    const record = result.records
+      .filter((item) => {
+        if (item.line.kind !== 'message' || typeof item.line.data !== 'object' || item.line.data === null) return false
+        const message = item.line.data as Record<string, unknown>
+        return (
+          message.role === 'user' &&
+          typeof message.content === 'string' &&
+          message.content.trim().length > 0 &&
+          (options.expectedContent === undefined || message.content === options.expectedContent) &&
+          (options.afterLineNumber === undefined || item.lineNumber > options.afterLineNumber)
+        )
+      })
+      .at(-1)
+    if (!record || result.malformedLineNumbers.some((lineNumber) => lineNumber > record.lineNumber)) return null
+    return SourceRefSchema.parse({
+      kind: 'session-message',
+      projectId,
+      sessionId,
+      recordId: stableSessionLineId(record),
+      timestamp: record.line.ts,
+      ...(record.line.timeZone ? { timeZone: record.line.timeZone } : {}),
+    })
+  } catch {
+    return null
+  }
 }
 
 function parseFile(file: string): SessionLine[] {

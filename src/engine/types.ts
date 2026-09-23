@@ -1,6 +1,7 @@
 // src/engine/types.ts
 import type { z } from 'zod'
 import type { ProviderId } from '../brain/models.js'
+import type { SourceRef } from '../continuity/schemas.js'
 
 export interface TokenUsage {
   inputTokens: number
@@ -156,6 +157,10 @@ export interface ToolContext {
   runId?: string
   toolCallId?: string
   toolName?: string
+  /** Persisted source link for the current human prompt, if available. */
+  getCurrentUserSourceRef?: () => SourceRef | null
+  /** Mark the start of a turn so an older identical prompt cannot be reused as a source. */
+  setCurrentUserTurnPrompt?: (prompt: string) => void
 }
 
 export interface ToolDefinition<I = unknown> {

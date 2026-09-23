@@ -192,6 +192,7 @@ export class Engine {
     const text = promptHook.addedContext
       ? `${userText}\n\n<hook-context>\n${promptHook.addedContext}\n</hook-context>`
       : userText
+    this.opts.toolContext.setCurrentUserTurnPrompt?.(text)
     this.push({ role: 'user', content: text })
     let terminal: RunResult | null = null
 

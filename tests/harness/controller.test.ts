@@ -6,6 +6,8 @@ import { HarnessSessionController } from '../../src/harness/controller.js'
 import { MockAnthropicClient, textBlock, toolUseBlock } from '../helpers/mock-client.js'
 import type { Settings } from '../../src/brain/settings.js'
 import type { BrainPaths } from '../../src/brain/paths.js'
+import { MemoryHygieneStore } from '../../src/brain/hygiene.js'
+import { readSessionLineRecords } from '../../src/harness/sessions.js'
 
 import { resolveBrainPaths } from '../../src/brain/paths.js'
 
@@ -117,6 +119,52 @@ describe('HarnessSessionController', () => {
 
     await controller.submitTurn('Do not store this conversation.')
     expect(controller.continuityStore.status().state).toBe('missing')
+    await controller.close()
+  })
+
+  it('links explicit semantic memory to the persisted user prompt through the real harness tool path', async () => {
+    const client = new MockAnthropicClient([
+      {
+        blocks: [
+          toolUseBlock('remember-1', 'Memory', {
+            op: 'remember',
+            description: 'Continuity preference',
+            content: 'I prefer linked episodes across projects.',
+            speechAct: 'preferred',
+            scope: 'global',
+            sensitivity: 'ordinary',
+          }),
+        ],
+        stopReason: 'tool_use',
+      },
+      { blocks: [textBlock('I will remember that preference.')], stopReason: 'end_turn' },
+    ])
+    const controller = await HarnessSessionController.create({
+      paths,
+      effectivePaths: paths,
+      cwd: root,
+      provider: 'anthropic',
+      client,
+      settings: defaultSettings,
+      projectTrust: { trusted: true, allowProjectHooks: true, allowProjectMcp: true },
+      persistSession: true,
+      askUser: async () => 'allow-once',
+    })
+
+    const result = await controller.submitTurn('Please remember that I prefer linked episodes across projects.')
+    const memory = new MemoryHygieneStore(paths.memoryDir).listActive()[0]
+    const sourceMessage = readSessionLineRecords(controller.session.file).find(
+      (record) => record.line.id === memory?.sourceRefs[0]?.recordId,
+    )
+
+    expect(result.status).toBe('completed')
+    expect(memory?.content).toBe('I prefer linked episodes across projects.')
+    expect(memory?.sourceRefs[0]).toMatchObject({
+      kind: 'session-message',
+      projectId: controller.sessionStore.projectId,
+      sessionId: controller.session.id,
+    })
+    expect((sourceMessage?.line.data as { content?: string }).content).toContain('Please remember')
     await controller.close()
   })
 

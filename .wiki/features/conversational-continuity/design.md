@@ -101,8 +101,9 @@ should not become a citation dump by default.
 ## Data model
 
 The implemented contracts below are strict, versioned Zod schemas in
-`src/continuity/schemas.ts`; semantic memory and time rollup contracts are foundations
-for later phases.
+`src/continuity/schemas.ts`. Source-linked semantic-memory storage and explicit remember,
+review, and correction paths are implemented foundations; provider handoff and time
+rollups remain later phases.
 
 ```ts
 interface SourceRef {
@@ -127,7 +128,7 @@ interface ContinuityEpisode {
   topics: string[]
   summary: string // bounded, redacted, derived; never sole evidence
   sourceDigest: string // SHA-256 over the linked session lines, checked before source display
-  speechActs: Array<'asked' | 'considered' | 'preferred' | 'decided' | 'promised' | 'corrected' | 'retracted'>
+  speechActs: Array<'asked' | 'stated' | 'considered' | 'preferred' | 'decided' | 'promised' | 'corrected' | 'retracted'>
   completion: 'completed' | 'interrupted' | 'uncertain'
   createdAt: string
 }
@@ -150,10 +151,21 @@ interface SemanticMemoryLink {
   projectId?: string // required for project scope; omitted for global scope
   status: 'candidate' | 'active' | 'flagged' | 'superseded' | 'rejected' | 'tombstoned'
   confidence: number
-  speechAct: 'asked' | 'considered' | 'preferred' | 'decided' | 'promised' | 'corrected' | 'retracted'
+  speechAct: 'asked' | 'stated' | 'considered' | 'preferred' | 'decided' | 'promised' | 'corrected' | 'retracted'
   captureMode: 'explicit' | 'inferred'
   supersedes?: string[]
   sensitivity: 'ordinary' | 'sensitive'
+}
+
+interface SemanticMemoryRecord extends SemanticMemoryLink {
+  schemaVersion: 1
+  description: string
+  supportingEpisodeIds: string[]
+  supersedes: string[]
+  supersededBy?: string
+  createdAt: string
+  updatedAt: string
+  reviewedAt?: string
 }
 
 interface TimeRollup {
@@ -171,6 +183,10 @@ interface TimeRollup {
 }
 ```
 
+The user-authored statement is the Markdown body of the managed semantic-memory file;
+the structured record above is serialized in validated frontmatter. Source text is not
+copied into that file.
+
 Avoid storing absolute paths in semantic records. Resolve source references through the
 trusted local session/brain root and validate IDs. Summaries are bounded and redacted;
 verbatim quotes stay in the source session. Existing `Memory` file metadata can hold
@@ -185,7 +201,7 @@ unstructured fact store.
 |---|---|---|---|
 | Session JSONL (`src/harness/sessions.ts`) | Session filename ID; each appended line gets a UUID and UTC timestamp. Schema version 3 adds optional top-level IANA timezone metadata; the reader accepts legacy lines without IDs or timezone. The project directory is `projectSlug(canonicalProjectPath)`, a local path-derived partition key. | Message/event appends are redacted. Checkpoint and rewind lines copy the reconstructed message array; a fork writes a checkpoint plus a `session-fork` event with source project/session/line identity. `athena session delete` renames the file into project `.trash`; no user-facing restore command exists. | Canonical conversational source. Index message/event line IDs once; snapshots are reconstruction state, not duplicate episodes. Resolve nested fork ancestry through immutable boundaries. Skip `.trash`; source deletion adds suppression before derived cleanup. For a legacy line without ID, derive the source key from physical line number and SHA-256 of the raw UTF-8 line. |
 | RunTrace (`src/harness/traces.ts`) | `runId` plus `sequence` and hash; traces are partitioned by a `projectId` derived from `cwd`. | Hash-chained JSONL append; writer closes with a final event. No user-facing deletion flow was found in the current CLI. | Operational evidence only. Link a trace event when useful to a conversation episode; do not use trace text as user-confirmed personal memory. |
-| User memory files (`src/tools/memory.ts`) | Relative file path is the only current identity; `MEMORY.md` is an index, not a record ID. | Tool supports list/read/write/delete; writes overwrite, deletes physically remove the file, and the index is updated. `loadMemoryIndex` injects the memory and learned indexes into prompts today. | Extend this store with validated IDs, source/validity metadata, and lifecycle rules. Keep continuity candidates out of ordinary injected context. User-memory deletion and source-session deletion remain distinct operations. |
+| User memory files (`src/tools/memory.ts`) | Legacy prose uses a relative file path; managed semantic records use a UUID and typed source references. `MEMORY.md` remains an index, not a record ID. | Legacy paths retain list/read/write/delete. Semantic records live under `memory/semantic/`; explicit remember, candidate review, and correction/supersession use `MemoryHygieneStore`. Managed records are not included in the injected `MEMORY.md` index. | Continue candidate capture/review and deletion integration without copying source text. User-memory deletion and source-session deletion remain distinct operations. |
 | Experience (`src/experience/`) | Schema record ID, `projectScope`, creation time, and `evidenceRefs`. The evidence-ref strings are not a typed session-message contract. | JSONL snapshots keyed by record ID; append is idempotent for identical records and guidance has explicit review transitions. | Existing project-scoped task-outcome guidance; optionally rank for “similar work,” but do not treat it as conversation history or semantic personal memory. |
 | Governed learning (`src/learning/`) | Claim/candidate IDs with source run IDs and trace hashes. | Append-updated claims use governed promotion/rejection/expiry and consolidation. | Keep its task-method claims and evaluation lifecycle separate from conversational semantic memory. |
 | Self-reflection journal | `BrainPaths` reserves a `journalDir`; the linked wiki describes a proposal, but no journal store/tool implementation was found in the current source. | No implemented entry lifecycle or restore/delete path to reuse yet. | Not an available Phase 1 source. Integrate only after a concrete journal schema and stable entry identity exist. |
@@ -229,11 +245,10 @@ added without changing session-line identity.
   assistant/tool messages and terminal event. A final turn without `turn-done` is an
   interrupted episode, not a completed one. If old or malformed data prevents reliable
   grouping, index source messages individually and mark the episode grouping uncertain.
-- Extend session discovery so one indexer can enumerate project-scoped session directories
-  under the existing local `sessionsDir`.
-- Store versioned episode/index records below a dedicated local continuity path in the
-  existing brain. Use stable source IDs and atomic, idempotent writes. Keep rollups
-  derived and rebuildable.
+- `session-catalog.ts` enumerates project-scoped session directories under the existing
+  local `sessionsDir`; the continuity store writes versioned episode/index records below
+  the dedicated continuity path with stable source IDs and atomic, idempotent updates.
+  Future rollups remain derived and rebuildable.
 - Reuse existing local JSONL/Zod/redaction/atomic-write patterns. Add no database or
   external service in the first implementation. Measure index size and recall latency
   before choosing a different backend.
@@ -248,14 +263,20 @@ added without changing session-line identity.
   validation.
 - Preserve modal language: “maybe,” “what if,” and questions remain tentative; “I decided”
   can be a decision; “I was wrong” or “that changed” creates correction/supersession.
-- Explicit remember commands create an active user-authored memory linked to its episode.
-- Inferred stable preferences/facts begin as candidates. Promotion needs independent
-  episodes on distinct occasions, no unresolved contradiction, acceptable sensitivity,
-  and reviewability. Initial thresholds remain configuration/test data, not scattered
-  constants.
-- Current semantic memories are versioned with valid time. A new statement closes or
-  supersedes an old one; it does not rewrite its source or imply the old statement was
-  never true.
+- `Memory.remember` creates an active user-authored memory only when requested directly.
+  The harness supplies the current persisted human-message reference; the model cannot
+  choose the source identity or timestamp. Unpersisted sessions cannot create a linked
+  record.
+- The store accepts inferred records only as candidates and requires two distinct
+  supporting episode IDs. Candidate generation from the continuity index and a direct
+  human review surface remain unfinished; `Memory.review` is for a clear user acceptance
+  or rejection in the conversation.
+- `Memory.supersede` requires an explicit correction to an active record. The replacement
+  is linked to the correction message; the prior statement and its source remain
+  unchanged. Valid-time intervals are schema-validated, but automatic interval closure
+  is not yet wired.
+- Forget and source-session delete/restore integration remain open pending selection of
+  the source-retention behavior.
 
 Episode records are built deterministically from persisted message/event metadata and
 bounded redacted excerpts; no separate provider call runs during capture or indexing.
@@ -266,13 +287,11 @@ summarize action; they never trigger hidden background provider calls.
 
 ## Interfaces
 
-The local implementation extends the `/memory` command family and adds the `athena memory`
-CLI. Available operations are status, rebuild, search, timeline by time range, and show
-source/context. Remaining operations are
-explicit remember, correct/supersede, review candidates, and forget. Automatic recall
-uses the same read path as explicit recall. Mutations use one store/service, validate
-targets, emit audit events, and are available through both interactive and noninteractive
-CLI paths. Do not silently add continuity to every project prompt. Automatic answer-time
+The `Memory` tool now provides explicit remember, review, and correct/supersede operations.
+The `athena memory` CLI provides status, rebuild, search, timeline by time range, and
+source/context inspection. Candidate generation/review UI and forget remain open.
+Mutations validate targets. Do not silently add continuity to every project prompt.
+Automatic answer-time
 source handoff to the configured model provider remains pending explicit user authorization;
 until then, session-derived content stays in local CLI/slash results.
 

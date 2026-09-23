@@ -39,7 +39,11 @@ Automatic recall stays opt-in until this gate.
 ### Phase 3: semantic memory lifecycle
 
 Add source-linked explicit memories, inferred candidates, correction/supersession, and
-forgetting integrated with the existing memory tool/index.
+forgetting integrated with the existing memory tool/index. The initial schema/store and
+the `Memory` tool's explicit remember, review, and correction/supersession paths are in
+place. Candidate generation, a user-facing review surface, and forget/source deletion
+integration are still open. Semantic records remain local and are not injected into
+provider prompts.
 
 **Exit:** tombstone/rebuild tests, correction tests, and sensitive-data review pass.
 
@@ -57,8 +61,9 @@ budgets, and preserves exact details through source expansion.
 - Rebuild writes to a temporary sibling, validates record counts and source refs, then
   atomically swaps the index. A failed rebuild preserves the last good index.
 - Existing sessions and user memory files are not rewritten during indexing.
-- Deleted/forgotten source IDs are checked before indexing and represented by suppression
-  tombstones so future scans do not resurrect them.
+- Target behavior: deleted/forgotten source IDs must be checked before indexing and
+  represented by suppression tombstones so future scans cannot resurrect them. This
+  integration is not implemented yet.
 - Existing `athena session delete` moves source JSONL to the project’s `.trash` directory;
   the continuity index must stop returning it. There is no user-facing session restore
   command today, so do not document or assume one. Add restore integration only with an
@@ -72,12 +77,13 @@ budgets, and preserves exact details through source expansion.
 - Rebuild optional index: `athena memory rebuild`.
 - If source history is missing, mark dependent summaries unavailable. Do not reconstruct
   or silently restore a source from a summary.
-- To disable automatic recall, turn off its setting; explicit search/timeline remains
-  available.
+- Automatic answer-time recall is not enabled. Explicit CLI/slash search and timeline
+  remain available.
 
 ## Rollback
 
 Disable automatic recall and remove the derived continuity index. This does not touch
-session JSONL, RunTrace, user memory files, credentials, or learning records. Any promoted
-semantic memory retains its source and can be reviewed/forgotten through the normal memory
-controls. Re-enable only after repairing or rebuilding derived data.
+session JSONL, RunTrace, user memory files, credentials, or learning records. Managed
+semantic memories retain their source links and currently support review and correction;
+forget controls and source-session integration are unfinished. Re-enable only after
+repairing or rebuilding derived data.

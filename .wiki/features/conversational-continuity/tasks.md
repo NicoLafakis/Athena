@@ -59,6 +59,13 @@ invariant.
 
 ## Phase 3 — durable semantic memory and lifecycle
 
+Progress (2026-09-23): the versioned semantic record schema, local lifecycle store, and
+`Memory` tool paths for explicit remember, candidate review, and correction/supersession
+are implemented. The record store does not inject semantic items into provider prompts.
+Candidate generation from episode evidence, a user-facing review surface, forget/source
+deletion integration, and full Phase 3 verification remain open. The forget source-retention
+choice is still awaiting the product owner's answer.
+
 - [ ] 3.1 Extend `Memory` records/tool with source references, observed/valid time, scope,
   speech act, sensitivity, confidence, candidate/active/flagged/superseded/rejected/tombstoned
   state, and correction links. Reuse memory-hygiene's canonical write/index path.

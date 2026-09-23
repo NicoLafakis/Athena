@@ -2,7 +2,7 @@
 
 - **Tier:** 3 — major / high trust impact
 - **Date:** 2026-09-23
-- **Status:** implementation in progress; local linked-episode catalog and CLI/slash inspection are implemented
+- **Status:** implementation in progress; local linked-episode catalog, CLI/slash inspection, and initial semantic-memory lifecycle are implemented
 - **Product owner:** Nico
 
 ## What was asked
@@ -93,8 +93,9 @@ Athena already persists resumable sessions under per-project directories in the 
 brain, keeps run traces, has a free-text `Memory` tool, compiles project-scoped run
 experiences, and has a separate governed-learning pipeline. These mechanisms do not
 currently provide a unified time-aware conversation index across projects. The current
-memory index is injected broadly into sessions, and the memory-hygiene page is a design
-spec rather than implemented behavior.
+free-text memory index is injected broadly into sessions. The initial source-linked
+semantic-memory store is implemented separately under the existing memory tree and is
+not yet part of that prompt-injected index.
 
 This package coordinates those systems without treating them as interchangeable:
 sessions are conversation history, run traces and the journal are operational evidence,
