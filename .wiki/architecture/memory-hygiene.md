@@ -33,10 +33,15 @@ message, and the old statement and its source remain unchanged. Generic free-tex
 and deletes cannot modify files under `memory/semantic/`.
 
 Managed records are not added to `MEMORY.md`, and `loadMemoryIndex` does not load them.
-`Memory.read` returns them through a model tool result when called. It verifies session
-source lines before returning text, rejects candidate/flagged/rejected/tombstoned content,
-and suppresses sources that are missing, trashed, or do not match their cited line ID,
-timestamp, kind, and user role. This is a call-triggered provider handoff; it does not
+`Memory.read` returns them through a model tool result when called. New session citations
+carry a SHA-256 digest of the exact persisted JSONL line. Before returning text, it
+recomputes that digest and checks the cited line ID, timestamp, kind, and user role; an
+in-place edit suppresses the memory just like a missing or trashed source. Legacy
+UUID-backed semantic citations have no digest and are suppressed from model-facing reads
+until the memory is recreated from a currently persisted user message. ID-less legacy
+citations remain content-bound because their stable line identity embeds the raw-line
+digest. Candidate, flagged, rejected, and tombstoned content is also rejected. This is a
+call-triggered provider handoff; it does not
 auto-inject semantic records or authorize automatic episodic history retrieval.
 `athena memory candidates` /
 `/memory candidates` explicitly generate and list review-only records from repeated,

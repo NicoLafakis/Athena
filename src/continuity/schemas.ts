@@ -67,6 +67,7 @@ export const SourceRefSchema = z
     projectId: ProjectIdSchema.nullable(),
     sessionId: SessionIdSchema.optional(),
     recordId: z.string().min(1).max(512).refine(isSafeRecordId, 'Source identity must be local and path-safe'),
+    lineDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
     timestamp: UtcInstantSchema,
     timeZone: TimeZoneSchema.optional(),
   })
@@ -80,6 +81,13 @@ export const SourceRefSchema = z
     }
     if ((source.kind === 'run-event' || source.kind === 'experience') && !source.projectId) {
       ctx.addIssue({ code: 'custom', message: `${source.kind} sources require a project ID` })
+    }
+    if (
+      source.lineDigest !== undefined &&
+      source.kind !== 'session-message' &&
+      source.kind !== 'session-event'
+    ) {
+      ctx.addIssue({ code: 'custom', path: ['lineDigest'], message: 'Line digests require a session source' })
     }
   })
 

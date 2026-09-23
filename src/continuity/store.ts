@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFileSync } from '../tools/files.js'
-import { redactSessionValue, stableSessionLineId } from '../harness/sessions.js'
+import { redactSessionValue, sessionLineDigest, stableSessionLineId } from '../harness/sessions.js'
 import {
   ContinuityIndexSchema,
   ContinuityEpisodeSchema,
@@ -207,6 +207,7 @@ function makeEpisode(
       projectId,
       sessionId,
       recordId: id,
+      lineDigest: sessionLineDigest(record),
       timestamp: timestamp.toISOString(),
       ...(candidateZone ? { timeZone: candidateZone } : {}),
     })

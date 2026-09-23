@@ -63,11 +63,15 @@ function isSessionLine(value: unknown): value is SessionLine {
   )
 }
 
+/** Hash the exact persisted JSONL line so an in-place edit invalidates its citation. */
+export function sessionLineDigest(record: Pick<SessionLineRecord, 'rawLine'>): string {
+  return createHash('sha256').update(record.rawLine, 'utf8').digest('hex')
+}
+
 /** Stable identity for a persisted line, including sessions written before IDs existed. */
 export function stableSessionLineId(record: SessionLineRecord): string {
   if (typeof record.line.id === 'string' && record.line.id.length > 0) return record.line.id
-  const digest = createHash('sha256').update(record.rawLine, 'utf8').digest('hex')
-  return `legacy:${record.lineNumber}:${digest}`
+  return `legacy:${record.lineNumber}:${sessionLineDigest(record)}`
 }
 
 interface CheckpointData {
@@ -161,6 +165,7 @@ export function latestUserMessageSourceRef(
       projectId,
       sessionId,
       recordId: stableSessionLineId(record),
+      lineDigest: sessionLineDigest(record),
       timestamp: record.line.ts,
       ...(record.line.timeZone ? { timeZone: record.line.timeZone } : {}),
     })

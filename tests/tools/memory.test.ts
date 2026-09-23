@@ -209,6 +209,53 @@ describe('memoryTool', () => {
     expect(unavailable.output).toMatch(/source.*unavailable/i)
   })
 
+  it('refuses a semantic read when a cited source line changes without changing its identity', async () => {
+    const sessions = new SessionStore(join(dir, 'sessions'), 'C:/projects/memory-source-content')
+    const session = sessions.create()
+    session.appendMessage({ role: 'user', content: 'I decided the amber notebook is the source of truth.' })
+    const originalRecord = readSessionLineRecords(session.file).find((item) => item.line.kind === 'message')!
+    const sourceRef = latestUserMessageSourceRef(session.file, sessions.projectId, session.id)
+    if (!sourceRef) throw new Error('Expected a persisted user source reference in the fixture')
+    expect(sourceRef.lineDigest).toMatch(/^[a-f0-9]{64}$/)
+
+    const memory = new MemoryHygieneStore(join(dir, 'memory')).create({
+      description: 'A source-linked decision',
+      content: 'The amber notebook is the source of truth.',
+      sourceRefs: [sourceRef],
+      observedAt: sourceRef.timestamp,
+      scope: 'global',
+      speechAct: 'decided',
+      captureMode: 'explicit',
+      confidence: 1,
+      sensitivity: 'ordinary',
+    })
+    const path = `semantic/${memory.memoryId}.md`
+
+    const available = await memoryTool.execute({ op: 'read', path }, makeCtx(dir))
+    expect(available.isError).toBe(false)
+
+    const rawLines = readFileSync(session.file, 'utf8').split('\n')
+    const mutatedLine = JSON.parse(rawLines[originalRecord.lineNumber - 1]!) as {
+      id: string
+      ts: string
+      data: { role: string; content: string }
+    }
+    mutatedLine.data.content = 'I decided the amber notebook is no longer the source of truth.'
+    rawLines[originalRecord.lineNumber - 1] = JSON.stringify(mutatedLine)
+    writeFileSync(session.file, rawLines.join('\n'), 'utf8')
+
+    const currentRecord = readSessionLineRecords(session.file).find(
+      (item) => stableSessionLineId(item) === sourceRef.recordId,
+    )!
+    expect(currentRecord.line.ts).toBe(sourceRef.timestamp)
+    expect((currentRecord.line.data as { role: string }).role).toBe('user')
+
+    const unavailable = await memoryTool.execute({ op: 'read', path }, makeCtx(dir))
+    expect(unavailable.isError).toBe(true)
+    expect(unavailable.output).not.toContain('The amber notebook is the source of truth.')
+    expect(unavailable.output).toMatch(/source.*unavailable/i)
+  })
+
   it('does not return unreviewed candidate text through the model tool', async () => {
     const sessions = new SessionStore(join(dir, 'sessions'), 'C:/projects/unreviewed-memory')
     const sourceRefs = []

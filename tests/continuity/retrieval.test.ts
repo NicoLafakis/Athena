@@ -164,13 +164,27 @@ describe('continuity retrieval', () => {
     expect(context.messages).toHaveLength(2)
     expect(JSON.stringify(context.messages)).not.toContain('checkpoint copy')
     expect(context.sourceRefs).toHaveLength(3)
+    expect(context.sourceRefs.every((sourceRef) => /^[a-f0-9]{64}$/.test(sourceRef.lineDigest ?? ''))).toBe(true)
+
+    const indexFile = join(root, 'continuity', 'index.json')
+    const legacyIndex = JSON.parse(readFileSync(indexFile, 'utf8')) as {
+      episodes: Array<{ sourceRefs: Array<Record<string, unknown>> }>
+    }
+    for (const sourceRef of legacyIndex.episodes[0]!.sourceRefs) delete sourceRef.lineDigest
+    writeFileSync(indexFile, JSON.stringify(legacyIndex), 'utf8')
+    const legacyEpisode = new ContinuityStore(join(root, 'continuity')).listEpisodes()[0]!
+    const upgradedContext = loadEpisodeSourceContext(sessionsRoot, legacyEpisode)
+    expect(upgradedContext.status).toBe('ok')
+    if (upgradedContext.status === 'ok') {
+      expect(upgradedContext.sourceRefs.every((sourceRef) => /^[a-f0-9]{64}$/.test(sourceRef.lineDigest ?? ''))).toBe(true)
+    }
 
     const lines = readFileSync(session.file, 'utf8').split('\n')
     const changed = JSON.parse(lines[0]!)
     changed.data.content = 'Edited after the index was built.'
     lines[0] = JSON.stringify(changed)
     writeFileSync(session.file, lines.join('\n'), 'utf8')
-    expect(loadEpisodeSourceContext(sessionsRoot, episode).status).toBe('stale')
+    expect(loadEpisodeSourceContext(sessionsRoot, legacyEpisode).status).toBe('stale')
   })
 
   it('reports missing sessions and avoids showing raw path data in the result', () => {

@@ -89,7 +89,9 @@ forget source-retention choice is still awaiting the product owner's answer.
     record a candidate. Existing explicit/rejected/terminal decisions suppress duplicates.
   - [x] Verify session-backed semantic source lines before `Memory.read` returns managed
     memory text; suppress reads when the session or source line is missing or trashed, its
-    timestamp or kind mismatches, or the source message is not user-authored.
+    timestamp, exact persisted-line digest, or kind mismatches, or the source message is
+    not user-authored. UUID-backed legacy citations without a digest fail closed; ID-less
+    legacy citations remain protected by their content-derived stable identity.
   - [x] Keep candidate, flagged, rejected, and tombstoned semantic content out of the
     model-facing `Memory.read`; those states remain available through local review.
   - [ ] Implement forget and derived-record suppression after the source-retention choice

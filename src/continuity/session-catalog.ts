@@ -3,12 +3,14 @@ import { join } from 'node:path'
 import {
   readSessionLineRecords,
   readSessionLineRecordsDetailed,
+  sessionLineDigest,
   stableSessionLineId,
   type SessionLineRecord,
 } from '../harness/sessions.js'
 
 export { readSessionLineRecords }
 export { readSessionLineRecordsDetailed }
+export { sessionLineDigest }
 export { stableSessionLineId }
 export type { SessionLineRecord }
 

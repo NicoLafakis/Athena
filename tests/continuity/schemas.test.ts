@@ -50,6 +50,11 @@ describe('continuity schemas', () => {
 
   it('requires source references to be typed, scoped, and path-safe', () => {
     expect(SourceRefSchema.parse(sourceRef)).toEqual(sourceRef)
+    expect(SourceRefSchema.parse({ ...sourceRef, lineDigest: 'a'.repeat(64) })).toMatchObject({
+      ...sourceRef,
+      lineDigest: 'a'.repeat(64),
+    })
+    expect(SourceRefSchema.safeParse({ ...sourceRef, lineDigest: 'not-a-digest' }).success).toBe(false)
     expect(SourceRefSchema.safeParse({ ...sourceRef, kind: 'transcript-copy' }).success).toBe(false)
     expect(SourceRefSchema.safeParse({ ...sourceRef, sessionId: '../other' }).success).toBe(false)
     expect(SourceRefSchema.safeParse({ ...sourceRef, recordId: 'C:\\private\\session.jsonl' }).success).toBe(false)
@@ -57,6 +62,9 @@ describe('continuity schemas', () => {
     expect(SourceRefSchema.safeParse({ ...sourceRef, timeZone: 'Not/A_Zone' }).success).toBe(false)
     expect(SourceRefSchema.safeParse({ ...sourceRef, path: 'C:\\private\\session.jsonl' }).success).toBe(false)
     expect(SourceRefSchema.safeParse({ ...sourceRef, kind: 'run-event', projectId: null }).success).toBe(false)
+    expect(
+      SourceRefSchema.safeParse({ ...sourceRef, kind: 'memory-file', lineDigest: 'a'.repeat(64) }).success,
+    ).toBe(false)
     expect(SourceRefSchema.safeParse({ ...sourceRef, kind: 'memory-file', recordId: 'facts/preference.md' }).success).toBe(true)
   })
 

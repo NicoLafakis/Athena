@@ -15,7 +15,7 @@ import { MemoryHygieneStore } from '../brain/hygiene.js'
 import { SpeechActSchema } from '../continuity/schemas.js'
 import { ContinuityStore } from '../continuity/store.js'
 import { reviewSemanticCandidate } from '../continuity/candidates.js'
-import { listAllProjectSessions, readSessionLineRecords, stableSessionLineId } from '../continuity/session-catalog.js'
+import { listAllProjectSessions, readSessionLineRecords, sessionLineDigest, stableSessionLineId } from '../continuity/session-catalog.js'
 
 const MemoryInput = z.object({
   op: z.enum(['list', 'read', 'write', 'delete', 'remember', 'review', 'supersede']),
@@ -96,6 +96,13 @@ function semanticSourcesAvailable(
     const records = checkedSessions.get(key)
     const record = records?.find((item) => stableSessionLineId(item) === sourceRef.recordId)
     if (!record || record.line.ts !== sourceRef.timestamp) return false
+    if (sourceRef.lineDigest) {
+      if (sessionLineDigest(record) !== sourceRef.lineDigest) return false
+    } else if (typeof record.line.id === 'string' && record.line.id.length > 0) {
+      // UUID-backed legacy refs cannot prove the line's content. ID-less legacy
+      // refs already embed the raw-line digest in stableSessionLineId().
+      return false
+    }
     if (sourceRef.kind === 'session-event' && record.line.kind !== 'event') return false
     if (sourceRef.kind === 'session-message') {
       if (record.line.kind !== 'message' || typeof record.line.data !== 'object' || record.line.data === null) return false
@@ -109,7 +116,7 @@ function semanticSourcesAvailable(
 export const memoryTool: ToolDefinition<z.infer<typeof MemoryInput>> = {
   name: 'Memory',
   description:
-    'List, read, write, or delete Brain memory files. For current personal facts, use only semantic records marked active and within their valid dates; treat candidates as unconfirmed and superseded records as historical. The model-facing read action never returns candidate, flagged, rejected, or tombstoned semantic content; use local review controls for those records. Managed semantic reads verify that each cited session line is still available and user-authored; do not use a memory whose source is unavailable. Use remember only when the user explicitly asks to retain a fact; questions and hypotheticals are not facts. Use review only after the user accepts or rejects a candidate; promotion revalidates every inferred source against the complete local continuity index and its current session lines. Supersede only when the user explicitly corrects an active memory. Source links come from persisted user messages. Writes and deletes keep MEMORY.md in sync.',
+    'List, read, write, or delete Brain memory files. For current personal facts, use only semantic records marked active and within their valid dates; treat candidates as unconfirmed and superseded records as historical. The model-facing read action never returns candidate, flagged, rejected, or tombstoned semantic content; use local review controls for those records. Managed semantic reads verify that each cited session line is still available, unchanged, and user-authored; do not use a memory whose source is unavailable or changed. Use remember only when the user explicitly asks to retain a fact; questions and hypotheticals are not facts. Use review only after the user accepts or rejects a candidate; promotion revalidates every inferred source against the complete local continuity index and its current session lines. Supersede only when the user explicitly corrects an active memory. Source links come from persisted user messages. Writes and deletes keep MEMORY.md in sync.',
   schema: MemoryInput,
   readOnly: false,
   async execute(input, ctx) {

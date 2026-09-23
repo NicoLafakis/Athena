@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { lstatSync } from 'node:fs'
 import { parseContinuityEpisode, type ContinuityEpisode, type TemporalWindow } from './schemas.js'
 import { canonicalSessionRecords, listAllProjectSessions, readSessionLineRecords } from './session-catalog.js'
-import { stableSessionLineId } from '../harness/sessions.js'
+import { sessionLineDigest, stableSessionLineId } from '../harness/sessions.js'
 import type { SessionLineRecord } from '../harness/sessions.js'
 
 export interface EpisodeSearchOptions {
@@ -307,6 +307,9 @@ function verifyEpisodeSourceContext(
     if (!record || !expectedKind || record.line.kind !== expectedKind) {
       return { status: 'stale', reason: 'One or more linked source lines changed or disappeared.', episodeId: episode.id }
     }
+    if (ref.lineDigest !== undefined && ref.lineDigest !== sessionLineDigest(record)) {
+      return { status: 'stale', reason: 'One or more linked source lines changed after indexing.', episodeId: episode.id }
+    }
     sourceRecords.push(record)
   }
   if (sha256(sourceRecords.map((record) => record.rawLine).join('\n')) !== episode.sourceDigest) {
@@ -326,5 +329,11 @@ function verifyEpisodeSourceContext(
   const fitAdjacent = fitAdjacentMessages(adjacentCandidates, cap - selected.length)
   const adjacentMessages = fitAdjacent.messages
   const truncated = episodeTruncated || fitAdjacent.truncated
-  return { status: 'ok', episode, messages: selected, adjacentMessages, sourceRefs: episode.sourceRefs, truncated }
+  const sourceRefs = episode.sourceRefs.map((ref, index) => ({
+    ...ref,
+    // Old index entries predate per-line digests. The episode-level digest above
+    // verifies the complete set before we add current per-line integrity metadata.
+    lineDigest: sessionLineDigest(sourceRecords[index]!),
+  }))
+  return { status: 'ok', episode, messages: selected, adjacentMessages, sourceRefs, truncated }
 }

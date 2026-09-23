@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { SessionStore } from '../../src/harness/sessions.js'
+import { readSessionLineRecords, sessionLineDigest, stableSessionLineId, SessionStore } from '../../src/harness/sessions.js'
 import { ContinuityStore } from '../../src/continuity/store.js'
 
 let root: string
@@ -44,6 +44,10 @@ describe('ContinuityStore', () => {
     expect(episodes[0]!.summary).not.toContain('copied checkpoint content')
     expect(episodes[0]!.sourceRefs).toHaveLength(3)
     expect(episodes[0]!.sourceDigest).toMatch(/^[a-f0-9]{64}$/)
+    const recordsById = new Map(readSessionLineRecords(session.file).map((record) => [stableSessionLineId(record), record]))
+    for (const sourceRef of episodes[0]!.sourceRefs) {
+      expect(sourceRef.lineDigest).toBe(sessionLineDigest(recordsById.get(sourceRef.recordId)!))
+    }
     expect(episodes[1]!.speechActs).toContain('asked')
   })
 
