@@ -61,6 +61,11 @@
   semantic content, then trash that session and assert `Memory.read` no longer returns it.
   An unreviewed inferred candidate is also tested to ensure model-facing reads cannot
   return its claim text.
+- Jev preparation uses a balanced, 49-case synthetic recall-intent corpus. Its baseline
+  regression locks the current local ranker's proxy confusion matrix, including the
+  absence of a `none` class and the resulting proxy false positives. This classifier is
+  ranking metadata only; it is not wired to answer-time retrieval. No Jev request or live
+  history is used by this evaluation.
 - [`calibration.md`](calibration.md) records deterministic synthetic quality measures and
   a 10,000-episode/10,000-session-file local performance sample, including the shared
   search presenter and verified source expansion. These measurements do not claim TUI

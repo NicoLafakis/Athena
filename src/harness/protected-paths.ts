@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs'
 import { posix, win32 } from 'node:path'
 
 /**
@@ -241,7 +242,18 @@ export class ProtectedPaths {
     this.env = options.env ?? process.env
     const cleaned = roots.map((root) => root.trim()).filter((root) => root !== '')
     this.roots = cleaned
-    this.rootSegments = cleaned.map((root) => this.segmentsFor(root, root))
+    this.rootSegments = cleaned.map((root) => {
+      const absolute = this.platform === 'win32' ? win32.isAbsolute(root) : posix.isAbsolute(root)
+      if (!absolute) return this.segmentsFor(root, root)
+      try {
+        const canonical = realpathSync.native(root)
+        return this.segmentsFor(canonical, canonical)
+      } catch {
+        // Synthetic/platform-specific paths and unavailable roots retain the
+        // existing lexical fence. Canonicalize only roots the host can verify.
+        return this.segmentsFor(root, root)
+      }
+    })
   }
 
   /** Environment-derived defaults for this process. Memoized; the environment

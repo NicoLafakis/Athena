@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { ProtectedPaths, defaultProtectedRoots } from '../../src/harness/protected-paths.js'
 
 /**
@@ -92,6 +95,24 @@ describe('defaultProtectedRoots derivation', () => {
       expect(roots).not.toContain('/usr')
       expect(roots).not.toContain('/usr/local')
       expect(roots).not.toContain('/opt')
+    }
+  })
+})
+
+describe('filesystem aliases', () => {
+  it('matches a protected root supplied through a symlink after target canonicalization', () => {
+    const root = mkdtempSync(join(tmpdir(), 'athena-protected-alias-'))
+    const target = join(root, 'canonical')
+    const alias = join(root, 'protected')
+    try {
+      mkdirSync(target)
+      symlinkSync(target, alias, process.platform === 'win32' ? 'junction' : 'dir')
+      const canonicalTarget = realpathSync.native(alias)
+      const fence = new ProtectedPaths([alias])
+
+      expect(fence.deniedRoot(join(canonicalTarget, 'child'), root)).toBe(alias)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
     }
   })
 })

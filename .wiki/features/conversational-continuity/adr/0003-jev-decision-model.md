@@ -78,10 +78,14 @@ user consent before enabling any external call.
 
 1. Build a synthetic corpus covering direct and implied continuation, dates, corrections,
    multiple projects, ordinary new requests, ambiguous requests, and adversarial text.
-2. Compare Jev with Athena's current local routing baseline. Measure class precision/recall,
-   no-recall false positives, confidence calibration, latency, token count, and estimated
-   cost. Define acceptance thresholds before testing; do not import example confidence
-   cutoffs from vendor documentation.
+   The checked-in 49-case fixture is complete. Its current local baseline is the intent
+   inferred inside the manual ranking preview, not an answer-time router; see
+   [the calibration snapshot](../calibration.md).
+2. When a provider experiment is authorized, compare Jev with that local proxy. Measure
+   class precision/recall, no-recall false positives, confidence calibration, latency,
+   token count, and estimated cost. Define acceptance thresholds before testing; do not
+   import example confidence cutoffs from vendor documentation. The present measurement
+   does not select Jev thresholds or an adoption bar.
 3. Fake the HTTP/SDK boundary in integration tests. Verify disabled mode performs zero
    calls, the payload contains only allowed fields, response values are schema-checked,
    and every failure takes a local fallback.

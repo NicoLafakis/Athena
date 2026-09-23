@@ -13,6 +13,43 @@ Run the synthetic performance sample with `pnpm exec tsx bench/continuity-calibr
 These results check deterministic behavior. They do not substitute for live dogfood or
 subjective usefulness review against representative user histories.
 
+## Jev recall-intent preparation
+
+The balanced, labeled
+[`jev-recall-intent.v1.json`](../../../tests/fixtures/continuity/jev-recall-intent.v1.json)
+fixture has 49 synthetic requests, seven for each proposed route: `none`,
+`continue-current`, `temporal-recall`, `topic-recall`, `preference-or-fact`,
+`historical-decision`, and `similar-work`. Labels treat a time phrase as a filter where a
+more specific preference or decision is the primary request. The fixture also covers an
+ambiguous short follow-up and a quoted recall phrase as non-recall inputs.
+
+Run the deterministic baseline with
+`pnpm exec tsx bench/jev-recall-intent-baseline.ts`. It applies the existing ranker's
+local `RecallIntent` to the synthetic requests and maps those values to the proposed Jev
+routes. This is a proxy measurement: the ranker intent is used only for the manual local
+ranking preview, and Athena currently has no automatic answer-time history router.
+
+| Proxy metric | Result |
+|---|---:|
+| Exact route accuracy | **25/49 (51.0%)** |
+| Macro F1 | **46.6%** |
+| `none` false positives | **7/7 (100%)** |
+| Continue-current recall | **42.9%** |
+| Temporal-recall recall | **85.7%** |
+| Topic-recall recall | **100%** |
+| Preference-or-fact recall | **71.4%** |
+| Historical-decision recall | **57.1%** |
+| Similar-work recall | **0%** |
+
+The proxy always assigns an existing ranker intent, so it cannot abstain on `none`; all
+seven ordinary, ambiguous, or quoted-text examples receive a recall label. These are not
+active provider disclosures: answer-time retrieval is not wired. This result establishes
+the local comparison point and shows that a future router needs a tested no-recall path.
+The ranker returns no calibrated confidence score. No Jev calls were made, and neither
+confidence thresholds nor a Jev adoption bar have been selected. Precision, the full
+confusion matrix, and the exact fixture are preserved by
+[`jev-recall-intent-baseline.test.ts`](../../../tests/continuity/jev-recall-intent-baseline.test.ts).
+
 ## Quality results
 
 | Dimension | Fixture result | Interpretation |

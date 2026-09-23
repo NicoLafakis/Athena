@@ -139,8 +139,10 @@ conversation or answer model. The researched integration boundary and vendor-dat
 are in [ADR 0003](adr/0003-jev-decision-model.md). A product question about which first
 slice to pursue is still pending; recommendation is staged work with recall routing first.
 
-- [ ] 5.1 Build a labeled synthetic recall-intent corpus and measure the current local
-  routing baseline before selecting Jev thresholds or an adoption bar.
+- [x] 5.1 Build a labeled synthetic recall-intent corpus and measure the current local
+  routing baseline before selecting Jev thresholds or an adoption bar. The 49-case
+  corpus and deterministic ranker-intent proxy are measured in
+  [calibration.md](calibration.md); answer-time automatic history routing remains absent.
 - [ ] 5.2 Define an optional `DecisionClient` separate from streaming `ModelClient`; test
   typed output validation, fallback, timeout/rate-limit handling, zero calls while disabled,
   and content-free telemetry with a fake transport.
