@@ -151,7 +151,7 @@ export type CliCommand =
   | { command: 'exec'; provider?: ProviderId; options: ExecOptions }
   | {
       command: 'session'
-      action: 'list' | 'checkpoints' | 'rewind' | 'fork' | 'rename' | 'search' | 'delete'
+      action: 'list' | 'checkpoints' | 'rewind' | 'fork' | 'rename' | 'search' | 'delete' | 'restore'
       args: string[]
     }
   | {
@@ -493,11 +493,11 @@ export function parseArgs(argv: string[]): CliCommand {
   }
   if (argv[0] === 'session') {
     const action = argv[1] ?? 'list'
-    const actions = new Set(['list', 'checkpoints', 'rewind', 'fork', 'rename', 'search', 'delete'])
+    const actions = new Set(['list', 'checkpoints', 'rewind', 'fork', 'rename', 'search', 'delete', 'restore'])
     if (!actions.has(action)) {
       return {
         command: 'error',
-        message: 'Usage: athena session <list|checkpoints|rewind|fork|rename|search|delete> [args]',
+        message: 'Usage: athena session <list|checkpoints|rewind|fork|rename|search|delete|restore> [args]',
       }
     }
     return {
@@ -687,7 +687,7 @@ Usage:
   athena trust --hooks   separately approve the current project hook definitions
   athena trust --mcp     separately approve the current project MCP definitions
   athena trust --revoke  revoke all trust for this project
-  athena session list    manage durable sessions, checkpoints, rewind, and forks
+  athena session list    manage durable sessions, checkpoints, rewind, forks, and recovery
   athena memory          inspect cross-project conversation continuity
   athena memory rebuild  rebuild the local linked episode index
   athena memory search   find prior conversations by time or topic
@@ -1643,6 +1643,7 @@ async function main(): Promise<void> {
   }
   if (cmd.command === 'session') {
     const store = new SessionStore(paths.sessionsDir, cwd)
+    const continuityStore = new ContinuityStore(paths.continuityDir, { onWarn: (warning) => console.error(warning) })
     const [id, ...rest] = cmd.args
     try {
       switch (cmd.action) {
@@ -1684,8 +1685,27 @@ async function main(): Promise<void> {
           break
         case 'delete':
           if (!id) throw new Error('Usage: athena session delete <session-id>')
-          console.log(`Deleted ${id}; recoverable copy: ${store.delete(id)}`)
+          store.assertExists(id)
+          continuityStore.tombstoneSession(store.projectId, id)
+          try {
+            console.log(`Deleted ${id}; recoverable copy: ${store.delete(id)}`)
+          } catch (error) {
+            continuityStore.restoreSession(store.projectId, id, paths.sessionsDir)
+            throw error
+          }
           break
+        case 'restore': {
+          if (!id) throw new Error('Usage: athena session restore <session-id>')
+          const file = store.restore(id)
+          const result = continuityStore.restoreSession(store.projectId, id, paths.sessionsDir)
+          if (result.state === 'indexed') {
+            console.log(`Restored ${id}; continuity indexed ${result.episodeCount} episode(s).`)
+          } else {
+            console.error(`Restored ${id} at ${file}, but continuity could not be refreshed (${result.state}). Run \`athena memory rebuild\`.`)
+            process.exitCode = CLI_EXIT.provider
+          }
+          break
+        }
       }
     } catch (err) {
       console.error((err as Error).message)

@@ -75,6 +75,7 @@ describe('buildTimeRollups', () => {
     const fakeStore = {
       buildRollups: () => ({ state: 'ready' as const, rollups: [rollup] }),
       listEpisodes: () => episodes,
+      sessionSuppressionSnapshot: () => ({ state: 'ready' as const, sessionKeys: new Set<string>() }),
     } as unknown as ContinuityStore
 
     const formatted = formatContinuityRollups(fakeStore, sessionsRoot, 'UTC', 'year')
@@ -241,6 +242,12 @@ describe('buildTimeRollups', () => {
     expect(formatContinuityRanking(store, rankOptions)).toContain(semanticMemory.memoryId)
     expect(formatContinuityRollups(store, sessionsRoot, 'UTC', 'year'))
       .toContain('violet lantern continuity memory')
+
+    store.tombstoneSession(sessions.projectId, session.id)
+    const suppressedRanking = formatContinuityRanking(store, rankOptions)
+    const suppressedRollups = formatContinuityRollups(store, sessionsRoot, 'UTC', 'year')
+    expect(suppressedRanking).not.toContain(semanticMemory.memoryId)
+    expect(suppressedRollups).not.toContain('violet lantern continuity memory')
 
     sessions.delete(session.id)
 

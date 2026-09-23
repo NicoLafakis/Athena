@@ -80,13 +80,15 @@ authorization and its privacy tests.
 - Rebuild writes to a temporary sibling, validates record counts and source refs, then
   atomically swaps the index. A failed rebuild preserves the last good index.
 - Existing sessions and user memory files are not rewritten during indexing.
-- Target behavior: deleted/forgotten source IDs must be checked before indexing and
-  represented by suppression tombstones so future scans cannot resurrect them. This
-  integration is not implemented yet.
-- Existing `athena session delete` moves source JSONL to the project’s `.trash` directory;
-  the continuity index must stop returning it. There is no user-facing session restore
-  command today, so do not document or assume one. Add restore integration only with an
-  explicit implementation and tests.
+- Session deletion writes a versioned, content-free suppression tombstone before the
+  source JSONL moves to the project’s `.trash` directory. Reads, rankings, rollups, and
+  rebuilds suppress that source immediately; a rebuild cannot resurrect it.
+- `athena session restore <session-id>` restores the most recent recoverable JSONL copy,
+  or accepts an already-live source left by an interrupted delete; it then clears the
+  tombstone and reindexes from the live source. A corrupt tombstone ledger fails closed;
+  rebuild refuses to overwrite it, preserving the state for recovery.
+- Semantic-memory forget and its source-retention behavior are separate and remain open.
+  Restoring a deleted session does not override a separate forget decision.
 - Schema upgrades rebuild derived data from source; they do not overwrite a working index
   before the replacement is verified.
 
@@ -111,8 +113,8 @@ authorization and its privacy tests.
 Set global `jev.enabled` to `false` to disable new Jev decisions, then remove the derived
 continuity index only if its local state needs rebuilding. Existing content-free speech-act
 events remain in canonical session JSONL and continue to inform local indexing while their
-source lines verify. This does not touch session JSONL, RunTrace, user memory files,
-credentials, or learning records. Managed semantic
-memories retain their source links and currently support review and correction; forget
-controls and source-session integration are unfinished. Historical answer-time retrieval
-remains outside this Jev route and requires its own authorization and implementation.
+source lines verify. Session delete/restore tombstones remain governed by the local
+continuity store. This does not touch RunTrace, credentials, or learning records. Managed
+semantic memories retain their source links and currently support review and correction;
+forget controls are unfinished. Historical answer-time retrieval remains outside this Jev
+route and requires its own authorization and implementation.

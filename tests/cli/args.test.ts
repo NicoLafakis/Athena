@@ -225,6 +225,20 @@ describe('parseArgs — auth and --provider', () => {
   })
 })
 
+describe('parseArgs — session recovery', () => {
+  it('accepts explicit session restore and advertises it in invalid-action usage', () => {
+    expect(parseArgs(['session', 'restore', 'session-123'])).toEqual({
+      command: 'session',
+      action: 'restore',
+      args: ['session-123'],
+    })
+    expect(parseArgs(['session', 'unknown'])).toMatchObject({
+      command: 'error',
+      message: expect.stringContaining('|restore>'),
+    })
+  })
+})
+
 describe('parseArgs — memory continuity commands', () => {
   it('parses status, rebuild, timeline, search, and show actions', () => {
     expect(parseArgs(['memory'])).toEqual({ command: 'memory', action: 'status', args: [] })

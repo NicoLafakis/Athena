@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   ContinuityEpisodeSchema,
   ContinuityIndexSchema,
+  ContinuityTombstoneLedgerSchema,
   JevSpeechActEventSchema,
   SemanticMemoryLinkSchema,
   SemanticMemoryRecordSchema,
@@ -23,6 +24,16 @@ const sourceRef = {
 }
 
 describe('continuity schemas', () => {
+  it('validates unique content-free session tombstones', () => {
+    const tombstone = { projectId: 'athena-a1b2c3d4e5f6', sessionId: 'session-1', deletedAt: stamp }
+    expect(ContinuityTombstoneLedgerSchema.parse({ schemaVersion: 1, sessions: [tombstone] })).toEqual({
+      schemaVersion: 1,
+      sessions: [tombstone],
+    })
+    expect(ContinuityTombstoneLedgerSchema.safeParse({ schemaVersion: 1, sessions: [tombstone, tombstone] }).success).toBe(false)
+    expect(ContinuityTombstoneLedgerSchema.safeParse({ schemaVersion: 1, sessions: [tombstone], transcript: 'private text' }).success).toBe(false)
+  })
+
   it('accepts valid IANA zones and rejects invalid or fixed-offset aliases', () => {
     expect(TimeZoneSchema.parse('America/New_York')).toBe('America/New_York')
     expect(TimeZoneSchema.parse('UTC')).toBe('UTC')

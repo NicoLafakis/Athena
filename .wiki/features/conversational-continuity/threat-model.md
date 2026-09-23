@@ -25,7 +25,7 @@ and source history vs. active semantic memories.
 | Secret propagation | Credential appears in a memory summary or search result | Existing redaction plus summary-specific redaction tests; never copy full transcripts |
 | Stale memory | Old decision is stated as current | Observed/valid time, supersession, freshness ranking, current source precedence |
 | Index poisoning | Model supplies a forged source path or ID | Server-authored identifiers; strict schema; resolve only under known local roots |
-| Forgotten data resurrection | Rebuild recreates a deleted memory from source history | Required mitigation is source-aware tombstones in every rebuild; integration is not implemented yet |
+| Forgotten data resurrection | Rebuild recreates deleted session episodes or a semantically forgotten memory | Session deletion is protected by persistent source tombstones across reads and rebuilds; semantic-memory forget and its source-retention policy remain unimplemented |
 | Search side-channel | Query diagnostics leak private topic/content | Log counts, durations, index version, source IDs only; never query or result text |
 | Corrupt/hostile records | Malformed JSON or control characters enter context | Zod validation, bounds, safe text formatting, per-record isolation, atomic writes |
 | Unauthorized project setting | Project asks to add all history or sync it externally | Global user policy only; no network retrieval or project-controlled retention changes |

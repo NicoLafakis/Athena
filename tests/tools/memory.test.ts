@@ -209,6 +209,34 @@ describe('memoryTool', () => {
     expect(unavailable.output).toMatch(/source.*unavailable/i)
   })
 
+  it('refuses a semantic memory whose still-live source has a continuity tombstone', async () => {
+    const sessionsRoot = join(dir, 'sessions')
+    const sessions = new SessionStore(sessionsRoot, 'C:/projects/memory-tombstone')
+    const session = sessions.create()
+    session.appendMessage({ role: 'user', content: 'I decided this source must remain connected.' })
+    const sourceRef = latestUserMessageSourceRef(session.file, sessions.projectId, session.id)
+    if (!sourceRef) throw new Error('Expected a persisted user source reference in the fixture')
+    const memory = new MemoryHygieneStore(join(dir, 'memory')).create({
+      description: 'A tombstoned decision',
+      content: 'This source must remain connected.',
+      sourceRefs: [sourceRef],
+      observedAt: sourceRef.timestamp,
+      scope: 'global',
+      speechAct: 'decided',
+      captureMode: 'explicit',
+      confidence: 1,
+      sensitivity: 'ordinary',
+    })
+    const continuity = new ContinuityStore(join(dir, 'continuity'))
+    continuity.tombstoneSession(sessions.projectId, session.id)
+
+    const result = await memoryTool.execute({ op: 'read', path: `semantic/${memory.memoryId}.md` }, makeCtx(dir))
+
+    expect(result.isError).toBe(true)
+    expect(result.output).not.toContain('This source must remain connected.')
+    expect(result.output).toMatch(/source unavailable/i)
+  })
+
   it('refuses a semantic read when a cited source line changes without changing its identity', async () => {
     const sessions = new SessionStore(join(dir, 'sessions'), 'C:/projects/memory-source-content')
     const session = sessions.create()

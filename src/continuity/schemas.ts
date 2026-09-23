@@ -206,6 +206,31 @@ export const ContinuityIndexSchema = z
     }
   })
 
+/** Content-free suppression state for sessions the user has deleted. */
+export const ContinuityTombstoneLedgerSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    sessions: z.array(
+      z.object({
+        projectId: ProjectIdSchema,
+        sessionId: SessionIdSchema,
+        deletedAt: UtcInstantSchema,
+      }).strict(),
+    ).max(100_000),
+  })
+  .strict()
+  .superRefine((ledger, ctx) => {
+    const sessions = new Set<string>()
+    for (const session of ledger.sessions) {
+      const key = `${session.projectId}\0${session.sessionId}`
+      if (sessions.has(key)) {
+        ctx.addIssue({ code: 'custom', path: ['sessions'], message: 'Tombstone session IDs must be unique' })
+        break
+      }
+      sessions.add(key)
+    }
+  })
+
 export const SemanticMemoryLinkSchema = z
   .object({
     memoryId: IdSchema,
@@ -362,6 +387,7 @@ export type SourceRef = z.infer<typeof SourceRefSchema>
 export type SpeechAct = z.infer<typeof SpeechActSchema>
 export type ContinuityEpisode = z.infer<typeof ContinuityEpisodeSchema>
 export type ContinuityIndex = z.infer<typeof ContinuityIndexSchema>
+export type ContinuityTombstoneLedger = z.infer<typeof ContinuityTombstoneLedgerSchema>
 export type SemanticMemoryLink = z.infer<typeof SemanticMemoryLinkSchema>
 export type SemanticMemoryRecord = z.infer<typeof SemanticMemoryRecordSchema>
 export type TimeRollup = z.infer<typeof TimeRollupSchema>

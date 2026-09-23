@@ -271,4 +271,25 @@ describe('athena exec process contract', () => {
     })
     expect(result.stdout).not.toContain('Sensitive stored guidance')
   })
+
+  it('suppresses deleted session episodes and restores them through the session commands', () => {
+    const sessionsRoot = join(home, '.athena', 'sessions')
+    const sessions = new SessionStore(sessionsRoot, project)
+    const session = sessions.create()
+    session.appendMessage({ role: 'user', content: 'A conversation that can be restored.' })
+    session.appendEvent({ type: 'turn-done' })
+    const continuityRoot = join(home, '.athena', 'continuity')
+    expect(new ContinuityStore(continuityRoot).rebuild(sessionsRoot).episodeCount).toBe(1)
+
+    const deleted = run(['session', 'delete', session.id])
+    expect(deleted.status, deleted.stderr).toBe(0)
+    expect(deleted.stdout).toContain('recoverable copy')
+    expect(new ContinuityStore(continuityRoot).listEpisodes()).toEqual([])
+    expect(new ContinuityStore(continuityRoot).rebuild(sessionsRoot).episodeCount).toBe(0)
+
+    const restored = run(['session', 'restore', session.id])
+    expect(restored.status, restored.stderr).toBe(0)
+    expect(restored.stdout).toContain('continuity indexed 1 episode(s)')
+    expect(new ContinuityStore(continuityRoot).listEpisodes()).toHaveLength(1)
+  })
 })

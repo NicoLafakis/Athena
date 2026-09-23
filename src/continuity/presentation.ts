@@ -90,7 +90,7 @@ export function formatContinuityRollups(
   if (result.state === 'partial') {
     return 'Continuity index is partial; rebuild the local session catalog before generating historical rollups.'
   }
-  const activeSessionKeys = activeSessionKeySet(sessionsRoot)
+  const activeSessionKeys = activeSessionKeySet(sessionsRoot, store)
   const activeEpisodes = filterActiveEpisodes(activeSessionKeys, store.listEpisodes())
   const activeEpisodeIds = new Set(activeEpisodes.map((episode) => episode.id))
   const activeRollups = filterActiveRollups(result.rollups, activeEpisodeIds)
@@ -166,7 +166,7 @@ export function formatContinuityRanking(
     }
   }
   const status = store.status()
-  const activeSessionKeys = activeSessionKeySet(options.sessionsRoot)
+  const activeSessionKeys = activeSessionKeySet(options.sessionsRoot, store)
   const episodes = filterActiveEpisodes(activeSessionKeys, store.listEpisodes())
   const activeEpisodeIds = new Set(episodes.map((episode) => episode.id))
   const semanticMemories = options.semanticMemories?.filter((memory) =>
@@ -231,8 +231,11 @@ function sessionKey(projectId: string, sessionId: string): string {
   return `${projectId}\0${sessionId}`
 }
 
-function activeSessionKeySet(sessionsRoot: string): Set<string> {
+function activeSessionKeySet(sessionsRoot: string, store: ContinuityStore): Set<string> {
+  const suppression = store.sessionSuppressionSnapshot()
+  if (suppression.state === 'corrupt') return new Set()
   return new Set(listAllProjectSessions(sessionsRoot)
+    .filter((source) => !suppression.sessionKeys.has(sessionKey(source.projectId, source.sessionId)))
     .map((source) => sessionKey(source.projectId, source.sessionId)))
 }
 

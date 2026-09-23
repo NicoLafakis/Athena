@@ -3,6 +3,7 @@ import {
   appendFileSync,
   closeSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -422,6 +423,10 @@ export class SessionStore {
     })
   }
 
+  assertExists(id: string): void {
+    this.fileFor(id)
+  }
+
   delete(id: string): string {
     const file = this.fileFor(id)
     const trash = join(this.dir, '.trash')
@@ -431,6 +436,39 @@ export class SessionStore {
       `${id}-${new Date().toISOString().replaceAll(':', '-')}-${randomUUID().slice(0, 8)}.jsonl`,
     )
     renameSync(file, destination)
+    return destination
+  }
+
+  restore(id: string): string {
+    if (!/^[A-Za-z0-9._-]+$/.test(id)) throw new Error(`Invalid session id: ${id}`)
+    const destination = join(this.dir, `${id}.jsonl`)
+    if (existsSync(destination)) {
+      if (lstatSync(destination).isFile()) return destination
+      throw new Error(`Session ${id} already exists and is not a regular file`)
+    }
+    const trash = join(this.dir, '.trash')
+    if (!existsSync(trash) || !lstatSync(trash).isDirectory()) {
+      throw new Error(`No recoverable session ${id} in ${trash}`)
+    }
+    const timestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z-[a-f0-9]{8}\.jsonl$/
+    const candidates = readdirSync(trash)
+      .filter((name) => name.startsWith(`${id}-`) && timestampPattern.test(name.slice(id.length + 1)))
+      .map((name) => ({ file: join(trash, name), name }))
+      .filter(({ file }) => {
+        try {
+          return lstatSync(file).isFile()
+        } catch {
+          return false
+        }
+      })
+      .sort((left, right) => {
+        const modifiedDifference = statSync(right.file).mtimeMs - statSync(left.file).mtimeMs
+        return modifiedDifference || right.name.localeCompare(left.name)
+      })
+    const mostRecent = candidates[0]
+    if (!mostRecent) throw new Error(`No recoverable session ${id} in ${trash}`)
+    mkdirSync(this.dir, { recursive: true })
+    renameSync(mostRecent.file, destination)
     return destination
   }
 

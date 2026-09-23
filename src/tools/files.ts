@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { createReadStream, closeSync, mkdirSync, openSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { createReadStream, closeSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdir, open, rename, rm } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import type { ToolContext } from '../engine/types.js'
@@ -38,8 +38,9 @@ export async function fileSha256(file: string): Promise<string> {
 }
 
 /** Same-directory temp + rename gives atomic replacement on supported local
- * filesystems. The unique temp name prevents concurrent writers from sharing a
- * scratch path; cleanup is best effort on failure. */
+ * filesystems. The optional validator reads the closed temp file before replacement,
+ * so invalid durable state cannot displace the previous file. The unique temp name
+ * prevents concurrent writers from sharing a scratch path; cleanup is best effort. */
 export async function atomicWriteFile(file: string, content: string): Promise<void> {
   await mkdir(dirname(file), { recursive: true })
   const temp = `${file}.athena-${process.pid}-${randomUUID()}.tmp`
@@ -58,7 +59,11 @@ export async function atomicWriteFile(file: string, content: string): Promise<vo
   }
 }
 
-export function atomicWriteFileSync(file: string, content: string): void {
+export function atomicWriteFileSync(
+  file: string,
+  content: string,
+  validateBeforeReplace?: (replacement: string) => void,
+): void {
   mkdirSync(dirname(file), { recursive: true })
   const temp = `${file}.athena-${process.pid}-${randomUUID()}.tmp`
   let descriptor: number | null = null
@@ -67,6 +72,7 @@ export function atomicWriteFileSync(file: string, content: string): void {
     writeFileSync(descriptor, content, 'utf8')
     closeSync(descriptor)
     descriptor = null
+    validateBeforeReplace?.(readFileSync(temp, 'utf8'))
     renameSync(temp, file)
   } catch (error) {
     if (descriptor !== null) {

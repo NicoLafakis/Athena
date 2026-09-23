@@ -65,8 +65,8 @@ local CLI/slash review commands are implemented. Inferred candidates are generat
 from the same direct user claim in at least two distinct, digest-verified sessions; they
 remain candidates until an explicit review. Sensitive claims are not copied into inferred
 semantic storage; explicit memory remains a separate user-directed path.
-Forget/source-deletion integration and full Phase 3 verification remain open. The
-forget source-retention choice is still awaiting the product owner's answer.
+Session delete/restore now uses a content-free suppression ledger; semantic forget and
+its source-retention choice remain open. Full Phase 3 verification is still required.
 
 - [x] 3.1 Extend `Memory` records/tool with source references, observed/valid time, scope,
   speech act, sensitivity, confidence, candidate/active/flagged/superseded/rejected/tombstoned
@@ -98,12 +98,21 @@ forget source-retention choice is still awaiting the product owner's answer.
     is answered.
 - [ ] 3.3 Integrate user deletion and session delete/restore with continuity tombstones and
   rollup invalidation. Prove rebuild cannot resurrect forgotten material.
+  - [x] `athena session delete` writes a versioned content-free tombstone before moving the
+    canonical JSONL to `.trash`; episodes, linked semantic records, and dependent rollups
+    are suppressed immediately, and rebuild skips tombstoned sources.
+  - [x] `athena session restore <id>` restores the recoverable source (or accepts a still-live
+    source after an interrupted delete), then clears its tombstone and reindexes it. Corrupt
+    tombstone state fails closed and is preserved for recovery rather than overwritten.
+  - [ ] Add semantic-memory forget and source-retention behavior after the user's
+    retention choice; session restore does not silently undo a separate forget decision.
 
 ## Phase 4 — hierarchical time views and calibration
 
 - [x] 4.1 Add day/week/month/quarter/year derived rollups with coverage refs, source
   digest, timezone, and generation version. Rollups are computed on demand from a complete
-  index, with no cache; source correction/deletion is reflected after that session is reindexed.
+  index, with no cache; source correction is reflected after reindexing, while deletion
+  tombstones immediately suppress the source and its derived rollups.
 - [x] 4.2 Add deterministic ranking across working, episodic, semantic, and rollup
   layers. `athena memory rank <query>` and `/memory rank <query>` provide a local-only,
   explainable preview: explicit time/project bounds, source/status/sensitivity filters,
@@ -131,8 +140,11 @@ forget source-retention choice is still awaiting the product owner's answer.
   repository gates on the exact implementation state.
   - [x] Exclude inferred sensitive claims and credential-bearing source messages from
     semantic candidates; explicit sensitive storage uses the separate remember path.
-  - [ ] Complete delete/restore/tombstone review after the source-retention choice and
-    provider-prompt privacy review after handoff authorization.
+  - [x] Review the session delete/restore tombstone lifecycle: the ledger stores only
+    project/session IDs and deletion time, fails closed on corruption, and cannot be
+    cleared until the source is live again.
+  - [ ] Complete semantic-forget review after the source-retention choice and
+    provider-prompt privacy review after exact handoff authorization.
 
 ## Phase 5 — Jev decision model (accepted; recall routing and speech-act intake implemented)
 

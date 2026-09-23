@@ -78,8 +78,9 @@ planned metadata extension; they do not create an independent durable fact store
   `athena memory candidates`, and `athena memory review <memory-id> <promote|reject>`
   commands, with equivalent in-session `/memory` commands. Candidate generation is an
   explicit local action that requires repeated direct user claims in distinct,
-  source-verified sessions; review never happens automatically. A `forget` command and
-  deletion integration remain planned pending the source-retention decision.
+  source-verified sessions; review never happens automatically. Session delete/restore is
+  integrated with continuity tombstones. Semantic-memory `forget` remains planned pending
+  the source-retention decision.
 - **Common path:** one conversational question; no user-selected project/session when
   the request is unambiguous. Inspect/correct/forget actions require a clear target before
   mutation.
@@ -88,8 +89,9 @@ planned metadata extension; they do not create an independent durable fact store
   clarified.
 
 Exact command syntax follows the current CLI parser. Local episode search, inspection,
-ranking, candidate generation, and candidate review have CLI/slash parity. Full forget,
-source-delete/restore, and provider-handoff paths are not implemented yet.
+ranking, candidate generation, and candidate review have CLI/slash parity. Session
+delete/restore is implemented through `athena session delete|restore` and persistent
+tombstones. Semantic-memory forget and automatic provider handoff are not implemented yet.
 
 ## 9. Interface contract
 

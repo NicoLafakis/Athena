@@ -2,7 +2,7 @@
 
 - **Tier:** 3 — major / high trust impact
 - **Date:** 2026-09-23
-- **Status:** implementation in progress; local linked-episode catalog, CLI/slash inspection, source-verified semantic candidate generation/review, on-demand time rollups, explainable local ranking previews, immediate suppression of trashed sources, Jev recall routing, and source-linked Jev speech-act intake are implemented; automatic historical answer-provider handoff, forget/delete integration, and live Jev quality evaluation remain open
+- **Status:** implementation in progress; local linked-episode catalog, CLI/slash inspection, source-verified semantic candidate generation/review, on-demand time rollups, explainable local ranking previews, persistent session delete/restore tombstones, Jev recall routing, and source-linked Jev speech-act intake are implemented; automatic historical answer-provider handoff, semantic-memory forget, and live Jev quality evaluation remain open
 - **Product owner:** Nico
 
 ## What was asked
@@ -130,6 +130,9 @@ distinct, digest-verified sessions; the bounded listing includes linked episode 
 `athena memory review <id> <promote|reject>` and `/memory review ...` apply an explicit
 decision. Sensitive claims are excluded from inferred semantic storage; the original
 session remains canonical, and explicit remember is a separate user-directed path. Existing
-explicit or terminal decisions suppress duplicates. Synthetic quality and latency
-calibration is documented; live-history dogfood and correction rates remain open alongside
-forget/deletion suppression and provider handoff.
+explicit or terminal decisions suppress duplicates. Session deletion persists a
+content-free tombstone that suppresses episodes and derived rollups across reads and
+rebuilds; `athena session restore <id>` explicitly restores the canonical source and
+reindexes it. Semantic-memory forget and its source-retention choice remain open. Synthetic
+quality and latency calibration is documented; live-history dogfood, correction rates, and
+provider handoff remain open.

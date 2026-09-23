@@ -7,9 +7,11 @@ import {
   ContinuityIndexSchema,
   ContinuityEpisodeSchema,
   parseContinuityIndex,
+  ContinuityTombstoneLedgerSchema,
   TimeZoneSchema,
   type ContinuityEpisode,
   type ContinuityIndex,
+  type ContinuityTombstoneLedger,
   type SpeechAct,
   type SourceRef,
   type TimeRollup,
@@ -67,6 +69,21 @@ const STOP_WORDS = new Set([
 
 function digest(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex')
+}
+
+const tombstoneKeysByLedger = new WeakMap<object, ReadonlySet<string>>()
+
+function isTombstoned(ledger: ContinuityTombstoneLedger, projectId: string, sessionId: string): boolean {
+  return tombstoneKeys(ledger).has(`${projectId}\0${sessionId}`)
+}
+
+function tombstoneKeys(ledger: ContinuityTombstoneLedger): ReadonlySet<string> {
+  let keys = tombstoneKeysByLedger.get(ledger)
+  if (!keys) {
+    keys = new Set(ledger.sessions.map((entry) => `${entry.projectId}\0${entry.sessionId}`))
+    tombstoneKeysByLedger.set(ledger, keys)
+  }
+  return keys
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -294,15 +311,19 @@ function extractSessionEpisodes(
 
 export class ContinuityStore {
   private readonly indexFile: string
+  private readonly tombstoneFile: string
   private readonly warned = new Set<string>()
   private cachedIndexDigest: string | undefined
   private cachedIndex: ContinuityIndex | null = null
+  private cachedVisibleKey: string | undefined
+  private cachedVisibleIndex: ContinuityIndex | null = null
 
   constructor(
     root: string,
     private readonly options: ContinuityStoreOptions = {},
   ) {
     this.indexFile = join(root, 'index.json')
+    this.tombstoneFile = join(root, 'tombstones.json')
   }
 
   listEpisodes(): ContinuityEpisode[] {
@@ -315,7 +336,10 @@ export class ContinuityStore {
   ): ContinuityRollupResult {
     const indexExists = existsSync(this.indexFile)
     const index = this.readIndex()
-    if (!index) return { state: indexExists ? 'corrupt' : 'missing', rollups: [] }
+    if (!index) {
+      if (indexExists || !this.readTombstones()) return { state: 'corrupt', rollups: [] }
+      return { state: 'missing', rollups: [] }
+    }
     if (!index.catalogComplete) return { state: 'partial', rollups: [] }
     return {
       state: 'ready',
@@ -328,9 +352,12 @@ export class ContinuityStore {
   }
 
   status(): ContinuityStatus {
-    if (!existsSync(this.indexFile)) return { state: 'missing', episodeCount: 0, projectCount: 0 }
+    const indexExists = existsSync(this.indexFile)
     const index = this.readIndex()
-    if (!index) return { state: 'corrupt', episodeCount: 0, projectCount: 0 }
+    if (!index) {
+      if (indexExists || !this.readTombstones()) return { state: 'corrupt', episodeCount: 0, projectCount: 0 }
+      return { state: 'missing', episodeCount: 0, projectCount: 0 }
+    }
     return {
       state: index.catalogComplete ? 'ready' : 'partial',
       episodeCount: index.episodes.length,
@@ -339,12 +366,25 @@ export class ContinuityStore {
     }
   }
 
+  /** Snapshot the content-free suppressed source identities for one local read operation. */
+  sessionSuppressionSnapshot(): { state: 'ready' | 'corrupt'; sessionKeys: ReadonlySet<string> } {
+    const ledger = this.readTombstones()
+    return ledger
+      ? { state: 'ready', sessionKeys: tombstoneKeys(ledger) }
+      : { state: 'corrupt', sessionKeys: new Set<string>() }
+  }
+
   /** Replace one session's episodes after a completed turn; never scans other projects. */
   indexSession(
     sessionsRoot: string,
     projectId: string,
     sessionId: string,
   ): { state: 'indexed' | 'removed' | 'missing' | 'corrupt'; episodeCount: number } {
+    const tombstones = this.readTombstones()
+    if (!tombstones) return { state: 'corrupt', episodeCount: 0 }
+    if (isTombstoned(tombstones, projectId, sessionId)) {
+      return { state: 'removed', episodeCount: 0 }
+    }
     const exists = existsSync(this.indexFile)
     const previous = this.readIndex()
     if (exists && !previous) return { state: 'corrupt', episodeCount: 0 }
@@ -414,9 +454,19 @@ export class ContinuityStore {
   }
 
   readIndex(): ContinuityIndex | null {
+    const tombstones = this.readTombstonesWithDigest()
+    if (!tombstones) {
+      this.cachedIndexDigest = undefined
+      this.cachedIndex = null
+      this.cachedVisibleKey = undefined
+      this.cachedVisibleIndex = null
+      return null
+    }
     if (!existsSync(this.indexFile)) {
       this.cachedIndexDigest = undefined
       this.cachedIndex = null
+      this.cachedVisibleKey = undefined
+      this.cachedVisibleIndex = null
       return null
     }
     try {
@@ -425,26 +475,51 @@ export class ContinuityStore {
       if (contentBytes.byteLength > statLimit) throw new Error('index exceeds size limit')
       const content = contentBytes.toString('utf8')
       const contentDigest = createHash('sha256').update(contentBytes).digest('hex')
-      if (contentDigest === this.cachedIndexDigest) return this.cachedIndex
-      const index = parseContinuityIndex(JSON.parse(content) as unknown)
-      this.cachedIndexDigest = contentDigest
-      this.cachedIndex = index
-      return index
+      if (contentDigest !== this.cachedIndexDigest) {
+        this.cachedIndex = parseContinuityIndex(JSON.parse(content) as unknown)
+        this.cachedIndexDigest = contentDigest
+        this.cachedVisibleKey = undefined
+        this.cachedVisibleIndex = null
+      }
+      if (!this.cachedIndex) return null
+      if (tombstones.ledger.sessions.length === 0) return this.cachedIndex
+      const visibleKey = `${contentDigest}:${tombstones.digest}`
+      if (visibleKey === this.cachedVisibleKey) return this.cachedVisibleIndex
+      const visible = ContinuityIndexSchema.parse({
+        ...this.cachedIndex,
+        sessions: this.cachedIndex.sessions.filter(
+          (session) => !isTombstoned(tombstones.ledger, session.projectId, session.sessionId),
+        ),
+        episodes: this.cachedIndex.episodes.filter(
+          (episode) => !isTombstoned(tombstones.ledger, episode.projectId ?? '', episode.sessionId),
+        ),
+      })
+      this.cachedVisibleKey = visibleKey
+      this.cachedVisibleIndex = parseContinuityIndex(visible)
+      return this.cachedVisibleIndex
     } catch {
       this.cachedIndexDigest = undefined
       this.cachedIndex = null
+      this.cachedVisibleKey = undefined
+      this.cachedVisibleIndex = null
       this.warn(`index ${this.indexFile} is corrupt or unreadable`)
       return null
     }
   }
 
   rebuild(sessionsRoot: string): ContinuityRebuildResult {
+    const tombstones = this.readTombstones()
+    if (!tombstones) {
+      throw new Error(`Cannot rebuild continuity while tombstone ledger ${this.tombstoneFile} is corrupt; restore a valid ledger before rebuilding.`)
+    }
     this.readIndex()
     const generatedAt = (this.options.now?.() ?? new Date()).toISOString()
     const warnings: string[] = []
     const episodes: ContinuityEpisode[] = []
     const indexedSessions: ContinuityIndex['sessions'] = []
-    const sources = listAllProjectSessions(sessionsRoot)
+    const sources = listAllProjectSessions(sessionsRoot).filter(
+      (source) => !isTombstoned(tombstones, source.projectId, source.sessionId),
+    )
     for (const source of sources) {
       try {
         const result = readSessionLineRecordsDetailed(source.file)
@@ -493,12 +568,103 @@ export class ContinuityStore {
     return { sessionCount: sources.length, episodeCount: episodes.length, warnings, generatedAt }
   }
 
+  /** Persist a content-free source suppression record before moving a deleted transcript. */
+  tombstoneSession(projectId: string, sessionId: string): void {
+    const ledger = this.readTombstones()
+    if (!ledger) throw new Error(`Cannot update corrupt tombstone ledger ${this.tombstoneFile}`)
+    if (!isTombstoned(ledger, projectId, sessionId)) {
+      const next = ContinuityTombstoneLedgerSchema.parse({
+        ...ledger,
+        sessions: [
+          ...ledger.sessions,
+          { projectId, sessionId, deletedAt: (this.options.now?.() ?? new Date()).toISOString() },
+        ].sort((left, right) => left.projectId.localeCompare(right.projectId) || left.sessionId.localeCompare(right.sessionId)),
+      })
+      this.writeTombstones(next)
+    }
+    const index = this.readIndex()
+    if (!index) return
+    this.writeIndex(ContinuityIndexSchema.parse({
+      ...index,
+      sessions: index.sessions.filter((item) => item.projectId !== projectId || item.sessionId !== sessionId),
+      episodes: index.episodes.filter((item) => item.projectId !== projectId || item.sessionId !== sessionId),
+    }))
+  }
+
+  /** Clear a tombstone only after an explicit restore made the source session live again. */
+  restoreSession(
+    projectId: string,
+    sessionId: string,
+    sessionsRoot: string,
+  ): { state: 'indexed' | 'removed' | 'missing' | 'corrupt'; episodeCount: number } {
+    const source = listAllProjectSessions(sessionsRoot).find(
+      (item) => item.projectId === projectId && item.sessionId === sessionId,
+    )
+    if (!source) return { state: 'missing', episodeCount: 0 }
+    const ledger = this.readTombstones()
+    if (!ledger) return { state: 'corrupt', episodeCount: 0 }
+    if (isTombstoned(ledger, projectId, sessionId)) {
+      this.writeTombstones(ContinuityTombstoneLedgerSchema.parse({
+        ...ledger,
+        sessions: ledger.sessions.filter((item) => item.projectId !== projectId || item.sessionId !== sessionId),
+      }))
+    }
+    return this.indexSession(sessionsRoot, projectId, sessionId)
+  }
+
+  private readTombstones(): ContinuityTombstoneLedger | null {
+    return this.readTombstonesWithDigest()?.ledger ?? null
+  }
+
+  private readTombstonesWithDigest(): { ledger: ContinuityTombstoneLedger; digest: string } | null {
+    if (!existsSync(this.tombstoneFile)) {
+      return { ledger: { schemaVersion: 1, sessions: [] }, digest: 'missing' }
+    }
+    try {
+      const bytes = readFileSync(this.tombstoneFile)
+      if (bytes.byteLength > (this.options.maxIndexBytes ?? 64 * 1024 * 1024)) throw new Error('ledger exceeds size limit')
+      const content = bytes.toString('utf8')
+      return {
+        ledger: ContinuityTombstoneLedgerSchema.parse(JSON.parse(content) as unknown),
+        digest: createHash('sha256').update(bytes).digest('hex'),
+      }
+    } catch {
+      this.warnTombstones(`tombstone ledger ${this.tombstoneFile} is corrupt or unreadable`)
+      return null
+    }
+  }
+
+  private writeTombstones(ledger: ContinuityTombstoneLedger): void {
+    const content = JSON.stringify(ledger, null, 2) + '\n'
+    if (Buffer.byteLength(content, 'utf8') > (this.options.maxIndexBytes ?? 64 * 1024 * 1024)) {
+      throw new Error('Continuity tombstone ledger exceeds the configured size limit')
+    }
+    atomicWriteFileSync(this.tombstoneFile, content, (replacement) => {
+      const verified = ContinuityTombstoneLedgerSchema.parse(JSON.parse(replacement) as unknown)
+      if (JSON.stringify(verified) !== JSON.stringify(ledger)) {
+        throw new Error(`Continuity tombstone ledger ${this.tombstoneFile} did not match its verified replacement`)
+      }
+    })
+    const verifiedBytes = readFileSync(this.tombstoneFile)
+    const verified = ContinuityTombstoneLedgerSchema.parse(JSON.parse(verifiedBytes.toString('utf8')) as unknown)
+    if (JSON.stringify(verified) !== JSON.stringify(ledger)) {
+      throw new Error(`Continuity tombstone ledger ${this.tombstoneFile} did not match its verified replacement`)
+    }
+    this.cachedVisibleKey = undefined
+    this.cachedVisibleIndex = null
+  }
+
   private writeIndex(index: ContinuityIndex): void {
     const content = JSON.stringify(index, null, 2) + '\n'
     if (Buffer.byteLength(content, 'utf8') > (this.options.maxIndexBytes ?? 64 * 1024 * 1024)) {
       throw new Error('Continuity rebuild exceeds the configured index size limit')
     }
-    atomicWriteFileSync(this.indexFile, content)
+    atomicWriteFileSync(this.indexFile, content, (replacement) => {
+      const verified = parseContinuityIndex(JSON.parse(replacement) as unknown)
+      if (JSON.stringify(verified) !== JSON.stringify(index)) {
+        throw new Error(`Continuity index ${this.indexFile} did not match its verified replacement`)
+      }
+    })
     const verifiedContentBytes = readFileSync(this.indexFile)
     const verifiedContent = verifiedContentBytes.toString('utf8')
     const verified = parseContinuityIndex(JSON.parse(verifiedContent) as unknown)
@@ -514,6 +680,14 @@ export class ContinuityStore {
     this.warned.add(reason)
     this.options.onWarn?.(
       `Continuity local JSON index ${this.indexFile} ${reason}; no unvalidated memory was loaded. Run \`athena memory rebuild\` to recover it.`,
+    )
+  }
+
+  private warnTombstones(reason: string): void {
+    if (this.warned.has(reason)) return
+    this.warned.add(reason)
+    this.options.onWarn?.(
+      `Continuity ${reason}; recall fails closed. Restore a valid backup or repair the versioned ledger, then run \`athena memory rebuild\`.`,
     )
   }
 }

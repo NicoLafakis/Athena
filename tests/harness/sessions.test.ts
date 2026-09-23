@@ -329,6 +329,28 @@ describe('SessionStore', () => {
     expect(() => store.resume(fork.id)).toThrow(/No session/)
   })
 
+  it('restores the most recent recoverable copy to its original session path', () => {
+    const store = new SessionStore(sessionsRoot, 'C:/restore')
+    const session = store.create()
+    session.appendMessage({ role: 'user', content: 'recoverable conversation' })
+    const originalFile = session.file
+    expect(() => store.assertExists(session.id)).not.toThrow()
+    expect(() => store.assertExists('missing-session')).toThrow(/No session/)
+    store.delete(session.id)
+
+    const restoredFile = store.restore(session.id)
+
+    expect(restoredFile).toBe(originalFile)
+    expect(store.resume(session.id)).toEqual([{ role: 'user', content: 'recoverable conversation' }])
+  })
+
+  it('is idempotent when the session source is already live', () => {
+    const store = new SessionStore(sessionsRoot, 'C:/already-restored')
+    const session = store.create()
+    session.appendMessage({ role: 'user', content: 'already live' })
+    expect(store.restore(session.id)).toBe(session.file)
+  })
+
   it('anchors an explicit checkpoint fork at the checkpoint source line', () => {
     const store = new SessionStore(sessionsRoot, 'C:/p')
     const session = store.create()

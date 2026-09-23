@@ -15,7 +15,7 @@
 | FR-007 / AC-005 promotion | Unit + integration | Explicit remember; repeated direct user claim across two digest-verified sessions creates a candidate only; same-session repetition, tentative/question/assistant/stale/truncated evidence is excluded; sensitive claims are excluded from inferred semantic records; rejection/explicit memory suppress duplicate inference |
 | FR-008 conflict lifecycle | Unit | Supersession preserves prior value/date/source; direct correction ranks correctly |
 | FR-011 controls/accessibility | CLI + presentation integration | Search/show/rank/candidate generation and promote/reject review parity with bounded plain text output; correct/forget parity remains planned |
-| FR-012 / AC-006 deletion | Integration | Delete/restore/forget; derived invalidation; rebuild does not resurrect tombstoned sources |
+| FR-012 / AC-006 deletion | Integration | Session delete/restore tombstones suppress episodes, linked semantic records, and derived rollups; rebuild does not resurrect trashed sources. Semantic-memory forget remains pending its source-retention choice. |
 | FR-013 privacy | Security fixtures | Secret-shaped strings in episode and candidate data, path escapes, unsafe model output, no raw transcript copy; broad PII classification remains outside the current redactor |
 | FR-014 / AC-010 budgets | Ranking + performance + prompt integration | Local candidate count/source-ID caps and privacy-safe metrics; no background model calls; prompt handoff remains future work |
 | FR-015 / AC-007 rebuild/failure | Integration | Truncated JSONL, corrupt index, missing project, permission error, atomic-write failure |
@@ -28,6 +28,10 @@
 - Rollup tests cover IANA local calendar boundaries, repeated DST hours, bounded on-demand
   summaries with complete source coverage, deterministic source digests, complete-index gating,
   and refreshed results after source correction or deletion.
+- Session lifecycle tests cover restoration of the most recent recoverable JSONL source,
+  tombstone suppression across store restart and rebuild, refusal to reindex a tombstoned
+  source, rollup invalidation, explicit restore and reindex, and fail-closed preservation of
+  a corrupt tombstone ledger.
 - Schema and temporal unit tests cover bounded identities, duplicate/cross-scope refs,
   calendar boundaries, DST, and explicit/inferred timezone behavior.
 - Session/catalog tests cover stable legacy IDs, canonical-line deduplication, nested

@@ -73,16 +73,25 @@ function walk(dir: string): string[] {
 function semanticSourcesAvailable(
   memory: NonNullable<ReturnType<MemoryHygieneStore['get']>>,
   sessionsRoot: string,
-): boolean {
+  continuityRoot: string,
+): 'available' | 'unavailable' | 'tombstone-corrupt' {
+  const hasSessionSources = memory.sourceRefs.some(
+    (source) => source.kind === 'session-message' || source.kind === 'session-event',
+  )
+  const suppression = hasSessionSources
+    ? new ContinuityStore(continuityRoot).sessionSuppressionSnapshot()
+    : null
+  if (suppression?.state === 'corrupt') return 'tombstone-corrupt'
   const sessions = new Map(listAllProjectSessions(sessionsRoot)
     .map((source) => [`${source.projectId}\0${source.sessionId}`, source]))
   const checkedSessions = new Map<string, ReturnType<typeof readSessionLineRecords> | null>()
   for (const sourceRef of memory.sourceRefs) {
     if (sourceRef.kind !== 'session-message' && sourceRef.kind !== 'session-event') continue
-    if (!sourceRef.projectId || !sourceRef.sessionId) return false
+    if (!sourceRef.projectId || !sourceRef.sessionId) return 'unavailable'
     const key = `${sourceRef.projectId}\0${sourceRef.sessionId}`
+    if (suppression?.sessionKeys.has(key)) return 'unavailable'
     const source = sessions.get(key)
-    if (!source) return false
+    if (!source) return 'unavailable'
     if (!checkedSessions.has(key)) {
       try {
         const metadata = lstatSync(source.file)
@@ -95,28 +104,28 @@ function semanticSourcesAvailable(
     }
     const records = checkedSessions.get(key)
     const record = records?.find((item) => stableSessionLineId(item) === sourceRef.recordId)
-    if (!record || record.line.ts !== sourceRef.timestamp) return false
+    if (!record || record.line.ts !== sourceRef.timestamp) return 'unavailable'
     if (sourceRef.lineDigest) {
-      if (sessionLineDigest(record) !== sourceRef.lineDigest) return false
+      if (sessionLineDigest(record) !== sourceRef.lineDigest) return 'unavailable'
     } else if (typeof record.line.id === 'string' && record.line.id.length > 0) {
       // UUID-backed legacy refs cannot prove the line's content. ID-less legacy
       // refs already embed the raw-line digest in stableSessionLineId().
-      return false
+      return 'unavailable'
     }
-    if (sourceRef.kind === 'session-event' && record.line.kind !== 'event') return false
+    if (sourceRef.kind === 'session-event' && record.line.kind !== 'event') return 'unavailable'
     if (sourceRef.kind === 'session-message') {
-      if (record.line.kind !== 'message' || typeof record.line.data !== 'object' || record.line.data === null) return false
+      if (record.line.kind !== 'message' || typeof record.line.data !== 'object' || record.line.data === null) return 'unavailable'
       const message = record.line.data as { role?: unknown; content?: unknown }
-      if (message.role !== 'user' || typeof message.content !== 'string' || !message.content.trim()) return false
+      if (message.role !== 'user' || typeof message.content !== 'string' || !message.content.trim()) return 'unavailable'
     }
   }
-  return true
+  return 'available'
 }
 
 export const memoryTool: ToolDefinition<z.infer<typeof MemoryInput>> = {
   name: 'Memory',
   description:
-    'List, read, write, or delete Brain memory files. For current personal facts, use only semantic records marked active and within their valid dates; treat candidates as unconfirmed and superseded records as historical. The model-facing read action never returns candidate, flagged, rejected, or tombstoned semantic content; use local review controls for those records. Managed semantic reads verify that each cited session line is still available, unchanged, and user-authored; do not use a memory whose source is unavailable or changed. Use remember only when the user explicitly asks to retain a fact; questions and hypotheticals are not facts. Use review only after the user accepts or rejects a candidate; promotion revalidates every inferred source against the complete local continuity index and its current session lines. Supersede only when the user explicitly corrects an active memory. Source links come from persisted user messages. Writes and deletes keep MEMORY.md in sync.',
+    'List, read, write, or delete Brain memory files. For current personal facts, use only semantic records marked active and within their valid dates; treat candidates as unconfirmed and superseded records as historical. The model-facing read action never returns candidate, flagged, rejected, or tombstoned semantic content; use local review controls for those records. Managed semantic reads verify that each cited session line is still available, unchanged, and user-authored, and reject sources suppressed by continuity tombstones; do not use a memory whose source is unavailable or changed. Use remember only when the user explicitly asks to retain a fact; questions and hypotheticals are not facts. Use review only after the user accepts or rejects a candidate; promotion revalidates every inferred source against the complete local continuity index and its current session lines. Supersede only when the user explicitly corrects an active memory. Source links come from persisted user messages. Writes and deletes keep MEMORY.md in sync.',
   schema: MemoryInput,
   readOnly: false,
   async execute(input, ctx) {
@@ -250,7 +259,18 @@ export const memoryTool: ToolDefinition<z.infer<typeof MemoryInput>> = {
               isError: true,
             }
           }
-          if (!semanticSourcesAvailable(memory, join(ctx.brainDir, 'sessions'))) {
+          const sourceAvailability = semanticSourcesAvailable(
+            memory,
+            join(ctx.brainDir, 'sessions'),
+            join(ctx.brainDir, 'continuity'),
+          )
+          if (sourceAvailability !== 'available') {
+            if (sourceAvailability === 'tombstone-corrupt') {
+              return {
+                output: 'Continuity tombstone ledger is corrupt; linked memory is suppressed. Restore a valid backup or repair tombstones.json, then run `athena memory rebuild`.',
+                isError: true,
+              }
+            }
             return { output: 'Managed semantic memory source unavailable; inspect its linked source locally before using it.', isError: true }
           }
           return {
