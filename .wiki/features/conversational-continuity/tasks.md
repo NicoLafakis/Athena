@@ -132,20 +132,24 @@ forget source-retention choice is still awaiting the product owner's answer.
   - [ ] Complete delete/restore/tombstone review after the source-retention choice and
     provider-prompt privacy review after handoff authorization.
 
-## Optional Phase 5 — Jev decision model (proposed, not implemented)
+## Optional Phase 5 — Jev decision model (integration proposed)
 
 Jev is a TypeSafe System One model that returns structured judgments; it is not Athena's
 conversation or answer model. The researched integration boundary and vendor-data review
-are in [ADR 0003](adr/0003-jev-decision-model.md). A product question about which first
-slice to pursue is still pending; recommendation is staged work with recall routing first.
+are in [ADR 0003](adr/0003-jev-decision-model.md). The optional typed decision-client seam
+is implemented, but no TypeSafe adapter or live call exists. A product question about
+which first slice to pursue is still pending; recommendation is staged work with recall
+routing first.
 
 - [x] 5.1 Build a labeled synthetic recall-intent corpus and measure the current local
   routing baseline before selecting Jev thresholds or an adoption bar. The 49-case
   corpus and deterministic ranker-intent proxy are measured in
   [calibration.md](calibration.md); answer-time automatic history routing remains absent.
-- [ ] 5.2 Define an optional `DecisionClient` separate from streaming `ModelClient`; test
+- [x] 5.2 Define an optional `DecisionClient` separate from streaming `ModelClient`; test
   typed output validation, fallback, timeout/rate-limit handling, zero calls while disabled,
-  and content-free telemetry with a fake transport.
+  and content-free telemetry with a fake transport. The implementation is a dependency-
+  injected seam only; it has no TypeSafe SDK, credentials, network transport, or harness
+  call site.
 - [ ] 5.3 If recall routing is selected, add the TypeSafe adapter behind an explicit
   opt-in. Send only the redacted current user request for the first slice; no source
   excerpts, summaries, memory text, IDs, or project paths. Keep local time, project,

@@ -20,7 +20,7 @@
 | FR-014 / AC-010 budgets | Ranking + performance + prompt integration | Local candidate count/source-ID caps and privacy-safe metrics; no background model calls; prompt handoff remains future work |
 | FR-015 / AC-007 rebuild/failure | Integration | Truncated JSONL, corrupt index, missing project, permission error, atomic-write failure |
 | Live-source presentation | Integration | Move a source session into `.trash` without rebuilding; ranking, linked semantic memory, direct `Memory.read`, and rollup text disappear immediately |
-| Optional Jev routing (proposed) | Evaluation + adapter integration | Compare to local baseline on labeled synthetic queries; verify disabled mode makes zero calls; enforce typed-choice validation, no-history payload, timeout fallback, and no content in logs |
+| Optional Jev routing (proposed) | Evaluation + decision-client unit tests | Compare to local baseline on labeled synthetic queries; verify disabled mode makes zero calls; enforce caller-schema validation, timeout/rate-limit fallback, and content-free telemetry. When an adapter is proposed, add no-history payload and fake-transport adapter tests |
 
 ## Implemented evidence at this checkpoint
 
@@ -66,6 +66,11 @@
   absence of a `none` class and the resulting proxy false positives. This classifier is
   ranking metadata only; it is not wired to answer-time retrieval. No Jev request or live
   history is used by this evaluation.
+- The optional `DecisionClient` seam is separate from streaming `ModelClient`. Fake-
+  transport tests cover typed response validation, disabled/unavailable fallback, timeout
+  abort, rate-limit fallback, and content-free telemetry; telemetry sink failures cannot
+  change the decision. The seam has no TypeSafe adapter or harness call site, so these tests
+  do not claim provider integration or prove any user data is sent.
 - [`calibration.md`](calibration.md) records deterministic synthetic quality measures and
   a 10,000-episode/10,000-session-file local performance sample, including the shared
   search presenter and verified source expansion. These measurements do not claim TUI
