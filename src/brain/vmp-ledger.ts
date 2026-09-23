@@ -2,6 +2,7 @@ import { createReadStream, existsSync } from 'node:fs'
 import { appendFile, mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { createInterface } from 'node:readline'
+import { finished } from 'node:stream/promises'
 import type { Attempt, LedgerStore } from '../../api-calculator/src/types.js'
 import { validateAttempt } from '../../api-calculator/src/contract.js'
 import type { BrainPaths } from './paths.js'
@@ -39,18 +40,25 @@ export class FileLedgerStore implements LedgerStore {
     const seen = new Set<string>()
     const results: Attempt[] = []
     const stream = createReadStream(this.ledgerFile, { encoding: 'utf8' })
+    const streamClosed = finished(stream).catch(() => undefined)
     const reader = createInterface({ input: stream })
-    for await (const line of reader) {
-      if (!line.trim()) continue
-      try {
-        const parsed = validateAttempt(JSON.parse(line))
-        if (seen.has(parsed.external_id)) continue
-        seen.add(parsed.external_id)
-        results.push(parsed)
-      } catch {
-        // Corrupt/legacy lines are skipped; the business data we care about is
-        // the provider usage, and a partial line cannot be trusted.
+    try {
+      for await (const line of reader) {
+        if (!line.trim()) continue
+        try {
+          const parsed = validateAttempt(JSON.parse(line))
+          if (seen.has(parsed.external_id)) continue
+          seen.add(parsed.external_id)
+          results.push(parsed)
+        } catch {
+          // Corrupt/legacy lines are skipped; the business data we care about is
+          // the provider usage, and a partial line cannot be trusted.
+        }
       }
+    } finally {
+      reader.close()
+      stream.destroy()
+      await streamClosed
     }
     return results
   }
@@ -59,15 +67,22 @@ export class FileLedgerStore implements LedgerStore {
     const ids = new Set<string>()
     if (!existsSync(this.ledgerFile)) return ids
     const stream = createReadStream(this.ledgerFile, { encoding: 'utf8' })
+    const streamClosed = finished(stream).catch(() => undefined)
     const reader = createInterface({ input: stream })
-    for await (const line of reader) {
-      if (!line.trim()) continue
-      try {
-        const parsed = JSON.parse(line) as { external_id?: unknown }
-        if (typeof parsed.external_id === 'string') ids.add(parsed.external_id)
-      } catch {
-        // ignore corrupt lines
+    try {
+      for await (const line of reader) {
+        if (!line.trim()) continue
+        try {
+          const parsed = JSON.parse(line) as { external_id?: unknown }
+          if (typeof parsed.external_id === 'string') ids.add(parsed.external_id)
+        } catch {
+          // ignore corrupt lines
+        }
       }
+    } finally {
+      reader.close()
+      stream.destroy()
+      await streamClosed
     }
     return ids
   }

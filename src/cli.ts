@@ -687,7 +687,9 @@ Usage:
   athena trust --hooks   separately approve the current project hook definitions
   athena trust --mcp     separately approve the current project MCP definitions
   athena trust --revoke  revoke all trust for this project
-  athena session list    manage durable sessions, checkpoints, rewind, forks, and recovery
+  athena session list           manage durable sessions, checkpoints, rewind, and forks
+  athena session delete <id>    move a session to recoverable trash and suppress its recall
+  athena session restore <id>   restore a recoverable session and reindex its history
   athena memory          inspect cross-project conversation continuity
   athena memory rebuild  rebuild the local linked episode index
   athena memory search   find prior conversations by time or topic
@@ -1688,7 +1690,7 @@ async function main(): Promise<void> {
           store.assertExists(id)
           continuityStore.tombstoneSession(store.projectId, id)
           try {
-            console.log(`Deleted ${id}; recoverable copy: ${store.delete(id)}`)
+            console.log(`Deleted ${id}; recoverable copy: ${store.delete(id)}; continuity suppressed.`)
           } catch (error) {
             continuityStore.restoreSession(store.projectId, id, paths.sessionsDir)
             throw error

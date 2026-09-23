@@ -284,6 +284,7 @@ describe('athena exec process contract', () => {
     const deleted = run(['session', 'delete', session.id])
     expect(deleted.status, deleted.stderr).toBe(0)
     expect(deleted.stdout).toContain('recoverable copy')
+    expect(deleted.stdout).toContain('continuity suppressed')
     expect(new ContinuityStore(continuityRoot).listEpisodes()).toEqual([])
     expect(new ContinuityStore(continuityRoot).rebuild(sessionsRoot).episodeCount).toBe(0)
 
