@@ -107,6 +107,7 @@ import { stalenessBootWarnings } from './harness/staleness.js'
 import { configureVmp, getVmpStatus, printVmpReport, startVmpServer } from './harness/vmp.js'
 import { ContinuityStore } from './continuity/store.js'
 import { MemoryHygieneStore } from './brain/hygiene.js'
+import { generateSemanticCandidates, reviewSemanticCandidate } from './continuity/candidates.js'
 import type { WorkingRecallState } from './continuity/ranking.js'
 import {
   formatContinuityEpisode,
@@ -114,12 +115,14 @@ import {
   formatContinuityRollups,
   formatContinuitySearch,
   formatContinuityStatus,
+  formatSemanticCandidateReview,
 } from './continuity/presentation.js'
 export type AccessibilityPresentation = 'standard' | 'screen-reader'
 export type VoiceModel = 'gpt-realtime-2.1-mini' | 'gpt-realtime-2.1'
 
 const VOICE_MODELS: readonly VoiceModel[] = ['gpt-realtime-2.1-mini', 'gpt-realtime-2.1']
 const DEFAULT_VOICE_MODEL: VoiceModel = 'gpt-realtime-2.1-mini'
+const SEMANTIC_MEMORY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 export type CliCommand =
   | { command: 'run'; provider?: ProviderId; accessibility?: AccessibilityPresentation }
@@ -153,7 +156,7 @@ export type CliCommand =
     }
   | {
       command: 'memory'
-      action: 'rebuild' | 'status' | 'timeline' | 'search' | 'show' | 'rollup' | 'rank'
+      action: 'rebuild' | 'status' | 'timeline' | 'search' | 'show' | 'rollup' | 'rank' | 'candidates' | 'review'
       args: string[]
       projectId?: string
     }
@@ -505,11 +508,11 @@ export function parseArgs(argv: string[]): CliCommand {
   }
   if (argv[0] === 'memory') {
     const action = argv[1] ?? 'status'
-    const actions = new Set(['rebuild', 'status', 'timeline', 'search', 'show', 'rollup', 'rank'])
+    const actions = new Set(['rebuild', 'status', 'timeline', 'search', 'show', 'rollup', 'rank', 'candidates', 'review'])
     if (!actions.has(action)) {
       return {
         command: 'error',
-        message: 'Usage: athena memory <rebuild|status|timeline|search|rank|show|rollup> [query|episode-id|granularity] [--project <project-id>]',
+        message: 'Usage: athena memory <rebuild|status|timeline|search|rank|show|rollup|candidates|review> [query|episode-id|granularity] [--project <project-id>]',
       }
     }
     const args: string[] = []
@@ -530,6 +533,15 @@ export function parseArgs(argv: string[]): CliCommand {
     }
     if (['rebuild', 'status'].includes(action) && args.length > 0) {
       return { command: 'error', message: `Usage: athena memory ${action}` }
+    }
+    if (action === 'candidates' && (projectId !== undefined || args.length > 0)) {
+      return { command: 'error', message: 'Usage: athena memory candidates' }
+    }
+    if (action === 'review' && (
+      projectId !== undefined || args.length !== 2 || !SEMANTIC_MEMORY_ID.test(args[0]!) ||
+      !['promote', 'reject'].includes(args[1]!)
+    )) {
+      return { command: 'error', message: 'Usage: athena memory review <memory-id> <promote|reject>' }
     }
     if (action === 'show' && args.length !== 1) {
       return { command: 'error', message: 'Usage: athena memory show <episode-id>' }
@@ -680,6 +692,8 @@ Usage:
   athena memory rebuild  rebuild the local linked episode index
   athena memory search   find prior conversations by time or topic
   athena memory rank     preview ranked local continuity layers for a query
+  athena memory candidates generate and list source-linked inferred candidates for review
+  athena memory review   explicitly promote or reject a semantic memory candidate
   athena memory show     inspect an episode with source-linked messages
   athena memory rollup   show source-linked day/week/month/quarter/year summaries
   athena plugin list     manage installed plugins (install/update/enable/disable/remove/verify)
@@ -687,7 +701,7 @@ Usage:
   athena --help          this help
   athena --version       print the installed version
 
-In-session: /help /status /repeat /details /verbosity /clear /resume /compact /model /effort /provider /mode /tui /memory /memory rank <query> /skills /agents /quit. Esc interrupts a turn.
+In-session: /help /status /repeat /details /verbosity /clear /resume /compact /model /effort /provider /mode /tui /memory /memory rank <query> /memory candidates /memory review <memory-id> <promote|reject> /skills /agents /quit. Esc interrupts a turn.
 Custom commands: drop a .md file (with description/argument-hint frontmatter) into .athena/commands/ or ~/.athena/commands/ to add /<name>.
 Plugins: use \`athena plugin install <directory-or-git-url>\`; managed bundles can contribute namespaced skills, agents, commands, hooks, MCP, and app metadata.`
 
@@ -855,7 +869,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
                 .join(', ')
             : ''
         info(
-          `Commands: /help /status /repeat /details /verbosity <concise|balanced|detailed> /clear /resume /compact /model <${modelKeys(engine.getProvider()).join('|')}> /effort <low|medium|high|xhigh|max> /provider <${PROVIDER_IDS.join('|')}> /mode <normal|acceptEdits|plan|trusted> /tui <fullscreen|classic> /memory /memory rank <query> /skills /agents /quit\n` +
+          `Commands: /help /status /repeat /details /verbosity <concise|balanced|detailed> /clear /resume /compact /model <${modelKeys(engine.getProvider()).join('|')}> /effort <low|medium|high|xhigh|max> /provider <${PROVIDER_IDS.join('|')}> /mode <normal|acceptEdits|plan|trusted> /tui <fullscreen|classic> /memory /memory rank <query> /memory candidates /memory review <memory-id> <promote|reject> /skills /agents /quit\n` +
             '/clear clears the screen (transcript display only) — conversation context is unchanged; use /compact to shrink it.\n' +
             '/tui fullscreen switches to an alternate-screen buffer with a pinned input (like vim/htop); /tui classic returns to normal scrollback.\n' +
             '/model /provider /effort /mode /tui run with no argument open a picker to choose a value instead of requiring you to type one.' +
@@ -1004,6 +1018,27 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         } else if (cmd.action === 'rebuild') {
           const result = memoryStore.rebuild(paths.sessionsDir)
           info(`Indexed ${result.episodeCount} episode(s) from ${result.sessionCount} session(s).`)
+        } else if (cmd.action === 'candidates') {
+          try {
+            const semanticStore = new MemoryHygieneStore(paths.memoryDir, { onWarn: info })
+            const result = generateSemanticCandidates(memoryStore, paths.sessionsDir, semanticStore)
+            info(formatSemanticCandidateReview(result, semanticStore.listAll()))
+          } catch (error) {
+            info(`Could not generate semantic candidates: ${(error as Error).message}`)
+          }
+        } else if (cmd.action === 'review') {
+          const [memoryId, action] = (cmd.value ?? '').split(/\s+/)
+          if (!memoryId || (action !== 'promote' && action !== 'reject')) {
+            info('Usage: /memory review <memory-id> <promote|reject>')
+            break
+          }
+          try {
+            const semanticStore = new MemoryHygieneStore(paths.memoryDir, { onWarn: info })
+            const reviewed = reviewSemanticCandidate(semanticStore, memoryStore, paths.sessionsDir, memoryId, action)
+            info(`Semantic memory ${reviewed.memoryId} ${action === 'promote' ? 'promoted' : 'rejected'}.`)
+          } catch (error) {
+            info(`Could not review semantic memory: ${(error as Error).message}`)
+          }
         } else if (cmd.action === 'rank') {
           const semanticStore = new MemoryHygieneStore(paths.memoryDir, { onWarn: info })
           info(formatContinuityRanking(memoryStore, {
@@ -1529,6 +1564,28 @@ async function main(): Promise<void> {
       }
       if (cmd.action === 'status') {
         console.log(formatContinuityStatus(store))
+        return
+      }
+
+      if (cmd.action === 'candidates') {
+        const semanticStore = new MemoryHygieneStore(paths.memoryDir, {
+          onWarn: (warning) => console.error(warning),
+        })
+        const result = generateSemanticCandidates(store, paths.sessionsDir, semanticStore)
+        console.log(formatSemanticCandidateReview(result, semanticStore.listAll()))
+        return
+      }
+
+      if (cmd.action === 'review') {
+        const [memoryId, action] = cmd.args
+        if (!memoryId || (action !== 'promote' && action !== 'reject')) {
+          throw new Error('Usage: athena memory review <memory-id> <promote|reject>')
+        }
+        const semanticStore = new MemoryHygieneStore(paths.memoryDir, {
+          onWarn: (warning) => console.error(warning),
+        })
+        const reviewed = reviewSemanticCandidate(semanticStore, store, paths.sessionsDir, memoryId, action)
+        console.log(`Semantic memory ${reviewed.memoryId} ${action === 'promote' ? 'promoted' : 'rejected'}.`)
         return
       }
 

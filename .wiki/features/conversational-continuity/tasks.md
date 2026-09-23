@@ -59,18 +59,32 @@ invariant.
 
 ## Phase 3 — durable semantic memory and lifecycle
 
-Progress (2026-09-23): the versioned semantic record schema, local lifecycle store, and
-`Memory` tool paths for explicit remember, candidate review, and correction/supersession
-are implemented. The record store does not inject semantic items into provider prompts.
-Candidate generation from episode evidence, a user-facing review surface, forget/source
-deletion integration, and full Phase 3 verification remain open. The forget source-retention
-choice is still awaiting the product owner's answer.
+Progress (2026-09-23): the versioned semantic record schema and lifecycle store, explicit
+remember/review/correction paths, conservative source-verified candidate generation, and
+local CLI/slash review commands are implemented. Inferred candidates are generated only
+from the same direct user claim in at least two distinct, digest-verified sessions; they
+remain candidates until an explicit review. Sensitive candidates cannot be promoted.
+Forget/source-deletion integration and full Phase 3 verification remain open. The
+forget source-retention choice is still awaiting the product owner's answer.
 
-- [ ] 3.1 Extend `Memory` records/tool with source references, observed/valid time, scope,
+- [x] 3.1 Extend `Memory` records/tool with source references, observed/valid time, scope,
   speech act, sensitivity, confidence, candidate/active/flagged/superseded/rejected/tombstoned
   state, and correction links. Reuse memory-hygiene's canonical write/index path.
 - [ ] 3.2 Implement explicit remember, candidate review, correct/supersede, and forget.
   Prevent inferred single-episode facts from becoming active durable facts.
+  - [x] Explicit remember, candidate review, and correct/supersede use the semantic
+    lifecycle store; inferred records cannot be promoted from one source.
+  - [x] Generate candidates only from repeated, direct user preferences/decisions/promises
+    across distinct, source-digest-verified sessions; reject tentative, interrogative,
+    assistant-authored, stale, incomplete, and truncated evidence. Scope stays project-local
+    until evidence spans projects; sensitive candidates remain blocked from promotion.
+  - [x] Add explicit `athena memory candidates` / `/memory candidates` generation and
+    bounded local review listings, plus `athena memory review <id> <promote|reject>` /
+    `/memory review <id> <promote|reject>`. Never auto-promote or send candidate text to a
+    provider. Reverify every inferred source at promotion time; changed evidence leaves the
+    record a candidate. Existing explicit/rejected/terminal decisions suppress duplicates.
+  - [ ] Implement forget and derived-record suppression after the source-retention choice
+    is answered.
 - [ ] 3.3 Integrate user deletion and session delete/restore with continuity tombstones and
   rollup invalidation. Prove rebuild cannot resurrect forgotten material.
 

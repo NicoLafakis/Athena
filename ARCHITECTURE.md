@@ -73,8 +73,9 @@ and local slash-command handler.
 - `src/continuity/` — versioned source schemas, safe all-project session discovery,
   nested fork-lineage resolution, local episode indexing/rebuild, timezone-aware date
   windows, deterministic search and four-layer ranking previews, on-demand
-  day/week/month/quarter/year rollups from a complete catalog, and source-digest validation
-  for CLI/slash inspection. Ranking is local and does not feed model prompts.
+  day/week/month/quarter/year rollups from a complete catalog, source-digest validation
+  for CLI/slash inspection, and explicit generation/review of repeated source-verified
+  semantic candidates. Candidate text stays local; ranking does not feed model prompts.
   Automatic answer-time transfer to model prompts remains pending explicit authorization.
 - `src/experience/` — deterministic capture, compilation, storage, and retrieval of
   bounded experiential guidance.

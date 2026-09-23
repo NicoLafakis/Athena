@@ -12,6 +12,8 @@ import { z } from 'zod'
 import type { ToolDefinition } from '../engine/types.js'
 import { MemoryHygieneStore } from '../brain/hygiene.js'
 import { SpeechActSchema } from '../continuity/schemas.js'
+import { ContinuityStore } from '../continuity/store.js'
+import { reviewSemanticCandidate } from '../continuity/candidates.js'
 
 const MemoryInput = z.object({
   op: z.enum(['list', 'read', 'write', 'delete', 'remember', 'review', 'supersede']),
@@ -69,7 +71,7 @@ function walk(dir: string): string[] {
 export const memoryTool: ToolDefinition<z.infer<typeof MemoryInput>> = {
   name: 'Memory',
   description:
-    'List, read, write, or delete Brain memory files. For current personal facts, use only semantic records marked active and within their valid dates; treat candidates as unconfirmed and superseded records as historical. Use remember only when the user explicitly asks to retain a fact; questions and hypotheticals are not facts. Use review only after the user accepts or rejects a candidate, and supersede only when the user explicitly corrects an active memory. Source links come from the persisted user message. Writes and deletes keep MEMORY.md in sync.',
+    'List, read, write, or delete Brain memory files. For current personal facts, use only semantic records marked active and within their valid dates; treat candidates as unconfirmed and superseded records as historical. Use remember only when the user explicitly asks to retain a fact; questions and hypotheticals are not facts. Use review only after the user accepts or rejects a candidate; promotion revalidates every inferred source against the complete local continuity index and its current session lines. Supersede only when the user explicitly corrects an active memory. Source links come from persisted user messages. Writes and deletes keep MEMORY.md in sync.',
   schema: MemoryInput,
   readOnly: false,
   async execute(input, ctx) {
@@ -119,7 +121,14 @@ export const memoryTool: ToolDefinition<z.infer<typeof MemoryInput>> = {
       if (!input.memoryId || !input.decision) return { output: 'review requires memoryId and decision', isError: true }
       try {
         const store = new MemoryHygieneStore(memDir)
-        const memory = input.decision === 'promote' ? store.promote(input.memoryId) : store.reject(input.memoryId)
+        const continuityStore = new ContinuityStore(join(ctx.brainDir, 'continuity'))
+        const memory = reviewSemanticCandidate(
+          store,
+          continuityStore,
+          join(ctx.brainDir, 'sessions'),
+          input.memoryId,
+          input.decision,
+        )
         return { output: `Semantic memory ${memory.memoryId} reviewed: ${memory.status}.`, isError: false }
       } catch (error) {
         return { output: `Could not review semantic memory: ${(error as Error).message}`, isError: true }

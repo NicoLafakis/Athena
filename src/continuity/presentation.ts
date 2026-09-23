@@ -4,6 +4,61 @@ import { rankContinuityLayers } from './ranking.js'
 import type { ContinuityStore } from './store.js'
 import { loadEpisodeSourceContext, searchEpisodes } from './retrieval.js'
 import { resolveTemporalWindow } from './time.js'
+import type { ManagedSemanticMemory } from '../brain/hygiene.js'
+import type { SemanticCandidateGenerationResult } from './candidates.js'
+
+const semanticCandidateDisplayLimit = 20
+const semanticCandidateSourceDisplayLimit = 5
+
+/** Render user-requested local candidate review without exposing source file paths. */
+export function formatSemanticCandidateReview(
+  result: SemanticCandidateGenerationResult,
+  memories: ManagedSemanticMemory[],
+): string {
+  const candidates = memories
+    .filter((memory) => memory.status === 'candidate')
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.memoryId.localeCompare(right.memoryId))
+  const lines: string[] = []
+  if (result.state === 'ready') {
+    lines.push(
+      `Candidate scan: generated ${result.createdCount}, updated ${result.updatedCount}, unchanged ${result.unchangedCount}.`,
+    )
+  } else if (result.state === 'missing') {
+    lines.push('Candidate generation skipped: the continuity index is not built. Run `athena memory rebuild`.')
+  } else if (result.state === 'partial') {
+    lines.push('Candidate generation skipped: the continuity index is incomplete. Run `athena memory rebuild`.')
+  } else {
+    lines.push('Candidate generation skipped: the continuity index is corrupt. Run `athena memory rebuild` to recover it.')
+  }
+
+  if (candidates.length === 0) {
+    lines.push(result.state === 'ready'
+      ? 'No repeated direct claims met the source-verification and independence rules.'
+      : 'No semantic memory candidates are awaiting review.')
+    return lines.join('\n')
+  }
+
+  const shown = candidates.slice(0, semanticCandidateDisplayLimit)
+  lines.push(`Awaiting review: ${candidates.length} candidate(s); showing ${shown.length}.`)
+  for (const memory of shown) {
+    const project = memory.scope === 'project' ? `project ${memory.projectId ?? '(unknown)'}` : 'global'
+    const sensitivity = memory.sensitivity === 'sensitive' ? 'sensitive; promotion blocked' : 'ordinary'
+    const sources = memory.supportingEpisodeIds.slice(0, semanticCandidateSourceDisplayLimit)
+    const omittedSources = memory.supportingEpisodeIds.length - sources.length
+    const content = memory.content
+      .replace(/[\p{Cc}\p{Cf}]/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    const excerpt = content.length > 320 ? `${content.slice(0, 317)}...` : content
+    lines.push(
+      `${memory.memoryId} | ${project} | ${sensitivity} | confidence ${memory.confidence} | ${memory.observedAt}`,
+      `   ${excerpt}`,
+      `   Sources: ${sources.join(', ') || '(none)'}${omittedSources > 0 ? ` (+${omittedSources} more)` : ''}`,
+    )
+  }
+  lines.push('Review with `athena memory review <memory-id> <promote|reject>`.')
+  return lines.join('\n')
+}
 
 export function formatContinuityStatus(store: ContinuityStore): string {
   const status = store.status()

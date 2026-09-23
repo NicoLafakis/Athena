@@ -238,6 +238,8 @@ athena memory rebuild
 athena memory timeline last week
 athena memory search "what did we decide" --project <project-id>
 athena memory rank "what did we decide"
+athena memory candidates
+athena memory review <memory-id> <promote|reject>
 athena memory show <episode-id>
 athena memory rollup [day|week|month|quarter|year]
 ```
@@ -245,7 +247,8 @@ athena memory rollup [day|week|month|quarter|year]
 The catalog stores bounded, redacted summaries with links to local session lines. It does
 not copy transcripts. A full archive index requires `athena memory rebuild`; new persisted
 turns update their own session entries. The equivalent `/memory status`, `/memory rebuild`,
-`/memory timeline`, `/memory search`, `/memory rank`, `/memory show`, and `/memory rollup [granularity]`
+`/memory timeline`, `/memory search`, `/memory rank`, `/memory candidates`,
+`/memory review <memory-id> <promote|reject>`, `/memory show`, and `/memory rollup [granularity]`
 controls work in both interactive presentations. Show includes bounded same-session turns
 around an episode with its source line IDs. Rollups are computed on demand from a
 complete local catalog, using the configured IANA timezone (or a labeled OS-timezone
@@ -263,10 +266,17 @@ Automatic recall inside provider prompts is pending explicit authorization.
 
 The `Memory` tool can also save an explicitly requested durable fact as a semantic-memory
 record tied to the current persisted user message. A clear user correction can supersede
-that record while preserving the earlier statement and its source link. Candidate review
-is available through the same tool; candidate generation, a direct review screen, and
-forget/source-deletion controls are still under implementation. Semantic records are not
-added to the prompt-injected `MEMORY.md` index.
+that record while preserving the earlier statement and its source link. `memory candidates`
+generates review-only records only when the same direct user preference, decision, or
+promise appears in at least two distinct, source-digest-verified sessions. Candidate
+generation is local and explicit; tentative, question, assistant-authored, stale, or
+incomplete evidence is skipped. Cross-project support broadens a candidate to global scope;
+sensitive candidates remain marked and cannot be promoted. Review is an explicit local
+`promote` or `reject` command; promotion verifies every source again at decision time, and
+rejected/terminal decisions suppress recreation. Semantic records are not added to the
+prompt-injected `MEMORY.md` index. Forget and source-session
+deletion controls remain under implementation; automatic historical context in provider
+prompts remains pending explicit authorization.
 
 Independent of every mode above, a write fence covers operating-system directories
 (`%SystemRoot%`, the Program Files trees, `%ProgramData%`, and the boot/recovery

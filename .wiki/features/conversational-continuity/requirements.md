@@ -66,8 +66,10 @@ fact or commitment solely because it appears in a summary.
 
 An explicit user request to remember may create a durable memory with a source link. An
 inferred preference or recurring fact remains a candidate until it has independent
-support and passes contradiction, sensitivity, and scope checks. Promotion never erases
-the source episodes.
+support and passes contradiction, sensitivity, and scope checks. The current conservative
+generator recognizes repeated, directly authored preferences, decisions, and promises only
+when their source sessions and digests verify; it never auto-promotes. Promotion never
+erases the source episodes.
 
 ### FR-008 — Conflict and change
 
@@ -90,9 +92,9 @@ when a source is forgotten or corrected. Exact recall loads source episodes as n
 
 ### FR-011 — Inspect and correct
 
-The user can list/search/timeline memories, inspect a source episode, correct a memory,
-mark a tentative inference as wrong, and see whether a result is direct or inferred.
-Equivalent CLI and interactive presentation paths are provided.
+The user can list/search/timeline memories, inspect a source episode, review semantic
+candidates, correct a memory, mark a tentative inference as wrong, and see whether a result
+is direct or inferred. Equivalent CLI and interactive presentation paths are provided.
 
 ### FR-012 — Forget and deletion integrity
 
@@ -134,8 +136,12 @@ does not make optional continuity a boot precondition.
   the second is the active decision with both sources linked.
 - **AC-004:** Given a month rollup, when a specific detail is asked, then Athena opens
   supporting episodes rather than treating the rollup as independent evidence.
-- **AC-005:** Given an inferred preference supported by one episode, when stored, then it
-  remains a candidate; an explicit “remember this” request may be active immediately.
+- **AC-005:** A repeated claim can become only a review candidate when it is directly
+  user-authored in at least two distinct sessions and every source digest verifies. A
+  repeated line within one session, a question, tentative wording, assistant-authored text,
+  or stale/incomplete source creates no inferred candidate. Same-project evidence remains
+  project-scoped; cross-project evidence is global-scoped. Sensitive candidates cannot be
+  promoted. An explicit “remember this” request may create an active memory immediately.
 - **AC-006:** Given a correction or forget request, when retrieval and rebuild run, then
   the corrected/forgotten value is not returned as current memory and source history is
   handled according to the user’s deletion choice.

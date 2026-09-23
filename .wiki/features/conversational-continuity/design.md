@@ -242,7 +242,7 @@ unstructured fact store.
 |---|---|---|---|
 | Session JSONL (`src/harness/sessions.ts`) | Session filename ID; each appended line gets a UUID and UTC timestamp. Schema version 3 adds optional top-level IANA timezone metadata; the reader accepts legacy lines without IDs or timezone. The project directory is `projectSlug(canonicalProjectPath)`, a local path-derived partition key. | Message/event appends are redacted. Checkpoint and rewind lines copy the reconstructed message array; a fork writes a checkpoint plus a `session-fork` event with source project/session/line identity. `athena session delete` renames the file into project `.trash`; no user-facing restore command exists. | Canonical conversational source. Index message/event line IDs once; snapshots are reconstruction state, not duplicate episodes. Resolve nested fork ancestry through immutable boundaries. Skip `.trash`; source deletion adds suppression before derived cleanup. For a legacy line without ID, derive the source key from physical line number and SHA-256 of the raw UTF-8 line. |
 | RunTrace (`src/harness/traces.ts`) | `runId` plus `sequence` and hash; traces are partitioned by a `projectId` derived from `cwd`. | Hash-chained JSONL append; writer closes with a final event. No user-facing deletion flow was found in the current CLI. | Operational evidence only. Link a trace event when useful to a conversation episode; do not use trace text as user-confirmed personal memory. |
-| User memory files (`src/tools/memory.ts`) | Legacy prose uses a relative file path; managed semantic records use a UUID and typed source references. `MEMORY.md` remains an index, not a record ID. | Legacy paths retain list/read/write/delete. Semantic records live under `memory/semantic/`; explicit remember, candidate review, and correction/supersession use `MemoryHygieneStore`. Managed records are not included in the injected `MEMORY.md` index. | Continue candidate capture/review and deletion integration without copying source text. User-memory deletion and source-session deletion remain distinct operations. |
+| User memory files (`src/tools/memory.ts`) | Legacy prose uses a relative file path; managed semantic records use a UUID and typed source references. `MEMORY.md` remains an index, not a record ID. | Legacy paths retain list/read/write/delete. Semantic records live under `memory/semantic/`; explicit remember, candidate generation/review, and correction/supersession use `MemoryHygieneStore`. Managed records are not included in the injected `MEMORY.md` index. | Continue forget and source-session deletion integration without copying source text. User-memory deletion and source-session deletion remain distinct operations. |
 | Experience (`src/experience/`) | Schema record ID, `projectScope`, creation time, and `evidenceRefs`. The evidence-ref strings are not a typed session-message contract. | JSONL snapshots keyed by record ID; append is idempotent for identical records and guidance has explicit review transitions. | Existing project-scoped task-outcome guidance; optionally rank for “similar work,” but do not treat it as conversation history or semantic personal memory. |
 | Governed learning (`src/learning/`) | Claim/candidate IDs with source run IDs and trace hashes. | Append-updated claims use governed promotion/rejection/expiry and consolidation. | Keep its task-method claims and evaluation lifecycle separate from conversational semantic memory. |
 | Self-reflection journal | `BrainPaths` reserves a `journalDir`; the linked wiki describes a proposal, but no journal store/tool implementation was found in the current source. | No implemented entry lifecycle or restore/delete path to reuse yet. | Not an available Phase 1 source. Integrate only after a concrete journal schema and stable entry identity exist. |
@@ -277,8 +277,10 @@ added without changing session-line identity.
   explicitly partial. Source text is re-read and digest-checked before CLI/slash display.
   Malformed JSONL positions and invalid timestamps are excluded from summary/source text;
   if a damaged line crosses a turn boundary, the valid remainder is marked `uncertain`.
-- `athena memory status|rebuild|timeline|search|show|rollup` and `/memory status|rebuild|timeline|search|show|rollup`
-  use the same bounded time/topic search and source-verification rules. `~/.athena/settings.json`
+- `athena memory status|rebuild|timeline|search|show|rollup|rank|candidates|review` and the
+  equivalent `/memory` actions use the same source-verification rules. `candidates` and
+  `review` are explicit local semantic-memory operations; search/timeline/show use bounded
+  time/topic matching. `~/.athena/settings.json`
   may set global `timeZone` to an IANA zone; project settings cannot override it. Without
   that setting, the OS local IANA zone is used and time resolution is labeled inferred. Rollups
   are generated on demand only from a complete catalog; they contain bounded episode-summary
@@ -315,9 +317,27 @@ added without changing session-line identity.
   choose the source identity or timestamp. Unpersisted sessions cannot create a linked
   record.
 - The store accepts inferred records only as candidates and requires two distinct
-  supporting episode IDs. Candidate generation from the continuity index and a direct
-  human review surface remain unfinished; `Memory.review` is for a clear user acceptance
-  or rejection in the conversation.
+  supporting episode IDs. `generateSemanticCandidates` runs only through an explicit local
+  command and requires a ready catalog. It accepts only a direct user preference, decision,
+  or promise in a completed episode with exactly one recognized speech act. The same
+  normalized full claim must appear in at least two distinct `(project, session)` sources;
+  each episode digest is verified before its user message is used. Tentative/question text,
+  assistant messages, stale sources, incomplete catalogs, and oversized/truncated episode
+  contexts are skipped. Support is bounded to 32 source episodes, preserving the newest
+  support for each project where possible. A candidate stays project-scoped until selected
+  support crosses project boundaries, then it becomes global. Sensitive cues are
+  conservatively flagged and the existing lifecycle store blocks their promotion.
+  Idempotent upsert merges support for the same speech act and normalized claim while
+  preserving explicit, rejected, superseded, or tombstoned decisions. No candidate is
+  promoted automatically. Immediately before promotion, every inferred source is checked
+  again against a complete index, current episode digest, source line, user role, timestamp,
+  speech act, and normalized claim. Rejection remains available if a source has become stale.
+- `athena memory candidates` / `/memory candidates` explicitly generate and list up to 20
+  bounded review candidates, including a short claim excerpt, sensitivity, scope, and up to
+  five supporting episode IDs. `athena memory review <memory-id> <promote|reject>` and its
+  slash equivalent apply the user's explicit decision. Candidate text is shown only in
+  this local review surface; it is not inserted into `MEMORY.md` or provider prompts.
+  Promotion repeats source verification at decision time.
 - `Memory.supersede` requires an explicit correction to an active record. The replacement
   is linked to the correction message; the prior statement and its source remain
   unchanged. Valid-time intervals are schema-validated, but automatic interval closure
@@ -334,10 +354,11 @@ summarize action; they never trigger hidden background provider calls.
 
 ## Interfaces
 
-The `Memory` tool now provides explicit remember, review, and correct/supersede operations.
-The `athena memory` CLI provides status, rebuild, search, timeline by time range, and
-source/context inspection. Candidate generation/review UI and forget remain open.
-Mutations validate targets. Do not silently add continuity to every project prompt.
+The `Memory` tool provides explicit remember, review, and correct/supersede operations.
+The `athena memory` CLI and `/memory` provide status, rebuild, search, timeline by time
+range, source/context inspection, ranking previews, and explicit candidate generation and
+review. Forget and source-session deletion integration remain open. Mutations validate
+targets. Do not silently add continuity to every project prompt.
 Automatic answer-time
 source handoff to the configured model provider remains pending explicit user authorization;
 until then, session-derived content stays in local CLI/slash results.

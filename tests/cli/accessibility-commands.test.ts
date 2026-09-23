@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { makeSlashHandler } from '../../src/cli.js'
@@ -182,5 +182,74 @@ describe('local accessibility commands', () => {
     expect(output).not.toContain('private semantic phrase')
     expect(output).not.toContain('private working phrase')
     expect(output).not.toContain(session.file)
+  })
+
+  it('generates and reviews semantic candidates through local slash commands', () => {
+    temp = mkdtempSync(join(tmpdir(), 'athena-slash-candidates-'))
+    const paths = resolveBrainPaths({ cwd: temp, homeOverride: temp })
+    const sessions = new SessionStore(paths.sessionsDir, 'C:/project/candidate-review')
+    const sourceSessions: Array<ReturnType<SessionStore['create']>> = []
+    for (let index = 0; index < 2; index++) {
+      const session = sessions.create()
+      sourceSessions.push(session)
+      session.appendMessage({ role: 'user', content: 'I prefer local review for inferred continuity.' })
+      session.appendMessage({ role: 'assistant', content: 'This can be reviewed as a candidate.' })
+      session.appendEvent({ type: 'turn-done' })
+    }
+    const continuityStore = new ContinuityStore(paths.continuityDir)
+    continuityStore.rebuild(paths.sessionsDir)
+
+    const bus = new EngineEventBus()
+    const events: EngineEvent[] = []
+    bus.on((event) => events.push(event))
+    const handler = makeSlashHandler({
+      bus,
+      engine: new Proxy({}, {
+        get: (_target, key) => { throw new Error(`local memory command accessed engine.${String(key)}`) },
+      }),
+      gate: {},
+      contextManager: {},
+      client: {},
+      store: sessions,
+      session: null,
+      paths,
+      credentialVault: {},
+      continuityStore,
+    } as unknown as Parameters<typeof makeSlashHandler>[0])
+
+    handler(parseSlash('/memory candidates')!)
+    const candidateOutput = events
+      .filter((event): event is Extract<EngineEvent, { type: 'info' }> => event.type === 'info')
+      .map((event) => event.message)
+      .join('\n')
+    expect(candidateOutput).toContain('I prefer local review for inferred continuity.')
+    const memoryId = candidateOutput.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i)?.[0]
+    expect(memoryId).toBeDefined()
+
+    const candidate = new MemoryHygieneStore(paths.memoryDir).get(memoryId!)!
+    const sourceRef = candidate.sourceRefs.find((source) => source.sessionId === sourceSessions[1]!.id)!
+    const records = readFileSync(sourceSessions[1]!.file, 'utf8').trimEnd().split('\n')
+    const lineIndex = records.findIndex((line) => line.includes(sourceRef.recordId))
+    const source = JSON.parse(records[lineIndex]!) as { data: { content: string } }
+    source.data.content = 'The original support has changed since candidate generation.'
+    records[lineIndex] = JSON.stringify(source)
+    writeFileSync(sourceSessions[1]!.file, `${records.join('\n')}\n`, 'utf8')
+
+    expect(() => handler(parseSlash(`/memory review ${memoryId} promote`)!)).not.toThrow()
+    const staleReview = events
+      .filter((event): event is Extract<EngineEvent, { type: 'info' }> => event.type === 'info')
+      .map((event) => event.message)
+      .join('\n')
+    expect(staleReview).toContain('Could not review semantic memory:')
+    expect(staleReview).toContain('source verification failed')
+    expect(new MemoryHygieneStore(paths.memoryDir).get(memoryId!)?.status).toBe('candidate')
+
+    handler(parseSlash(`/memory review ${memoryId} reject`)!)
+    const output = events
+      .filter((event): event is Extract<EngineEvent, { type: 'info' }> => event.type === 'info')
+      .map((event) => event.message)
+      .join('\n')
+    expect(output).toContain(`Semantic memory ${memoryId} rejected.`)
+    expect(new MemoryHygieneStore(paths.memoryDir).get(memoryId!)?.status).toBe('rejected')
   })
 })

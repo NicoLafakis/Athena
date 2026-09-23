@@ -20,7 +20,7 @@ export type SlashCommand =
   | { kind: 'compact' }
   | {
       kind: 'memory'
-      action?: 'status' | 'rebuild' | 'timeline' | 'search' | 'show' | 'rollup' | 'rank'
+      action?: 'status' | 'rebuild' | 'timeline' | 'search' | 'show' | 'rollup' | 'rank' | 'candidates' | 'review'
       value?: string
       projectId?: string
     }
@@ -48,6 +48,7 @@ export type TuiMode = 'classic' | 'fullscreen'
 const MODES = new Set(['normal', 'acceptEdits', 'plan', 'trusted'])
 const EFFORT_SET = new Set<string>(EFFORTS)
 const TUI_MODES = new Set(['classic', 'fullscreen'])
+const SEMANTIC_MEMORY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const BARE = new Set([
   'help', 'clear', 'resume', 'compact', 'memory', 'skills', 'agents', 'status', 'repeat', 'quit',
 ])
@@ -70,8 +71,8 @@ export function parseSlash(
   if (cmd === 'memory') {
     if (rest.length === 0) return { kind: 'memory' }
     const action = rest[0]
-    if (!['status', 'rebuild', 'timeline', 'search', 'show', 'rollup', 'rank'].includes(action!)) {
-      return { kind: 'error', value: 'Usage: /memory [status|rebuild|timeline [range]|search <query>|rank <query>|show <episode-id>|rollup [day|week|month|quarter|year]]' }
+    if (!['status', 'rebuild', 'timeline', 'search', 'show', 'rollup', 'rank', 'candidates', 'review'].includes(action!)) {
+      return { kind: 'error', value: 'Usage: /memory [status|rebuild|timeline [range]|search <query>|rank <query>|show <episode-id>|rollup [day|week|month|quarter|year]|candidates|review <memory-id> <promote|reject>]' }
     }
     const valueParts: string[] = []
     let projectId: string | undefined
@@ -88,6 +89,18 @@ export function parseSlash(
       }
     }
     const value = valueParts.join(' ')
+    if (action === 'candidates' && (projectId !== undefined || valueParts.length !== 0)) {
+      return { kind: 'error', value: 'Usage: /memory candidates' }
+    }
+    if (action === 'review') {
+      if (
+        projectId !== undefined || valueParts.length !== 2 ||
+        !SEMANTIC_MEMORY_ID.test(valueParts[0]!) ||
+        !['promote', 'reject'].includes(valueParts[1]!)
+      ) {
+        return { kind: 'error', value: 'Usage: /memory review <memory-id> <promote|reject>' }
+      }
+    }
     if ((action === 'status' || action === 'rebuild') && value) {
       return { kind: 'error', value: `Usage: /memory ${action}` }
     }

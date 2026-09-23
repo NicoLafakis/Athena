@@ -9,6 +9,7 @@ import {
   GuidanceRecordSchema,
 } from '../../src/experience/index.js'
 import { ContinuityStore } from '../../src/continuity/store.js'
+import { MemoryHygieneStore } from '../../src/brain/hygiene.js'
 import { SessionStore } from '../../src/harness/sessions.js'
 import { projectId } from '../../src/harness/trust.js'
 
@@ -111,6 +112,33 @@ describe('athena exec process contract', () => {
     expect(result.stdout).toContain(`episodic ${episode!.id}`)
     expect(result.stdout).not.toContain('We decided to keep continuity memories')
     expect(result.stderr).not.toContain('Fixture model script exhausted')
+  })
+
+  it('generates source-verified review candidates and applies an explicit local promotion', () => {
+    writeFileSync(script, '[]')
+    const sessionsRoot = join(home, '.athena', 'sessions')
+    for (let index = 0; index < 2; index++) {
+      const session = new SessionStore(sessionsRoot, project).create()
+      session.appendMessage({ role: 'user', content: 'I prefer source-linked continuity candidates.' })
+      session.appendMessage({ role: 'assistant', content: 'The preference is indexed from this session.' })
+      session.appendEvent({ type: 'turn-done' })
+    }
+    expect(run(['memory', 'rebuild']).status).toBe(0)
+
+    const candidates = run(['memory', 'candidates'])
+    expect(candidates.status, candidates.stderr).toBe(0)
+    expect(candidates.stdout).toContain('Candidate scan: generated 1, updated 0, unchanged 0.')
+    expect(candidates.stdout).toContain('I prefer source-linked continuity candidates.')
+    expect(candidates.stdout.match(/Sources: [^\n]+/)).toBeTruthy()
+    const memoryId = candidates.stdout.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i)?.[0]
+    expect(memoryId).toBeDefined()
+
+    const reviewed = run(['memory', 'review', memoryId!, 'promote'])
+    expect(reviewed.status, reviewed.stderr).toBe(0)
+    expect(reviewed.stdout).toContain(`Semantic memory ${memoryId} promoted.`)
+    expect(new MemoryHygieneStore(join(home, '.athena', 'memory')).listActive().map((item) => item.memoryId))
+      .toContain(memoryId)
+    expect(reviewed.stderr).not.toContain('Fixture model script exhausted')
   })
 
   it('runs from an argument and emits one stable JSON envelope', () => {

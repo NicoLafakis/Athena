@@ -24,6 +24,16 @@ describe('parseSlash', () => {
     ['/memory rank what did we decide --project alpha-123', {
       kind: 'memory', action: 'rank', value: 'what did we decide', projectId: 'alpha-123',
     }],
+    ['/memory candidates', { kind: 'memory', action: 'candidates' }],
+    ['/memory review 123e4567-e89b-42d3-a456-426614174000 promote', {
+      kind: 'memory', action: 'review', value: '123e4567-e89b-42d3-a456-426614174000 promote',
+    }],
+    ['/memory review 123e4567-e89b-42d3-a456-426614174000 reject', {
+      kind: 'memory', action: 'review', value: '123e4567-e89b-42d3-a456-426614174000 reject',
+    }],
+    ['/memory review 123e4567-e89b-42d3-a456-426614174000 forget', {
+      kind: 'error', value: 'Usage: /memory review <memory-id> <promote|reject>',
+    }],
     ['/memory show episode-123', { kind: 'memory', action: 'show', value: 'episode-123' }],
     ['/memory rollup', { kind: 'memory', action: 'rollup' }],
     ['/memory rollup month', { kind: 'memory', action: 'rollup', value: 'month' }],

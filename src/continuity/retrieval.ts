@@ -234,6 +234,65 @@ export function loadEpisodeSourceContext(
   } catch {
     return { status: 'missing', reason: 'The linked source session could not be read.', episodeId: episode.id }
   }
+  return verifyEpisodeSourceContext(episode, records, maxMessages, includeAdjacentTurns)
+}
+
+/** Verify a set of episodes while enumerating and reading each source session only once. */
+export function loadEpisodeSourceContexts(
+  sessionsRoot: string,
+  inputs: ContinuityEpisode[],
+  maxMessages = 8,
+): EpisodeSourceContextResult[] {
+  const episodes = inputs.map((episode) => ContinuityEpisodeSchema.parse(episode))
+  const sources = new Map(
+    listAllProjectSessions(sessionsRoot).map((source) => [`${source.projectId}\0${source.sessionId}`, source]),
+  )
+  const results: Array<EpisodeSourceContextResult | undefined> = Array(episodes.length)
+  const episodeIndexes = new Map<string, number[]>()
+  for (let index = 0; index < episodes.length; index++) {
+    const episode = episodes[index]!
+    const key = `${episode.projectId}\0${episode.sessionId}`
+    episodeIndexes.set(key, [...(episodeIndexes.get(key) ?? []), index])
+  }
+
+  for (const [key, indexes] of episodeIndexes) {
+    const source = sources.get(key)
+    const group = indexes.map((index) => ({ index, episode: episodes[index]! }))
+    if (!source) {
+      for (const { index, episode } of group) {
+        results[index] = { status: 'missing', reason: 'The linked source session is unavailable.', episodeId: episode.id }
+      }
+      continue
+    }
+
+    let records: SessionLineRecord[]
+    try {
+      const metadata = lstatSync(source.file)
+      if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error('not a regular file')
+      records = readSessionLineRecords(source.file)
+    } catch {
+      for (const { index, episode } of group) {
+        results[index] = { status: 'missing', reason: 'The linked source session could not be read.', episodeId: episode.id }
+      }
+      continue
+    }
+    for (const { index, episode } of group) {
+      results[index] = verifyEpisodeSourceContext(episode, records, maxMessages, false)
+    }
+  }
+  return results.map((result, index) => result ?? {
+    status: 'missing',
+    reason: 'The linked source session is unavailable.',
+    episodeId: episodes[index]!.id,
+  })
+}
+
+function verifyEpisodeSourceContext(
+  episode: ContinuityEpisode,
+  records: SessionLineRecord[],
+  maxMessages: number,
+  includeAdjacentTurns: boolean,
+): EpisodeSourceContextResult {
   const byId = new Map(records.map((record) => [stableSessionLineId(record), record]))
   const sourceRecords: SessionLineRecord[] = []
   for (const ref of episode.sourceRefs) {

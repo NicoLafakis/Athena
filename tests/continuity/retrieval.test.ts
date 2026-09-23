@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { SessionStore } from '../../src/harness/sessions.js'
 import { ContinuityStore } from '../../src/continuity/store.js'
-import { loadEpisodeSourceContext, searchEpisodes } from '../../src/continuity/retrieval.js'
+import { loadEpisodeSourceContext, loadEpisodeSourceContexts, searchEpisodes } from '../../src/continuity/retrieval.js'
 import { resolveTemporalWindow } from '../../src/continuity/time.js'
 
 let root: string
@@ -18,6 +18,27 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }))
 
 describe('continuity retrieval', () => {
+  it('batch verifies multiple episodes from the same session with the same source checks', () => {
+    const session = new SessionStore(sessionsRoot, 'C:/projects/batch-source').create()
+    session.appendMessage({ role: 'user', content: 'First episode in the batch.' })
+    session.appendEvent({ type: 'turn-done' })
+    session.appendMessage({ role: 'user', content: 'Second episode in the batch.' })
+    session.appendEvent({ type: 'turn-done' })
+    const store = new ContinuityStore(join(root, 'continuity'))
+    store.rebuild(sessionsRoot)
+    const episodes = store.listEpisodes()
+
+    const batch = loadEpisodeSourceContexts(sessionsRoot, episodes)
+
+    expect(batch.map((result) => result.status)).toEqual(['ok', 'ok'])
+    expect(batch.map((result) => result.status === 'ok' ? result.messages : [])).toEqual(
+      episodes.map((episode) => {
+        const single = loadEpisodeSourceContext(sessionsRoot, episode)
+        return single.status === 'ok' ? single.messages : []
+      }),
+    )
+  })
+
   it('finds the same cross-project episode under an explicit temporal window', () => {
     const first = new SessionStore(sessionsRoot, 'C:/projects/alpha').create()
     first.appendMessage({ role: 'user', content: 'I decided to use source-linked memory episodes.' })

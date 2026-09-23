@@ -41,6 +41,12 @@ function serialize(memory: SemanticMemoryRecord, content: string): string {
   return `---\n${SEMANTIC_RECORD_KEY}: ${JSON.stringify(memory)}\n---\n${content}`
 }
 
+function normalizedCandidateContent(content: string): string {
+  return content.normalize('NFKC').toLowerCase().match(/[\p{L}\p{N}]+/gu)?.join(' ') ?? ''
+}
+
+export type CandidateUpsertOutcome = 'created' | 'updated' | 'unchanged'
+
 /**
  * Stores source-linked semantic memories alongside the existing free-text memory tree.
  * It deliberately does not add these records to MEMORY.md or any prompt context.
@@ -82,6 +88,71 @@ export class MemoryHygieneStore {
       updatedAt: now,
     })
     return this.write(memory, content)
+  }
+
+  upsertInferredCandidate(input: SemanticMemoryCreateInput): {
+    memory: ManagedSemanticMemory
+    outcome: CandidateUpsertOutcome
+  } {
+    if (input.captureMode !== 'inferred') throw new Error('Candidate upsert requires inferred capture mode')
+    const normalized = normalizedCandidateContent(input.content)
+    const matches = this.readAll().filter(
+      (memory) =>
+        memory.speechAct === input.speechAct &&
+        normalizedCandidateContent(memory.content) === normalized,
+    )
+    // Preserve explicit lifecycle decisions even if an older duplicate candidate exists.
+    const matching = matches.find((memory) => memory.status !== 'candidate') ?? matches[0]
+    if (!matching) return { memory: this.create(input), outcome: 'created' }
+    if (matching.status !== 'candidate') return { memory: matching, outcome: 'unchanged' }
+
+    const sourceRefs = [...new Map(
+      [...matching.sourceRefs, ...input.sourceRefs].map((source) => [
+        `${source.kind}\0${source.projectId ?? ''}\0${source.sessionId ?? ''}\0${source.recordId}`,
+        source,
+      ]),
+    ).values()].slice(0, 256)
+    const supportingEpisodeIds = [...new Set([
+      ...matching.supportingEpisodeIds,
+      ...(input.supportingEpisodeIds ?? []),
+    ])].slice(0, 32)
+    const scope = matching.scope === 'global' || input.scope === 'global' ? 'global' : 'project'
+    const projectId = scope === 'project' ? input.projectId ?? matching.projectId : undefined
+    const observedAt = input.observedAt && input.observedAt > matching.observedAt
+      ? input.observedAt
+      : matching.observedAt
+    const incomingIsNewer = observedAt === input.observedAt
+    const current = this.recordOf(matching)
+    const { projectId: _currentProjectId, ...withoutProject } = current
+    void _currentProjectId
+    const now = this.now().toISOString()
+    const next = SemanticMemoryRecordSchema.parse({
+      ...withoutProject,
+      description: incomingIsNewer ? input.description : matching.description,
+      sourceRefs,
+      supportingEpisodeIds,
+      observedAt,
+      scope,
+      ...(projectId ? { projectId } : {}),
+      confidence: Math.max(matching.confidence, input.confidence),
+      sensitivity: matching.sensitivity === 'sensitive' || input.sensitivity === 'sensitive'
+        ? 'sensitive'
+        : 'ordinary',
+      updatedAt: now,
+    })
+    if (
+      next.description === matching.description &&
+      next.observedAt === matching.observedAt &&
+      next.scope === matching.scope &&
+      next.projectId === matching.projectId &&
+      next.confidence === matching.confidence &&
+      next.sensitivity === matching.sensitivity &&
+      JSON.stringify(next.sourceRefs) === JSON.stringify(matching.sourceRefs) &&
+      JSON.stringify(next.supportingEpisodeIds) === JSON.stringify(matching.supportingEpisodeIds)
+    ) {
+      return { memory: matching, outcome: 'unchanged' }
+    }
+    return { memory: this.write(next, incomingIsNewer ? input.content : matching.content), outcome: 'updated' }
   }
 
   listActive(): ManagedSemanticMemory[] {

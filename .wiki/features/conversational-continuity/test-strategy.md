@@ -12,9 +12,9 @@
 | FR-004 context reconstruction | Integration | Adjacent turns and source roles reconstruct tentative/decision/correction context |
 | FR-005 / FR-010 / AC-004 layers/rollups | Unit + integration | Day/week/month/quarter/year boundaries and timezone behavior; complete-index gate; bounded summaries with full source-ID coverage; source digest changes after correction; rollups empty after deletion; exact detail still resolves through episodes |
 | FR-006 / AC-003 speech acts | Unit | Hypothetical, question, preference, decision, promise, correction, retraction fixtures |
-| FR-007 / AC-005 promotion | Unit + integration | Explicit remember; one-episode inference remains candidate; contradiction blocks promotion |
+| FR-007 / AC-005 promotion | Unit + integration | Explicit remember; repeated direct user claim across two digest-verified sessions creates a candidate only; same-session repetition, tentative/question/assistant/stale/truncated evidence is excluded; sensitive candidate cannot be promoted; rejection/explicit memory suppress duplicate inference |
 | FR-008 conflict lifecycle | Unit | Supersession preserves prior value/date/source; direct correction ranks correctly |
-| FR-011 controls/accessibility | CLI + presentation integration | Search/show/review/correct/forget parity and bounded plain text output |
+| FR-011 controls/accessibility | CLI + presentation integration | Search/show/rank/candidate generation and promote/reject review parity with bounded plain text output; correct/forget parity remains planned |
 | FR-012 / AC-006 deletion | Integration | Delete/restore/forget; derived invalidation; rebuild does not resurrect tombstoned sources |
 | FR-013 privacy | Security fixtures | Secret-shaped strings, PII patterns, path escapes, unsafe model output, no raw transcript copy |
 | FR-014 / AC-010 budgets | Ranking + performance + prompt integration | Local candidate count/source-ID caps and privacy-safe metrics; no background model calls; prompt handoff remains future work |
@@ -38,6 +38,13 @@
   source resolution, candidate support thresholds, sensitive-inference promotion guards,
   review, correction/supersession links, body preservation, and isolation from the
   prompt-injected memory index.
+- Candidate-generation tests cover direct repeated claims across independent sessions,
+  project-to-global scope, digest verification, conservative sensitive handling,
+  idempotent support merging, incomplete-catalog and truncated-source rejection, and
+  suppression by existing explicit/rejected records. CLI process and slash integration
+  tests generate a candidate locally and apply an explicit promotion without a model call.
+  The Memory tool and review service also prove that a source changed after listing blocks
+  promotion and leaves the record in candidate state.
 - Ranking tests cover working/episodic/semantic/rollup selection, intent and speech-act
   boosts, hard project/time windows, semantic validity and sensitivity, historical
   supersession, stale-rollup rejection, deterministic top-five bounds, explanation

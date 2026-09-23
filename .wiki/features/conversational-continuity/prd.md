@@ -74,9 +74,12 @@ planned metadata extension; they do not create an independent durable fact store
   request depends on earlier conversation, chronology, a remembered preference, or an
   unresolved conversational commitment. Source-backed results are clearly distinguished
   from the model’s inference.
-- **Direct controls:** `athena memory search`, `athena memory timeline`, `athena memory show`,
-  `athena memory rollup [granularity]`, `athena memory review`, and `athena memory forget`, with
-  equivalent in-session `/memory` commands and append-only presentation wording.
+- **Direct controls:** local `athena memory status|rebuild|search|timeline|show|rollup|rank`,
+  `athena memory candidates`, and `athena memory review <memory-id> <promote|reject>`
+  commands, with equivalent in-session `/memory` commands. Candidate generation is an
+  explicit local action that requires repeated direct user claims in distinct,
+  source-verified sessions; review never happens automatically. A `forget` command and
+  deletion integration remain planned pending the source-retention decision.
 - **Common path:** one conversational question; no user-selected project/session when
   the request is unambiguous. Inspect/correct/forget actions require a clear target before
   mutation.
@@ -84,8 +87,9 @@ planned metadata extension; they do not create an independent durable fact store
   Athena use intact and names the rebuild command; ambiguous time/scope is stated or
   clarified.
 
-Exact command syntax may follow current CLI parser conventions, but all five operations
-and their noninteractive forms are required before claiming parity.
+Exact command syntax follows the current CLI parser. Local episode search, inspection,
+ranking, candidate generation, and candidate review have CLI/slash parity. Full forget,
+source-delete/restore, and provider-handoff paths are not implemented yet.
 
 ## 9. Interface contract
 
@@ -95,9 +99,11 @@ budget; answer-time outputs are intended to include summaries, classifications, 
 dates, and source references. The implemented `athena memory rank` and `/memory rank`
 surfaces are local previews: they show bounded identifiers and ranking explanations but no
 source text, and they do not hand historical excerpts to a provider.
-Mutating operations (remember, correct, forget, review) validate IDs and source links and
-go through one local store API. No raw absolute path or model-provided timestamp is
-trusted as an identifier. The exact TypeScript contracts are in the design doc.
+Mutating operations (remember, correct, and review) validate IDs and source links and go
+through one local store API. Candidate generation writes only review-state records after
+verifying source identities and digests. No raw absolute path or model-provided timestamp
+is trusted as an identifier. Forget is not implemented until its source-retention policy is
+chosen. The exact TypeScript contracts are in the design doc.
 
 ## 10. Security, privacy, and access control
 

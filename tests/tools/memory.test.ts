@@ -1,9 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { memoryTool } from '../../src/tools/memory.js'
 import { MemoryHygieneStore } from '../../src/brain/hygiene.js'
+import { ContinuityStore } from '../../src/continuity/store.js'
+import { SessionStore } from '../../src/harness/sessions.js'
+import { generateSemanticCandidates } from '../../src/continuity/candidates.js'
 import { makeCtx } from '../helpers/tool-ctx.js'
 
 const sourceRef = {
@@ -184,24 +187,55 @@ describe('memoryTool', () => {
   it('reviews only source-backed inferred candidates', async () => {
     const ctx = makeCtx(dir)
     const store = new MemoryHygieneStore(join(dir, 'memory'))
-    const candidate = store.create({
-      description: 'Repeated preference',
-      content: 'The user repeatedly prefers linked episodes.',
-      sourceRefs: [
-        sourceRef,
-        { ...sourceRef, sessionId: 'session-two', recordId: 'line-two', timestamp: '2026-09-21T13:00:00.000Z' },
-      ],
-      supportingEpisodeIds: ['episode-one', 'episode-two'],
-      speechAct: 'preferred',
-      captureMode: 'inferred',
-      confidence: 0.7,
-      sensitivity: 'ordinary',
-    })
+    const sessionsRoot = join(dir, 'sessions')
+    for (let index = 0; index < 2; index++) {
+      const session = new SessionStore(sessionsRoot, 'C:/projects/memory-tool-review').create()
+      session.appendMessage({ role: 'user', content: 'I prefer linked episodes across projects.' })
+      session.appendMessage({ role: 'assistant', content: 'The source can be verified.' })
+      session.appendEvent({ type: 'turn-done' })
+    }
+    const continuityStore = new ContinuityStore(join(dir, 'continuity'))
+    continuityStore.rebuild(sessionsRoot)
+    generateSemanticCandidates(continuityStore, sessionsRoot, store)
+    const candidate = store.listAll()[0]!
 
     const res = await memoryTool.execute({ op: 'review', memoryId: candidate.memoryId, decision: 'promote' }, ctx)
     expect(res.isError).toBe(false)
     expect(store.get(candidate.memoryId)?.status).toBe('active')
     expect(store.get(candidate.memoryId)?.content).toBe(candidate.content)
+  })
+
+  it('refuses Memory tool promotion when a candidate source changed after generation', async () => {
+    const ctx = makeCtx(dir)
+    const store = new MemoryHygieneStore(join(dir, 'memory'))
+    const sessionsRoot = join(dir, 'sessions')
+    const sourceSessions: Array<ReturnType<SessionStore['create']>> = []
+    for (let index = 0; index < 2; index++) {
+      const session = new SessionStore(sessionsRoot, `C:/projects/memory-tool-stale-${index}`).create()
+      session.appendMessage({ role: 'user', content: 'I prefer current evidence for memory review.' })
+      session.appendMessage({ role: 'assistant', content: 'This statement has a source.' })
+      session.appendEvent({ type: 'turn-done' })
+      sourceSessions.push(session)
+    }
+    const continuityStore = new ContinuityStore(join(dir, 'continuity'))
+    continuityStore.rebuild(sessionsRoot)
+    generateSemanticCandidates(continuityStore, sessionsRoot, store)
+    const candidate = store.listAll()[0]!
+    const sourceRef = candidate.sourceRefs.find((source) => source.sessionId === sourceSessions[1]!.id)!
+    const records = readFileSync(sourceSessions[1]!.file, 'utf8').trimEnd().split('\n')
+    const lineIndex = records.findIndex((line) => line.includes(sourceRef.recordId))
+    const source = JSON.parse(records[lineIndex]!) as { data: { content: string } }
+    source.data.content = 'This is no longer the supporting claim.'
+    records[lineIndex] = JSON.stringify(source)
+    writeFileSync(sourceSessions[1]!.file, `${records.join('\n')}\n`, 'utf8')
+
+    const result = await memoryTool.execute(
+      { op: 'review', memoryId: candidate.memoryId, decision: 'promote' },
+      ctx,
+    )
+    expect(result.isError).toBe(true)
+    expect(result.output).toMatch(/source verification/i)
+    expect(store.get(candidate.memoryId)?.status).toBe('candidate')
   })
 
   it('supersedes an active semantic memory with the current correction source', async () => {
