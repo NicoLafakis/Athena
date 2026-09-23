@@ -43,8 +43,9 @@
   idempotent support merging, incomplete-catalog and truncated-source rejection, and
   suppression by existing explicit/rejected records. CLI process and slash integration
   tests generate a candidate locally and apply an explicit promotion without a model call.
-  The Memory tool and review service also prove that a source changed after listing blocks
-  promotion and leaves the record in candidate state.
+  The Memory tool and review service also prove that a source changed after listing, or
+  scope/time/sensitivity metadata no longer matches its sources, blocks promotion and leaves
+  the record in candidate state.
 - Ranking tests cover working/episodic/semantic/rollup selection, intent and speech-act
   boosts, hard project/time windows, semantic validity and sensitivity, historical
   supersession, stale-rollup rejection, deterministic top-five bounds, explanation

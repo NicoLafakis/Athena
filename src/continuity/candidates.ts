@@ -218,6 +218,7 @@ export function reviewSemanticCandidate(
   }
   const verifiedEpisodes = new Set<string>()
   const verifiedSessions = new Set<string>()
+  const verifiedProjects = new Set<string>()
   for (const source of sourceRefs) {
     const owner = episodes.find((episode) =>
       episode.sourceRefs.some((episodeSource) =>
@@ -238,11 +239,27 @@ export function reviewSemanticCandidate(
     ) {
       throw new Error('Inferred memory source verification failed: a supporting user claim no longer matches.')
     }
+    if (SENSITIVE_CUES.test(content)) {
+      throw new Error('Sensitive inferred memories cannot be promoted.')
+    }
     verifiedEpisodes.add(owner.id)
     verifiedSessions.add(`${source.projectId}\0${source.sessionId}`)
+    if (source.projectId) verifiedProjects.add(source.projectId)
   }
   if (verifiedEpisodes.size !== supportingIds.length || verifiedSessions.size < 2) {
     throw new Error('Inferred memory source verification failed: at least two distinct source sessions are required.')
+  }
+  if (
+    (memory.scope === 'project' && (
+      verifiedProjects.size !== 1 || !memory.projectId || !verifiedProjects.has(memory.projectId)
+    )) ||
+    (memory.scope === 'global' && verifiedProjects.size < 2)
+  ) {
+    throw new Error('Inferred memory source verification failed: its scope no longer matches supporting projects.')
+  }
+  const newestSourceAt = sourceRefs.map((source) => source.timestamp).sort().at(-1)
+  if (newestSourceAt !== memory.observedAt) {
+    throw new Error('Inferred memory source verification failed: observation time does not match its newest source.')
   }
   return semanticStore.promote(memoryId)
 }

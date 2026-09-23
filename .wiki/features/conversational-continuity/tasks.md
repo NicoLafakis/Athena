@@ -81,7 +81,8 @@ forget source-retention choice is still awaiting the product owner's answer.
   - [x] Add explicit `athena memory candidates` / `/memory candidates` generation and
     bounded local review listings, plus `athena memory review <id> <promote|reject>` /
     `/memory review <id> <promote|reject>`. Never auto-promote or send candidate text to a
-    provider. Reverify every inferred source at promotion time; changed evidence leaves the
+    provider. Reverify every inferred source at promotion time, including role, claim,
+    observation time, project scope, and sensitive wording; changed evidence leaves the
     record a candidate. Existing explicit/rejected/terminal decisions suppress duplicates.
   - [ ] Implement forget and derived-record suppression after the source-retention choice
     is answered.

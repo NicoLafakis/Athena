@@ -30,6 +30,16 @@ function addTurn(project: string, text: string): ReturnType<SessionStore['create
   return session
 }
 
+function mutateSemanticRecord(memoryId: string, update: (record: Record<string, unknown>) => void): void {
+  const memory = semanticStore.get(memoryId)!
+  const lines = readFileSync(memory.file, 'utf8').split('\n')
+  const recordLine = lines.findIndex((line) => line.startsWith('athena-semantic-record: '))
+  const record = JSON.parse(lines[recordLine]!.slice('athena-semantic-record: '.length)) as Record<string, unknown>
+  update(record)
+  lines[recordLine] = `athena-semantic-record: ${JSON.stringify(record)}`
+  writeFileSync(memory.file, lines.join('\n'), 'utf8')
+}
+
 describe('source-verified semantic candidate generation', () => {
   it('creates a reviewable project candidate from the same direct preference across distinct sessions', () => {
     addTurn('C:/projects/alpha', 'I prefer source-linked conversation memory.')
@@ -197,6 +207,63 @@ describe('source-verified semantic candidate generation', () => {
       candidate.memoryId,
       'promote',
     )).toThrow(/source verification/i)
+    expect(semanticStore.get(candidate.memoryId)?.status).toBe('candidate')
+  })
+
+  it('rechecks inferred scope against the projects in its supporting sources', () => {
+    addTurn('C:/projects/scope-a', 'I prefer continuity claims to stay source linked.')
+    addTurn('C:/projects/scope-b', 'I prefer continuity claims to stay source linked.')
+    continuityStore.rebuild(sessionsRoot)
+    generateSemanticCandidates(continuityStore, sessionsRoot, semanticStore)
+    const candidate = semanticStore.listAll()[0]!
+    mutateSemanticRecord(candidate.memoryId, (record) => {
+      record.scope = 'project'
+      record.projectId = candidate.sourceRefs[0]!.projectId
+    })
+
+    expect(() => reviewSemanticCandidate(
+      semanticStore,
+      continuityStore,
+      sessionsRoot,
+      candidate.memoryId,
+      'promote',
+    )).toThrow(/source verification/i)
+    expect(semanticStore.get(candidate.memoryId)?.status).toBe('candidate')
+  })
+
+  it('rechecks inferred observation time against the newest verified source', () => {
+    addTurn('C:/projects/observation', 'I prefer observation times from the source record.')
+    addTurn('C:/projects/observation', 'I prefer observation times from the source record.')
+    continuityStore.rebuild(sessionsRoot)
+    generateSemanticCandidates(continuityStore, sessionsRoot, semanticStore)
+    const candidate = semanticStore.listAll()[0]!
+    mutateSemanticRecord(candidate.memoryId, (record) => { record.observedAt = '2025-01-01T00:00:00.000Z' })
+
+    expect(() => reviewSemanticCandidate(
+      semanticStore,
+      continuityStore,
+      sessionsRoot,
+      candidate.memoryId,
+      'promote',
+    )).toThrow(/observation time/i)
+    expect(semanticStore.get(candidate.memoryId)?.status).toBe('candidate')
+  })
+
+  it('does not promote a sensitive source after its candidate metadata is altered', () => {
+    addTurn('C:/projects/sensitive-a', 'I prefer keeping my salary private.')
+    addTurn('C:/projects/sensitive-b', 'I prefer keeping my salary private.')
+    continuityStore.rebuild(sessionsRoot)
+    generateSemanticCandidates(continuityStore, sessionsRoot, semanticStore)
+    const candidate = semanticStore.listAll()[0]!
+    mutateSemanticRecord(candidate.memoryId, (record) => { record.sensitivity = 'ordinary' })
+
+    expect(() => reviewSemanticCandidate(
+      semanticStore,
+      continuityStore,
+      sessionsRoot,
+      candidate.memoryId,
+      'promote',
+    )).toThrow(/sensitive/i)
     expect(semanticStore.get(candidate.memoryId)?.status).toBe('candidate')
   })
 

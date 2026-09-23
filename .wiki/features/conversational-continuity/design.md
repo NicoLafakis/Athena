@@ -331,7 +331,9 @@ added without changing session-line identity.
   preserving explicit, rejected, superseded, or tombstoned decisions. No candidate is
   promoted automatically. Immediately before promotion, every inferred source is checked
   again against a complete index, current episode digest, source line, user role, timestamp,
-  speech act, and normalized claim. Rejection remains available if a source has become stale.
+  speech act, and normalized claim. The stored observation time and project/global scope
+  must still match those verified sources, and sensitive wording remains blocked even if
+  record metadata was altered. Rejection remains available if a source has become stale.
 - `athena memory candidates` / `/memory candidates` explicitly generate and list up to 20
   bounded review candidates, including a short claim excerpt, sensitivity, scope, and up to
   five supporting episode IDs. `athena memory review <memory-id> <promote|reject>` and its
