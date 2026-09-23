@@ -79,8 +79,13 @@ choice is still awaiting the product owner's answer.
 - [x] 4.1 Add day/week/month/quarter/year derived rollups with coverage refs, source
   digest, timezone, and generation version. Rollups are computed on demand from a complete
   index, with no cache; source correction/deletion is reflected after that session is reindexed.
-- [ ] 4.2 Add retrieval ranking across working, episodic, semantic, and rollup layers;
-  log only privacy-safe counts/timing/source IDs.
+- [x] 4.2 Add deterministic ranking across working, episodic, semantic, and rollup
+  layers. `athena memory rank <query>` and `/memory rank <query>` provide a local-only,
+  explainable preview: explicit time/project bounds, source/status/sensitivity filters,
+  layer/intent and lexical ranking, rollup digest validation, top-five results, and only
+  identifiers/metadata/reasons. The in-session command includes bounded current working
+  text as a ranking input but never returns it; outputs expose counts, timing, and source
+  IDs only. This is not wired into model prompts.
 - [ ] 4.3 Dogfood across realistic multi-project histories; calibrate candidate promotion,
   relevance, time interpretation, latency, and correction rates without relaxing evidence
   requirements to chase recall volume.

@@ -90,8 +90,11 @@ and their noninteractive forms are required before claiming parity.
 ## 9. Interface contract
 
 Use a bounded read-only retrieval operation for automatic recall and explicit query
-surfaces for timeline/search. Inputs include query, time range, scope, and result budget;
-outputs include summaries, classifications, confidence, dates, and source references.
+surfaces for timeline/search/ranking. Inputs include query, time range, scope, and result
+budget; answer-time outputs are intended to include summaries, classifications, confidence,
+dates, and source references. The implemented `athena memory rank` and `/memory rank`
+surfaces are local previews: they show bounded identifiers and ranking explanations but no
+source text, and they do not hand historical excerpts to a provider.
 Mutating operations (remember, correct, forget, review) validate IDs and source links and
 go through one local store API. No raw absolute path or model-provided timestamp is
 trusted as an identifier. The exact TypeScript contracts are in the design doc.

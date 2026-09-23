@@ -17,7 +17,7 @@
 | FR-011 controls/accessibility | CLI + presentation integration | Search/show/review/correct/forget parity and bounded plain text output |
 | FR-012 / AC-006 deletion | Integration | Delete/restore/forget; derived invalidation; rebuild does not resurrect tombstoned sources |
 | FR-013 privacy | Security fixtures | Secret-shaped strings, PII patterns, path escapes, unsafe model output, no raw transcript copy |
-| FR-014 / AC-010 budgets | Performance + prompt integration | Result count/characters capped; no background model calls; prompt has only relevant context |
+| FR-014 / AC-010 budgets | Ranking + performance + prompt integration | Local candidate count/source-ID caps and privacy-safe metrics; no background model calls; prompt handoff remains future work |
 | FR-015 / AC-007 rebuild/failure | Integration | Truncated JSONL, corrupt index, missing project, permission error, atomic-write failure |
 
 ## Implemented evidence at this checkpoint
@@ -38,6 +38,11 @@
   source resolution, candidate support thresholds, sensitive-inference promotion guards,
   review, correction/supersession links, body preservation, and isolation from the
   prompt-injected memory index.
+- Ranking tests cover working/episodic/semantic/rollup selection, intent and speech-act
+  boosts, hard project/time windows, semantic validity and sensitivity, historical
+  supersession, stale-rollup rejection, deterministic top-five bounds, explanation
+  reasons, and metrics containing only counts/timing/source IDs. CLI/slash integration
+  checks rank available local layers while withholding query and source text.
 - No answer-time provider handoff is implemented. Requirements that depend on retrieved
   history entering a model prompt remain future integration tests and are not claimed as
   covered by these local retrieval tests.

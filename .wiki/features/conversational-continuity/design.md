@@ -19,9 +19,10 @@ existing local records. Keep one source of truth for each kind of information:
 
 The index is global to the local OS user and catalogs all project session directories.
 Project scope remains metadata for relevance and disclosure controls, not a hard boundary
-for a user’s explicit conversational recall. The active prompt receives a small retrieval
-result only when the request calls for prior context. It does not receive the entire
-archive or all project memory by default.
+for a user’s explicit conversational recall. The target behavior is a small retrieval
+result only when a request calls for prior context; the current implementation stops at a
+local ranked preview. Historical excerpts are not sent to a provider pending explicit
+authorization.
 
 ## Memory layers and lifecycle
 
@@ -53,6 +54,42 @@ commitment may outlive a day; an old preference may stay relevant; a month summa
 not delete daily episodes.
 
 ## Retrieval and routing
+
+### Current local ranking preview
+
+`rankContinuityLayers` provides a deterministic, bounded policy preview through
+`athena memory rank <query>` and `/memory rank <query>`. The interactive command ranks the
+bounded text currently held by the active engine as working state; both interfaces rank
+the linked episode catalog, validated semantic records, and fresh on-demand rollups. The
+standalone CLI has no active working layer. Neither command returns source text or sends
+history to a model.
+
+- A named project or resolved temporal window is a hard filter for applicable candidates.
+  Without an explicit project, the catalog can span projects; current-project matches get
+  only a small tie-breaking preference. Global semantic memories remain eligible.
+- Episodes are filtered by observed time. Semantic records must be active and valid now,
+  or superseded with an overlapping historical window. Rejected, candidate, tombstoned,
+  future, expired, and (by default) sensitive semantic records do not rank.
+- Rollups must overlap the requested local-calendar window, cover only eligible episodes,
+  and match the digest recomputed from current episode records. Partial catalogs produce no
+  rollups.
+- Scoring combines phrase/token relevance, inferred intent, layer preference, explicit
+  versus corroborated source authority, speech-act/correction labels, a small current-
+  project preference, and bounded recency. Time and project filters happen before score.
+- The preview returns at most five candidates by default (hard maximum eight), each with
+  at most twelve source IDs; aggregate ranking metrics cap source IDs at 64. It displays
+  the selected IDs, scope/status/time, confidence when present, score, and reason labels.
+  It does not display query text, memory content, summaries, or file paths.
+- `/memory rank` includes an in-memory working candidate from textual active-session
+  messages, capped at 32,000 characters and tagged only with the active session ID. This
+  ephemeral candidate is not written to the continuity index. Sensitive filtering for
+  semantic records is on by default and there is no CLI/slash override.
+
+This preview does not yet expand selected IDs into answer context. A future provider
+handoff must re-verify sources, preserve adjacent conversation context, apply project
+disclosure rules, and pass prompt-isolation tests after explicit authorization.
+
+### Target answer-time retrieval routing (not connected)
 
 1. Read the current user request and active conversation state.
 2. Determine likely intent: continuation/open loop, recall by time, recall by topic/person,
@@ -93,6 +130,10 @@ Suggested retrieval intent mapping:
 | “What do I usually prefer?” | Active preference memories with independent support | Supporting episodes and counterexamples |
 | “How did similar work go?” | Existing `ExperienceStore` scoped by project/task | Relevant run traces |
 | “What is true in this repo now?” | Current files/runtime tools | Historical decisions only as context |
+
+The scoring implementation is a baseline, not calibrated relevance quality. Phase 4.3
+requires representative multi-project dogfood and measured false-positive/no-hit review
+before any automatic answer-time use.
 
 The answer should naturally identify time and context when that avoids ambiguity. A
 source citation is available on request and in machine-readable results; the conversation

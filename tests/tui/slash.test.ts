@@ -21,12 +21,16 @@ describe('parseSlash', () => {
     ['/memory search what did we decide --project alpha-123', {
       kind: 'memory', action: 'search', value: 'what did we decide', projectId: 'alpha-123',
     }],
+    ['/memory rank what did we decide --project alpha-123', {
+      kind: 'memory', action: 'rank', value: 'what did we decide', projectId: 'alpha-123',
+    }],
     ['/memory show episode-123', { kind: 'memory', action: 'show', value: 'episode-123' }],
     ['/memory rollup', { kind: 'memory', action: 'rollup' }],
     ['/memory rollup month', { kind: 'memory', action: 'rollup', value: 'month' }],
     ['/memory rollup decade', { kind: 'error', value: 'Usage: /memory rollup [day|week|month|quarter|year]' }],
     ['/memory rollup day week', { kind: 'error', value: 'Usage: /memory rollup [day|week|month|quarter|year]' }],
     ['/memory search', { kind: 'error', value: 'Usage: /memory search <query>' }],
+    ['/memory rank', { kind: 'error', value: 'Usage: /memory rank <query>' }],
     ['/skills', { kind: 'skills' }],
     ['/agents', { kind: 'agents' }],
     ['/status', { kind: 'status' }],

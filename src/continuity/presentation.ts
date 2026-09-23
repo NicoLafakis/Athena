@@ -1,4 +1,6 @@
 import type { ContinuityEpisode, TimeRollup } from './schemas.js'
+import type { SemanticRecallMemory, WorkingRecallState } from './ranking.js'
+import { rankContinuityLayers } from './ranking.js'
 import type { ContinuityStore } from './store.js'
 import { loadEpisodeSourceContext, searchEpisodes } from './retrieval.js'
 import { resolveTemporalWindow } from './time.js'
@@ -73,6 +75,83 @@ function formatRollup(rollup: TimeRollup): string {
   return rollup.granularity.toUpperCase() + ' [' + rollup.periodStart + ', ' + rollup.periodEnd + ') ' +
     '(' + rollup.sourceEpisodeIds.length + ' episode(s), ' + rollup.sourceDigest.slice(0, 12) + '):\n' +
     sourceLine + '\n' + rollup.summary
+}
+
+export function formatContinuityRanking(
+  store: ContinuityStore,
+  options: {
+    query: string
+    semanticMemories?: SemanticRecallMemory[]
+    working?: WorkingRecallState[]
+    currentProjectId?: string
+    projectId?: string
+    timeZone?: string
+  },
+): string {
+  const resolution = resolveTemporalWindow(options.query, {
+    ...(options.timeZone ? { configuredTimeZone: options.timeZone } : {}),
+  })
+  if (resolution.status === 'clarify' && resolution.reason !== 'no-bounded-window') {
+    return `Please clarify the requested time range: ${resolution.message}`
+  }
+
+  let timeZone = options.timeZone
+  if (!timeZone) {
+    try {
+      timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+    } catch {
+      timeZone = undefined
+    }
+  }
+  const status = store.status()
+  const rollupResult = timeZone && status.state === 'ready'
+    ? store.buildRollups(timeZone)
+    : { state: status.state, rollups: [] }
+  const result = rankContinuityLayers({
+    query: options.query,
+    episodes: store.listEpisodes(),
+    semanticMemories: options.semanticMemories,
+    working: options.working,
+    rollups: rollupResult.rollups,
+    ...(options.currentProjectId ? { currentProjectId: options.currentProjectId } : {}),
+    ...(options.projectId ? { projectId: options.projectId } : {}),
+    ...(resolution.status === 'resolved' ? { window: resolution.window } : {}),
+  })
+
+  const statusLine = status.state === 'ready'
+    ? `Episode catalog: ready (${status.episodeCount} episode(s), ${status.projectCount} project(s)).`
+    : status.state === 'partial'
+      ? 'Episode catalog: partial; run `athena memory rebuild` for complete historical ranking.'
+      : status.state === 'corrupt'
+        ? 'Episode catalog: corrupt; run `athena memory rebuild` to recover it.'
+        : 'Episode catalog: not built; run `athena memory rebuild` to index conversations.'
+  const counts = result.metrics.inputCounts
+  const lines = [
+    `Local recall ranking (intent: ${result.intent}; this preview does not disclose source text).`,
+    statusLine,
+    `Candidates checked: working ${counts.working}, episodic ${counts.episodic}, semantic ${counts.semantic}, rollup ${counts.rollup}.`,
+    `Selected: ${result.metrics.selectedCount}; ranking time: ${result.metrics.elapsedMs} ms.`,
+  ]
+  if (result.candidates.length === 0) {
+    lines.push('No local continuity sources matched that request.')
+    return lines.join('\n')
+  }
+
+  lines.push(...result.candidates.map((candidate, index) => {
+    const attributes = [
+      candidate.projectId ?? 'global',
+      candidate.status,
+      candidate.confidence === undefined ? undefined : `confidence ${candidate.confidence}`,
+    ].filter((value): value is string => Boolean(value))
+    const sourceList = candidate.sourceIds.join(', ')
+    const omitted = candidate.sourceCount - candidate.sourceIds.length
+    return [
+      `${index + 1}. ${candidate.layer} ${candidate.id} | score ${candidate.score} | ${candidate.observedAt} | ${attributes.join(', ')} | ${candidate.sourceCount} source ID(s)${sourceList ? `: ${sourceList}` : ''}${omitted > 0 ? ` (+${omitted} omitted)` : ''}`,
+      `   Why: ${candidate.reasons.join('; ') || 'eligible local source'}.`,
+    ].join('\n')
+  }))
+  lines.push('Use `athena memory show <episode-id>` to inspect source-verified episode context.')
+  return lines.join('\n')
 }
 
 export function formatContinuitySearch(

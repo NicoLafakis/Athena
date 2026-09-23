@@ -149,6 +149,9 @@ describe('MemoryHygieneStore', () => {
     expect(replacement.supersedes).toEqual([oldMemory.memoryId])
     expect(replacement.content).toBe('The corrected preference is light mode.')
     expect(store.listActive()).toEqual([replacement])
+    expect(store.listAll().map((memory) => memory.memoryId)).toEqual(
+      expect.arrayContaining([replacement.memoryId, oldMemory.memoryId]),
+    )
   })
 
   it('tombstones without deleting source-backed content and excludes the record from active retrieval', () => {

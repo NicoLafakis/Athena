@@ -7,6 +7,7 @@ import { EngineEventBus } from '../../src/engine/events.js'
 import type { EngineEvent } from '../../src/engine/types.js'
 import { InteractionService } from '../../src/interaction/service.js'
 import { resolveBrainPaths } from '../../src/brain/paths.js'
+import { MemoryHygieneStore } from '../../src/brain/hygiene.js'
 import { SessionStore } from '../../src/harness/sessions.js'
 import { ContinuityStore } from '../../src/continuity/store.js'
 import { parseSlash } from '../../src/tui/slash.js'
@@ -117,5 +118,69 @@ describe('local accessibility commands', () => {
     expect(messages[4]).toContain(') (')
     expect(messages[3]).toContain('One further detail about memory context.')
     expect(messages.join('\n')).not.toContain(session.file)
+  })
+
+  it('previews ranked working, episodic, and semantic candidates without returning their text', () => {
+    temp = mkdtempSync(join(tmpdir(), 'athena-slash-rank-'))
+    const paths = resolveBrainPaths({ cwd: temp, homeOverride: temp })
+    const sessionStore = new SessionStore(paths.sessionsDir, 'C:/project/rank')
+    const session = sessionStore.create()
+    session.appendMessage({ role: 'user', content: 'The user prefers source-linked continuity for later conversations.' })
+    session.appendMessage({ role: 'assistant', content: 'The continuity catalog will retain the source context.' })
+    session.appendEvent({ type: 'turn-done' })
+    const continuityStore = new ContinuityStore(paths.continuityDir)
+    continuityStore.rebuild(paths.sessionsDir)
+    const episode = continuityStore.listEpisodes()[0]!
+    const semanticStore = new MemoryHygieneStore(paths.memoryDir)
+    const semanticMemory = semanticStore.create({
+      description: 'Continuity preference',
+      content: 'I prefer a private semantic phrase about continuity.',
+      sourceRefs: episode.sourceRefs,
+      supportingEpisodeIds: [episode.id],
+      observedAt: episode.observedAt,
+      scope: 'global',
+      speechAct: 'preferred',
+      captureMode: 'explicit',
+      confidence: 1,
+      sensitivity: 'ordinary',
+    })
+
+    const bus = new EngineEventBus()
+    const events: EngineEvent[] = []
+    bus.on((event) => events.push(event))
+    const handler = makeSlashHandler({
+      bus,
+      engine: {
+        getMessages: () => [
+          { role: 'user', content: 'Current working discussion about continuity preferences.' },
+          { role: 'assistant', content: 'This private working phrase should stay local.' },
+        ],
+      },
+      gate: {},
+      contextManager: {},
+      client: {},
+      store: sessionStore,
+      session,
+      paths,
+      credentialVault: {},
+      continuityStore,
+      timeZone: 'UTC',
+    } as unknown as Parameters<typeof makeSlashHandler>[0])
+
+    handler(parseSlash('/memory rank What do I prefer about continuity?')!)
+
+    const output = events
+      .filter((event): event is Extract<EngineEvent, { type: 'info' }> => event.type === 'info')
+      .map((event) => event.message)
+      .join('\n')
+    expect(output).toContain('Local recall ranking (intent: preference')
+    expect(output).toContain('working working:')
+    expect(output).toContain(`semantic ${semanticMemory.memoryId}`)
+    expect(output).toContain(`episodic ${episode.id}`)
+    expect(output).toContain(session.id)
+    expect(output).not.toContain('What do I prefer')
+    expect(output).not.toContain('private semantic phrase')
+    expect(output).not.toContain('private working phrase')
+    expect(output).not.toContain(session.file)
   })
 })

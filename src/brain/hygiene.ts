@@ -86,12 +86,17 @@ export class MemoryHygieneStore {
 
   listActive(): ManagedSemanticMemory[] {
     const now = this.now().getTime()
-    return this.readAll().filter(
+    return this.listAll().filter(
       (memory) =>
         memory.status === 'active' &&
         (memory.validFrom === undefined || Date.parse(memory.validFrom) <= now) &&
         (memory.validUntil === undefined || now < Date.parse(memory.validUntil)),
     )
+  }
+
+  /** Return every validated lifecycle state so historical queries can resolve validity windows. */
+  listAll(): ManagedSemanticMemory[] {
+    return this.readAll()
   }
 
   get(memoryId: string): ManagedSemanticMemory | null {

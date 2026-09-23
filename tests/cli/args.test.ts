@@ -235,6 +235,9 @@ describe('parseArgs — memory continuity commands', () => {
     expect(parseArgs(['memory', 'search', 'what', 'did', 'we', 'decide', '--project', 'alpha-123'])).toEqual({
       command: 'memory', action: 'search', args: ['what', 'did', 'we', 'decide'], projectId: 'alpha-123',
     })
+    expect(parseArgs(['memory', 'rank', 'what', 'did', 'we', 'decide', '--project', 'alpha-123'])).toEqual({
+      command: 'memory', action: 'rank', args: ['what', 'did', 'we', 'decide'], projectId: 'alpha-123',
+    })
     expect(parseArgs(['memory', 'show', 'episode-123'])).toEqual({
       command: 'memory', action: 'show', args: ['episode-123'],
     })
@@ -248,6 +251,7 @@ describe('parseArgs — memory continuity commands', () => {
 
   it('rejects invalid memory arguments and missing required values', () => {
     expect(parseArgs(['memory', 'search'])).toMatchObject({ command: 'error' })
+    expect(parseArgs(['memory', 'rank'])).toMatchObject({ command: 'error' })
     expect(parseArgs(['memory', 'show'])).toMatchObject({ command: 'error' })
     expect(parseArgs(['memory', 'rebuild', '--unexpected'])).toMatchObject({ command: 'error' })
     expect(parseArgs(['memory', 'search', 'recent', '--project'])).toEqual({

@@ -2,7 +2,7 @@
 
 - **Tier:** 3 — major / high trust impact
 - **Date:** 2026-09-23
-- **Status:** implementation in progress; local linked-episode catalog, CLI/slash inspection, initial semantic-memory lifecycle, and deterministic on-demand time rollups are implemented
+- **Status:** implementation in progress; local linked-episode catalog, CLI/slash inspection, initial semantic-memory lifecycle, on-demand time rollups, and explainable local ranking previews are implemented
 - **Product owner:** Nico
 
 ## What was asked
@@ -106,9 +106,13 @@ experience is prior task outcome guidance, and user memory is durable personal c
 The local source-linked index, all-project session discovery, fork lineage resolution,
 timezone-aware date parsing, bounded topic/timeline search, source-verified show actions,
 on-demand day/week/month/quarter/year rollups, `athena memory` commands, and `/memory`
-actions are implemented. Rollups use only a complete current index, retain coverage IDs and
-a source digest, and are recomputed after the session index changes. The index refreshes after
-persisted turn completion and can be rebuilt explicitly. Automatic transfer of historical
-excerpts into provider prompts is pending explicit authorization because it crosses the
+actions are implemented. `athena memory rank <query>` and `/memory rank <query>` preview
+deterministic selections across working, episodic, semantic, and rollup layers. The preview
+filters explicit time/project scope, checks semantic validity and sensitivity, rejects
+stale rollups, and returns bounded identifiers and explanation metadata without source
+text. Rollups use only a complete current index, retain coverage IDs and a source digest,
+and are recomputed after the session index changes. The index refreshes after persisted turn
+completion and can be rebuilt explicitly. Automatic transfer of historical excerpts into
+provider prompts is pending explicit authorization because it crosses the
 local-history/provider boundary. Candidate generation/review, deletion suppression,
-retrieval ranking, and calibration remain in later plan phases.
+dogfood calibration, and provider handoff remain open.

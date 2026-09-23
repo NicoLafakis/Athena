@@ -8,6 +8,8 @@ import {
   ExperienceStore,
   GuidanceRecordSchema,
 } from '../../src/experience/index.js'
+import { ContinuityStore } from '../../src/continuity/store.js'
+import { SessionStore } from '../../src/harness/sessions.js'
 import { projectId } from '../../src/harness/trust.js'
 
 let root: string
@@ -88,6 +90,26 @@ describe('athena exec process contract', () => {
     const result = run(['--accessibility', 'screen-reader'], '/status\n/quit\n')
     expect(result.status, result.stderr).toBe(0)
     expect(result.stdout).toContain('Status: no semantic state is available for this run.')
+    expect(result.stderr).not.toContain('Fixture model script exhausted')
+  })
+
+  it('runs the standalone memory rank command locally without returning source text', () => {
+    writeFileSync(script, '[]')
+    const sessionsRoot = join(home, '.athena', 'sessions')
+    const session = new SessionStore(sessionsRoot, project).create()
+    session.appendMessage({ role: 'user', content: 'We decided to keep continuity memories linked to their context.' })
+    session.appendMessage({ role: 'assistant', content: 'The source session remains available for inspection.' })
+    session.appendEvent({ type: 'turn-done' })
+    const continuityStore = new ContinuityStore(join(home, '.athena', 'continuity'))
+    continuityStore.rebuild(sessionsRoot)
+    const [episode] = continuityStore.listEpisodes()
+    expect(episode).toBeDefined()
+
+    const result = run(['memory', 'rank', 'what', 'did', 'we', 'decide', 'about', 'continuity'])
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain('Local recall ranking (intent: decision')
+    expect(result.stdout).toContain(`episodic ${episode!.id}`)
+    expect(result.stdout).not.toContain('We decided to keep continuity memories')
     expect(result.stderr).not.toContain('Fixture model script exhausted')
   })
 

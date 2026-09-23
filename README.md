@@ -237,6 +237,7 @@ athena memory status
 athena memory rebuild
 athena memory timeline last week
 athena memory search "what did we decide" --project <project-id>
+athena memory rank "what did we decide"
 athena memory show <episode-id>
 athena memory rollup [day|week|month|quarter|year]
 ```
@@ -244,7 +245,7 @@ athena memory rollup [day|week|month|quarter|year]
 The catalog stores bounded, redacted summaries with links to local session lines. It does
 not copy transcripts. A full archive index requires `athena memory rebuild`; new persisted
 turns update their own session entries. The equivalent `/memory status`, `/memory rebuild`,
-`/memory timeline`, `/memory search`, `/memory show`, and `/memory rollup [granularity]`
+`/memory timeline`, `/memory search`, `/memory rank`, `/memory show`, and `/memory rollup [granularity]`
 controls work in both interactive presentations. Show includes bounded same-session turns
 around an episode with its source line IDs. Rollups are computed on demand from a
 complete local catalog, using the configured IANA timezone (or a labeled OS-timezone
@@ -254,6 +255,10 @@ to inspect a listed source. Complete coverage stays in the linked index. Rollup 
 only episode summaries, with no separate transcript copy or persisted cache. A correction or
 source deletion is reflected after the session index is refreshed; an incomplete catalog
 asks for a rebuild.
+`memory rank` locally previews selected working, episodic, semantic, and rollup layers with
+bounded IDs, scope, time, scores, and reason labels. `/memory rank` also considers text in
+the active in-memory conversation. The preview does not show query/source text and does
+not add historical excerpts to provider prompts.
 Automatic recall inside provider prompts is pending explicit authorization.
 
 The `Memory` tool can also save an explicitly requested durable fact as a semantic-memory

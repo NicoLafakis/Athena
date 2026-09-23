@@ -106,8 +106,11 @@ import {
 import { stalenessBootWarnings } from './harness/staleness.js'
 import { configureVmp, getVmpStatus, printVmpReport, startVmpServer } from './harness/vmp.js'
 import { ContinuityStore } from './continuity/store.js'
+import { MemoryHygieneStore } from './brain/hygiene.js'
+import type { WorkingRecallState } from './continuity/ranking.js'
 import {
   formatContinuityEpisode,
+  formatContinuityRanking,
   formatContinuityRollups,
   formatContinuitySearch,
   formatContinuityStatus,
@@ -150,7 +153,7 @@ export type CliCommand =
     }
   | {
       command: 'memory'
-      action: 'rebuild' | 'status' | 'timeline' | 'search' | 'show' | 'rollup'
+      action: 'rebuild' | 'status' | 'timeline' | 'search' | 'show' | 'rollup' | 'rank'
       args: string[]
       projectId?: string
     }
@@ -502,11 +505,11 @@ export function parseArgs(argv: string[]): CliCommand {
   }
   if (argv[0] === 'memory') {
     const action = argv[1] ?? 'status'
-    const actions = new Set(['rebuild', 'status', 'timeline', 'search', 'show', 'rollup'])
+    const actions = new Set(['rebuild', 'status', 'timeline', 'search', 'show', 'rollup', 'rank'])
     if (!actions.has(action)) {
       return {
         command: 'error',
-        message: 'Usage: athena memory <rebuild|status|timeline|search|show|rollup> [query|episode-id|granularity] [--project <project-id>]',
+        message: 'Usage: athena memory <rebuild|status|timeline|search|rank|show|rollup> [query|episode-id|granularity] [--project <project-id>]',
       }
     }
     const args: string[] = []
@@ -533,6 +536,9 @@ export function parseArgs(argv: string[]): CliCommand {
     }
     if (action === 'search' && args.length === 0) {
       return { command: 'error', message: 'Usage: athena memory search <query> [--project <project-id>]' }
+    }
+    if (action === 'rank' && args.length === 0) {
+      return { command: 'error', message: 'Usage: athena memory rank <query> [--project <project-id>]' }
     }
     if (action === 'rollup' &&
       (projectId !== undefined || args.length > 1 || (args.length === 1 && !['day', 'week', 'month', 'quarter', 'year'].includes(args[0]!)))) {
@@ -673,6 +679,7 @@ Usage:
   athena memory          inspect cross-project conversation continuity
   athena memory rebuild  rebuild the local linked episode index
   athena memory search   find prior conversations by time or topic
+  athena memory rank     preview ranked local continuity layers for a query
   athena memory show     inspect an episode with source-linked messages
   athena memory rollup   show source-linked day/week/month/quarter/year summaries
   athena plugin list     manage installed plugins (install/update/enable/disable/remove/verify)
@@ -680,7 +687,7 @@ Usage:
   athena --help          this help
   athena --version       print the installed version
 
-In-session: /help /status /repeat /details /verbosity /clear /resume /compact /model /effort /provider /mode /tui /memory /skills /agents /quit. Esc interrupts a turn.
+In-session: /help /status /repeat /details /verbosity /clear /resume /compact /model /effort /provider /mode /tui /memory /memory rank <query> /skills /agents /quit. Esc interrupts a turn.
 Custom commands: drop a .md file (with description/argument-hint frontmatter) into .athena/commands/ or ~/.athena/commands/ to add /<name>.
 Plugins: use \`athena plugin install <directory-or-git-url>\`; managed bundles can contribute namespaced skills, agents, commands, hooks, MCP, and app metadata.`
 
@@ -776,6 +783,28 @@ export function handleScreenReaderInterrupt(
   return 'session-exit'
 }
 
+function currentWorkingRecallState(
+  messages: MessageParam[],
+  sessionId: string | null,
+  projectId: string,
+): WorkingRecallState[] {
+  const content = messages.map((message) => {
+    if (typeof message.content === 'string') return message.content
+    return message.content
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join(' ')
+  }).filter(Boolean).join('\n').slice(-32_000).trim()
+  if (!content) return []
+  return [{
+    id: `working:${sessionId ?? 'current'}`,
+    projectId,
+    observedAt: new Date().toISOString(),
+    content,
+    sourceIds: sessionId ? [`session:${sessionId}`] : [],
+  }]
+}
+
 interface SlashDeps {
   bus: EngineEventBus
   engine: Engine
@@ -826,7 +855,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
                 .join(', ')
             : ''
         info(
-          `Commands: /help /status /repeat /details /verbosity <concise|balanced|detailed> /clear /resume /compact /model <${modelKeys(engine.getProvider()).join('|')}> /effort <low|medium|high|xhigh|max> /provider <${PROVIDER_IDS.join('|')}> /mode <normal|acceptEdits|plan|trusted> /tui <fullscreen|classic> /memory /skills /agents /quit\n` +
+          `Commands: /help /status /repeat /details /verbosity <concise|balanced|detailed> /clear /resume /compact /model <${modelKeys(engine.getProvider()).join('|')}> /effort <low|medium|high|xhigh|max> /provider <${PROVIDER_IDS.join('|')}> /mode <normal|acceptEdits|plan|trusted> /tui <fullscreen|classic> /memory /memory rank <query> /skills /agents /quit\n` +
             '/clear clears the screen (transcript display only) — conversation context is unchanged; use /compact to shrink it.\n' +
             '/tui fullscreen switches to an alternate-screen buffer with a pinned input (like vim/htop); /tui classic returns to normal scrollback.\n' +
             '/model /provider /effort /mode /tui run with no argument open a picker to choose a value instead of requiring you to type one.' +
@@ -975,6 +1004,16 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         } else if (cmd.action === 'rebuild') {
           const result = memoryStore.rebuild(paths.sessionsDir)
           info(`Indexed ${result.episodeCount} episode(s) from ${result.sessionCount} session(s).`)
+        } else if (cmd.action === 'rank') {
+          const semanticStore = new MemoryHygieneStore(paths.memoryDir, { onWarn: info })
+          info(formatContinuityRanking(memoryStore, {
+            query: cmd.value ?? '',
+            semanticMemories: semanticStore.listAll(),
+            working: currentWorkingRecallState(engine.getMessages(), session?.id ?? null, store.projectId),
+            currentProjectId: store.projectId,
+            ...(cmd.projectId ? { projectId: cmd.projectId } : {}),
+            ...(timeZone ? { timeZone } : {}),
+          }))
         } else if (cmd.action === 'rollup') {
           info(formatContinuityRollups(
             memoryStore,
@@ -1506,6 +1545,21 @@ async function main(): Promise<void> {
           timeZone,
           cmd.args[0] as 'day' | 'week' | 'month' | 'quarter' | 'year' | undefined,
         ))
+        return
+      }
+
+      if (cmd.action === 'rank') {
+        const semanticStore = new MemoryHygieneStore(paths.memoryDir, {
+          onWarn: (warning) => console.error(warning),
+        })
+        const currentProjectId = new SessionStore(paths.sessionsDir, cwd).projectId
+        console.log(formatContinuityRanking(store, {
+          query: cmd.args.join(' '),
+          semanticMemories: semanticStore.listAll(),
+          currentProjectId,
+          ...(cmd.projectId ? { projectId: cmd.projectId } : {}),
+          ...(timeZone ? { timeZone } : {}),
+        }))
         return
       }
 

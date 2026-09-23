@@ -52,11 +52,18 @@ provider prompts.
 Deterministic local day/week/month/quarter/year rollups are implemented as on-demand views
 over the complete episode index. They include all covered episode IDs and a digest of the
 current source set; refresh is automatic because no rollup cache is persisted. Retrieval
-ranking and calibration against representative long histories remain.
+ranking is implemented as a local-only preview across working, episodic, semantic, and
+rollup layers. CLI and slash interfaces return bounded metadata and explanation labels;
+they do not add historical excerpts to provider prompts. Calibration against representative
+long histories remains.
 
 **Rollup exit:** source coverage, complete-index gating, timezone boundaries, summary bounds,
-and correction/deletion refresh are covered by unit and integration tests. **Phase exit:**
-ranking, latency/context budgets, and exact-detail source expansion are calibrated.
+and correction/deletion refresh are covered by unit and integration tests. **Ranking-preview
+exit:** deterministic layer selection, source scope/validity filters, stale-rollup rejection,
+bounded metadata, and local CLI/slash parity are tested. **Phase exit:** representative-history
+relevance, false-positive/no-hit rates, latency budgets, and exact-detail source expansion
+are calibrated. Automatic provider handoff remains separately blocked on explicit user
+authorization and its privacy tests.
 
 ## Backfill and migration
 
