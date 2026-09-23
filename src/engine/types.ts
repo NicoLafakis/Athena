@@ -2,6 +2,7 @@
 import type { z } from 'zod'
 import type { ProviderId } from '../brain/models.js'
 import type { SourceRef } from '../continuity/schemas.js'
+import type { JevMemorySpeechAct } from '../decision/jev.js'
 
 export interface TokenUsage {
   inputTokens: number
@@ -161,6 +162,11 @@ export interface ToolContext {
   getCurrentUserSourceRef?: () => SourceRef | null
   /** Mark the start of a turn so an older identical prompt cannot be reused as a source. */
   setCurrentUserTurnPrompt?: (prompt: string) => void
+  /** Persist a high-confidence Jev label against the already-written current user message. */
+  recordCurrentUserSpeechAct?: (classification: {
+    speechAct: Extract<JevMemorySpeechAct, 'preferred' | 'decided' | 'promised' | 'corrected' | 'retracted'>
+    confidence: number
+  }) => void
 }
 
 export interface ToolDefinition<I = unknown> {

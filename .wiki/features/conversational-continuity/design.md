@@ -150,14 +150,25 @@ also describes retention for service purposes, processing by service providers, 
 hosting. Recheck current terms before material changes to the provider path. Source links
 and the research snapshot are in ADR 0003.
 
-A later memory-intake slice may use Jev to classify a persisted user utterance's speech
-act or flag possible correction/commitment signals. Athena would still resolve the source,
-verify the exact persisted user text and timestamps, enforce repeated-evidence and
-sensitivity rules, and leave every inferred item in candidate status for explicit review.
-It is a separate future slice: first complete labeled evaluation and show measurable
-benefit over current local rules without reducing precision. No Jev decision may promote
-memory, change source history, or bypass source, sensitivity, review, or permission gates.
-Jev is not the memory store or the authority for what actually happened.
+### Jev speech-act intake (integrated)
+
+The same current-request Jev call classifies both recall route and speech act. A
+high-confidence (`>= 0.85`) `preferred`, `decided`, `promised`, `corrected`, or `retracted`
+label is stored as a content-free local session event only after the user message has been
+written. Athena resolves its source ID, timestamp, and SHA-256 line digest locally. Episode
+indexing and retrieval attach the label only while the event still points to the exact
+user-authored line and its current digest.
+
+Verified `preferred`, `decided`, and `promised` labels can broaden candidate detection to
+indirect wording. A candidate still requires the same normalized user text across at least
+two independent sessions, local sensitivity and redaction checks, a complete catalog,
+source-digest verification, and explicit user review. Promotion repeats source checks.
+Correction and retraction labels stay attached to episode context for retrieval and never
+automatically overwrite or remove existing memory. Jev cannot promote memory, alter source
+history, or bypass scope, sensitivity, review, or permission gates. It is not the memory
+store or the authority for what actually happened. The synthetic speech-act corpus and
+live evaluator are documented in [ADR 0003](adr/0003-jev-decision-model.md); live model
+quality remains unmeasured until a TypeSafe key is available.
 
 ### Target answer-time retrieval routing (not connected)
 
@@ -388,9 +399,10 @@ added without changing session-line identity.
   record.
 - The store accepts inferred records only as candidates and requires two distinct
   supporting episode IDs. `generateSemanticCandidates` runs only through an explicit local
-  command and requires a ready catalog. It accepts only a direct user preference, decision,
-  or promise in a completed episode with exactly one recognized speech act. The same
-  normalized full claim must appear in at least two distinct `(project, session)` sources;
+  command and requires a ready catalog. It accepts a direct user preference, decision, or
+  promise, or an indirect claim with a high-confidence Jev label validated against that
+  exact user-message digest. The same normalized full claim must appear in at least two
+  distinct `(project, session)` sources;
   each episode digest is verified before its user message is used. Tentative/question text,
   assistant messages, stale sources, incomplete catalogs, and oversized/truncated episode
   contexts are skipped. A message that the shared redactor would change is also excluded,

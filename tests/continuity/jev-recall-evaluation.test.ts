@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { RecallIntentRouter, RecallRoute } from '../../src/decision/jev.js'
+import { JEV_MEMORY_SPEECH_ACTS, type RecallIntentRouter, type RecallRoute, type RecallRouteDecision } from '../../src/decision/jev.js'
 import {
   evaluateJevRecallCorpus,
   type RecallEvaluationCorpus,
@@ -18,6 +18,10 @@ const labels: RecallRoute[] = [
 function probabilities(route: RecallRoute): Record<RecallRoute, number> {
   return Object.fromEntries(labels.map((label) => [label, label === route ? 1 : 0])) as Record<RecallRoute, number>
 }
+
+const speechActProbabilities = Object.fromEntries(
+  JEV_MEMORY_SPEECH_ACTS.map((act) => [act, act === 'none' ? 1 : 0]),
+) as RecallRouteDecision['speechAct']['probabilities']
 
 describe('Jev recall evaluation', () => {
   it('reports decision quality, fallback coverage, latency, tokens, and estimated cost', async () => {
@@ -41,7 +45,12 @@ describe('Jev recall evaluation', () => {
       const route: RecallRoute = text === 'What did we decide last week?' ? 'temporal-recall' : 'temporal-recall'
       return {
         status: 'decision',
-        value: { route, confidence: 0.9, probabilities: probabilities(route) },
+        value: {
+          route,
+          confidence: 0.9,
+          probabilities: probabilities(route),
+          speechAct: { act: 'none', confidence: 1, probabilities: speechActProbabilities },
+        },
         usage: { inputTokens: 11, outputTokens: 0 },
       } as const
     })

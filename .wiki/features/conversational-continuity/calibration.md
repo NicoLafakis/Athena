@@ -58,6 +58,21 @@ was not configured during this implementation, so no Jev prediction, quality, la
 spend result is claimed. TypeSafe's input price was checked at $0.042 per million tokens
 on 2026-09-23; the evaluator labels cost as an estimate at that price.
 
+## Jev speech-act intake
+
+The balanced
+[`jev-speech-act.v1.json`](../../../tests/fixtures/continuity/jev-speech-act.v1.json)
+fixture contains 36 synthetic current-request examples, four for each typed Jev label:
+`none`, `asked`, `stated`, `considered`, `preferred`, `decided`, `promised`, `corrected`,
+and `retracted`. The live evaluator is
+`pnpm exec tsx bench/jev-speech-act-evaluation.ts`; it reports coverage, per-label
+precision/recall/F1, macro F1, Brier score, high-confidence persisted-label precision,
+latency, and token counts. It requires `TYPESAFE_API_KEY` and sends synthetic text only.
+
+The TypeSafe key was not configured during implementation, so live speech-act precision
+and calibration have not been measured. The checked-in corpus validates the evaluator and
+harness behavior; it is not evidence of live-model quality or a sample of real user language.
+
 ## Quality results
 
 | Dimension | Fixture result | Interpretation |

@@ -45,14 +45,15 @@ sample; representative live-history performance remains unmeasured.
   `TYPESAFE_API_KEY`; without it there is no network request.
 - When configured, send at most one synchronous Jev request per inbound user turn. Send
   only the current request after shared secret redaction (maximum 12,000 characters) and
-  fixed choice labels; do not send hook context, history, episode text, summaries, memory
-  text, source IDs, or project paths.
+  fixed route and speech-act choice labels; do not send hook context, history, episode
+  text, summaries, memory text, source IDs, or project paths.
 - The outer decision deadline is one second, with SDK retries disabled. The added wait is
   bounded; timeout, rate limit, invalid output, or provider error continues the answer
   turn without a route hint.
-- Measure Jev route precision/recall, no-recall false positives, calibration, latency,
-  token volume, and estimated cost on the labeled synthetic corpus. The live comparison
-  runner is implemented; results remain pending a configured key.
+- Measure Jev route precision/recall, no-recall false positives, speech-act precision,
+  confidence-gated persisted-label precision, calibration, latency, token volume, and
+  estimated cost on the labeled synthetic corpora. Both live comparison runners are
+  implemented; results remain pending a configured key.
 - There is no duplicate raw transcript store. Jev is a paid provider path only when the
   user configures its key; disable it with global `jev.enabled: false`.
 - Logs and local traces contain no query strings, user content, route labels, facts, or

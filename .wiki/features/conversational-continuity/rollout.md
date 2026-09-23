@@ -97,15 +97,22 @@ authorization and its privacy tests.
 - If source history is missing, mark dependent summaries unavailable. Do not reconstruct
   or silently restore a source from a summary.
 - Jev route hints are enabled by the global default; if the TypeSafe key is absent, no
-  call is made and normal prompt handling continues. Set `jev.enabled` to `false` to
-  disable the route. Automatic historical answer-time retrieval is not enabled. Explicit
-  CLI/slash search and timeline remain available.
+  call is made and normal prompt handling continues. When configured, one request classifies
+  route and speech act. Eligible high-confidence speech-act labels are stored as
+  content-free, source-digested local events; candidate generation still requires repeated
+  independent evidence and explicit review. Set `jev.enabled` to `false` to disable future
+  Jev calls; this does not remove existing labels or candidates, which remain subject to
+  source verification and review.
+  Automatic historical answer-time retrieval is not enabled. Explicit CLI/slash search and
+  timeline remain available.
 
 ## Rollback
 
-Set global `jev.enabled` to `false` to disable Jev routing, then remove the derived
-continuity index only if its local state needs rebuilding. This does not touch session
-JSONL, RunTrace, user memory files, credentials, or learning records. Managed semantic
+Set global `jev.enabled` to `false` to disable new Jev decisions, then remove the derived
+continuity index only if its local state needs rebuilding. Existing content-free speech-act
+events remain in canonical session JSONL and continue to inform local indexing while their
+source lines verify. This does not touch session JSONL, RunTrace, user memory files,
+credentials, or learning records. Managed semantic
 memories retain their source links and currently support review and correction; forget
 controls and source-session integration are unfinished. Historical answer-time retrieval
 remains outside this Jev route and requires its own authorization and implementation.

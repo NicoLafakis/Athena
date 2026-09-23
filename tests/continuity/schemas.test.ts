@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   ContinuityEpisodeSchema,
   ContinuityIndexSchema,
+  JevSpeechActEventSchema,
   SemanticMemoryLinkSchema,
   SemanticMemoryRecordSchema,
   SpeechActSchema,
@@ -66,6 +67,25 @@ describe('continuity schemas', () => {
       SourceRefSchema.safeParse({ ...sourceRef, kind: 'memory-file', lineDigest: 'a'.repeat(64) }).success,
     ).toBe(false)
     expect(SourceRefSchema.safeParse({ ...sourceRef, kind: 'memory-file', recordId: 'facts/preference.md' }).success).toBe(true)
+  })
+
+  it('accepts only high-confidence Jev labels linked to a digested session message', () => {
+    const event = {
+      type: 'jev-speech-act-classification',
+      schemaVersion: 1,
+      model: 'jev-1.13.0',
+      sourceRef: { ...sourceRef, lineDigest: 'a'.repeat(64) },
+      speechAct: 'preferred',
+      confidence: 0.85,
+    }
+    expect(JevSpeechActEventSchema.parse(event)).toEqual(event)
+    expect(JevSpeechActEventSchema.safeParse({ ...event, confidence: 0.84 }).success).toBe(false)
+    expect(JevSpeechActEventSchema.safeParse({ ...event, sourceRef }).success).toBe(false)
+    expect(JevSpeechActEventSchema.safeParse({ ...event, speechAct: 'considered' }).success).toBe(false)
+    expect(JevSpeechActEventSchema.safeParse({
+      ...event,
+      sourceRef: { ...event.sourceRef, kind: 'session-event' },
+    }).success).toBe(false)
   })
 
   it('validates versioned, bounded episodes and rejects duplicate evidence refs', () => {

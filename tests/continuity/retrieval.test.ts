@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { SessionStore } from '../../src/harness/sessions.js'
+import { latestUserMessageSourceRef, SessionStore } from '../../src/harness/sessions.js'
 import { ContinuityStore } from '../../src/continuity/store.js'
 import { loadEpisodeSourceContext, loadEpisodeSourceContexts, searchEpisodes } from '../../src/continuity/retrieval.js'
 import { resolveTemporalWindow } from '../../src/continuity/time.js'
@@ -18,6 +18,28 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }))
 
 describe('continuity retrieval', () => {
+  it('attaches a verified Jev correction label to its exact user message', () => {
+    const sessions = new SessionStore(sessionsRoot, 'C:/projects/jev-correction-retrieval')
+    const session = sessions.create()
+    session.appendMessage({ role: 'user', content: 'Correction: the earlier date was Tuesday.' })
+    const sourceRef = latestUserMessageSourceRef(session.file, sessions.projectId, session.id)
+    expect(sourceRef).not.toBeNull()
+    session.appendEvent({
+      type: 'jev-speech-act-classification', schemaVersion: 1, model: 'jev-1.13.0',
+      sourceRef, speechAct: 'corrected', confidence: 0.96,
+    })
+    session.appendEvent({ type: 'turn-done' })
+    const store = new ContinuityStore(join(root, 'continuity'))
+    store.rebuild(sessionsRoot)
+
+    const context = loadEpisodeSourceContext(sessionsRoot, store.listEpisodes()[0]!)
+
+    expect(context.status).toBe('ok')
+    if (context.status === 'ok') {
+      expect(context.messages[0]).toMatchObject({ role: 'user', speechAct: 'corrected' })
+    }
+  })
+
   it('batch verifies multiple episodes from the same session with the same source checks', () => {
     const session = new SessionStore(sessionsRoot, 'C:/projects/batch-source').create()
     session.appendMessage({ role: 'user', content: 'First episode in the batch.' })

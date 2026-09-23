@@ -7,9 +7,13 @@ import {
 } from '../../src/decision/jev.js'
 
 const probabilities = Object.fromEntries(RECALL_ROUTES.map((route) => [route, route === 'temporal-recall' ? 0.92 : 0.01]))
+const MEMORY_SPEECH_ACTS = ['none', 'asked', 'stated', 'considered', 'preferred', 'decided', 'promised', 'corrected', 'retracted']
+const speechActProbabilities = Object.fromEntries(
+  MEMORY_SPEECH_ACTS.map((speechAct) => [speechAct, speechAct === 'preferred' ? 0.94 : 0.0075]),
+)
 
 describe('Jev recall router', () => {
-  it('sends only the redacted current request and fixed route choices to the pinned model', async () => {
+  it('sends only the redacted current request and gets typed recall and memory-intake decisions in one call', async () => {
     const requests: Array<{ url: string; init: RequestInit }> = []
     const usageEvents: Array<{ inputTokens?: number; outputTokens?: number }> = []
     const fetch: Fetch = async (url, init) => {
@@ -22,6 +26,12 @@ describe('Jev recall router', () => {
             choice: 'temporal-recall',
             confidence: 0.92,
             probabilities,
+          },
+          speech_act: {
+            type: 'choice',
+            choice: 'preferred',
+            confidence: 0.94,
+            probabilities: speechActProbabilities,
           },
         },
         usage: { input_tokens: 17, output_tokens: 0 },
@@ -37,7 +47,12 @@ describe('Jev recall router', () => {
 
     expect(result).toEqual({
       status: 'decision',
-      value: { route: 'temporal-recall', confidence: 0.92, probabilities },
+      value: {
+        route: 'temporal-recall',
+        confidence: 0.92,
+        probabilities,
+        speechAct: { act: 'preferred', confidence: 0.94, probabilities: speechActProbabilities },
+      },
       usage: { inputTokens: 17, outputTokens: 0 },
     })
     expect(requests).toHaveLength(1)
@@ -51,6 +66,10 @@ describe('Jev recall router', () => {
         route: {
           type: 'choice',
           criteria: Object.fromEntries(RECALL_ROUTES.map((route) => [route, expect.any(String)])),
+        },
+        speech_act: {
+          type: 'choice',
+          criteria: Object.fromEntries(MEMORY_SPEECH_ACTS.map((speechAct) => [speechAct, expect.any(String)])),
         },
       },
     })

@@ -14,7 +14,8 @@ import { RunBudget } from './run.js'
 import type { ToolRegistry } from '../tools/registry.js'
 import type { HookRunner } from '../harness/hooks.js'
 import { redactSessionValue } from '../harness/redaction.js'
-import type { RecallIntentRouter, RecallRouteDecision } from '../decision/jev.js'
+import type { JevMemorySpeechAct, RecallIntentRouter, RecallRouteDecision } from '../decision/jev.js'
+import { JEV_SPEECH_ACT_PERSISTENCE_CONFIDENCE } from '../continuity/schemas.js'
 import {
   modelCapabilities,
   modelId,
@@ -207,11 +208,13 @@ export class Engine {
       return result
     }
     this.turnRecallDirective = undefined
+    let currentSpeechAct: { act: JevMemorySpeechAct; confidence: number } | undefined
     if (this.opts.recallRouter) {
       try {
         const decision = await this.opts.recallRouter.classify(userText, { signal })
-        if (decision.status === 'decision' && decision.value.route !== 'none') {
-          this.turnRecallDirective = recallRouteGuidance(decision.value)
+        if (decision.status === 'decision') {
+          currentSpeechAct = decision.value.speechAct
+          if (decision.value.route !== 'none') this.turnRecallDirective = recallRouteGuidance(decision.value)
         } else if (
           decision.status === 'fallback' &&
           decision.reason === 'unavailable' &&
@@ -233,6 +236,20 @@ export class Engine {
       : userText
     this.opts.toolContext.setCurrentUserTurnPrompt?.(text)
     this.push({ role: 'user', content: text })
+    if (
+      currentSpeechAct &&
+      currentSpeechAct.confidence >= JEV_SPEECH_ACT_PERSISTENCE_CONFIDENCE &&
+      ['preferred', 'decided', 'promised', 'corrected', 'retracted'].includes(currentSpeechAct.act)
+    ) {
+      try {
+        this.opts.toolContext.recordCurrentUserSpeechAct?.({
+          speechAct: currentSpeechAct.act as Extract<JevMemorySpeechAct, 'preferred' | 'decided' | 'promised' | 'corrected' | 'retracted'>,
+          confidence: currentSpeechAct.confidence,
+        })
+      } catch {
+        // Optional, content-free classification persistence cannot block a user turn.
+      }
+    }
     const systemPrompt = this.systemPromptForTurn()
     let terminal: RunResult | null = null
 

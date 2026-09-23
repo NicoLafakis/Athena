@@ -7,7 +7,8 @@ import { MockAnthropicClient, textBlock, toolUseBlock } from '../helpers/mock-cl
 import type { Settings } from '../../src/brain/settings.js'
 import type { BrainPaths } from '../../src/brain/paths.js'
 import { MemoryHygieneStore } from '../../src/brain/hygiene.js'
-import { readSessionLineRecords } from '../../src/harness/sessions.js'
+import { readSessionLineRecords, sessionLineDigest } from '../../src/harness/sessions.js'
+import type { RecallIntentRouter } from '../../src/decision/jev.js'
 
 import { resolveBrainPaths } from '../../src/brain/paths.js'
 
@@ -99,6 +100,68 @@ describe('HarnessSessionController', () => {
     expect(res2.output).toBe('Response 2')
     expect(res2.sessionId).toBe(initialSessionId)
     expect(controller.continuityStore.listEpisodes()).toHaveLength(2)
+
+    await controller.close()
+  })
+
+  it('persists a source-digested Jev speech-act event and indexes it in continuity', async () => {
+    const client = new MockAnthropicClient([
+      { blocks: [textBlock('I will use concise paragraphs by default.')], stopReason: 'end_turn' },
+    ])
+    const recallRouter: RecallIntentRouter = {
+      configured: true,
+      classify: async () => ({
+        status: 'decision',
+        value: {
+          route: 'none',
+          confidence: 0.98,
+          probabilities: {
+            none: 0.98, 'continue-current': 0.003, 'temporal-recall': 0.003, 'topic-recall': 0.003,
+            'preference-or-fact': 0.003, 'historical-decision': 0.003, 'similar-work': 0.003,
+          },
+          speechAct: {
+            act: 'preferred', confidence: 0.96,
+            probabilities: { none: 0.005, asked: 0.005, stated: 0.005, considered: 0.005, preferred: 0.96, decided: 0.005, promised: 0.005, corrected: 0.005, retracted: 0.005 },
+          },
+        },
+      }),
+    }
+    const controller = await HarnessSessionController.create({
+      paths,
+      effectivePaths: paths,
+      cwd: root,
+      provider: 'anthropic',
+      client,
+      settings: defaultSettings,
+      projectTrust: { trusted: true, allowProjectHooks: true, allowProjectMcp: true },
+      recallRouter,
+    })
+
+    await controller.submitTurn('I would like concise paragraphs as my default.')
+
+    const records = readSessionLineRecords(controller.session.file)
+    const sourceMessage = records.find((record) =>
+      record.line.kind === 'message' &&
+      (record.line.data as { role?: string; content?: string }).role === 'user',
+    )!
+    const classification = records.find((record) =>
+      record.line.kind === 'event' &&
+      (record.line.data as { type?: string }).type === 'jev-speech-act-classification',
+    )
+    expect(classification?.line.data).toMatchObject({
+      type: 'jev-speech-act-classification',
+      model: 'jev-1.13.0',
+      speechAct: 'preferred',
+      confidence: 0.96,
+      sourceRef: {
+        kind: 'session-message',
+        projectId: controller.sessionStore.projectId,
+        sessionId: controller.session.id,
+        recordId: sourceMessage.line.id,
+        lineDigest: sessionLineDigest(sourceMessage),
+      },
+    })
+    expect(controller.continuityStore.listEpisodes()[0]?.speechActs).toContain('preferred')
 
     await controller.close()
   })

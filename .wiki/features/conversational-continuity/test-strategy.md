@@ -21,6 +21,7 @@
 | FR-015 / AC-007 rebuild/failure | Integration | Truncated JSONL, corrupt index, missing project, permission error, atomic-write failure |
 | Live-source presentation | Integration | Move a source session into `.trash` without rebuilding; ranking, linked semantic memory, direct `Memory.read`, and rollup text disappear immediately |
 | Jev recall routing (accepted and integrated) | Decision unit + fake SDK transport + engine integration + synthetic live evaluation | Verify disabled/missing-key zero calls, exact secret-redacted request fields, fixed model and labels, strict output shape, usage-only telemetry, timeout/rate-limit/oversized-input fallback, and transient prompt guidance. Run the 49-case synthetic live comparison when a TypeSafe key is available. |
+| Jev speech-act intake (accepted and integrated) | Fake SDK transport + engine/controller integration + source-index/retrieval/candidate tests + synthetic live evaluation | Verify one current-request call returns both typed decisions; only high-confidence labels are stored after the user line is written; the stored event is content-free and digest-linked; edited sources invalidate labels; indirect preference/decision/commitment candidates remain review-only and require independent sessions; corrections/retractions are contextual labels only. Run the balanced 36-case live comparison when a TypeSafe key is available. |
 
 ## Implemented evidence at this checkpoint
 
@@ -63,8 +64,9 @@
   return its claim text.
 - Jev routing uses a balanced, 49-case synthetic recall-intent corpus. Its baseline
   regression locks the current local ranker's proxy confusion matrix, including the
-  absence of a `none` class and the resulting proxy false positives. This classifier is
-  ranking metadata only; it is not wired to answer-time retrieval. A separate
+  absence of a `none` class and the resulting proxy false positives. The local baseline
+  remains ranking metadata and does not represent the Jev route now wired to turn handling.
+  A separate
   `bench/jev-recall-evaluation.ts` sends only those synthetic request strings to the
   pinned Jev model and reports route quality, coverage, no-recall false positives, Brier
   score, latency, token volume, and estimated cost. It has not been run because
@@ -75,6 +77,11 @@
   from telemetry sink failures. The TypeSafe adapter test uses an injected fake HTTP fetch
   to verify the exact request body and output mapping. Engine tests verify route guidance
   exists only in the active answer call and is absent from persisted messages.
+- Jev speech-act tests cover all nine typed labels in the balanced synthetic fixture,
+  confidence-gated persistence precision metrics, exact current-message source digests,
+  retrieval/index propagation, repeated indirect claim candidates, and correction/retraction
+  labels that do not create inferred memory. The live evaluator sends synthetic text only
+  and has not been run because `TYPESAFE_API_KEY` is unavailable.
 - [`calibration.md`](calibration.md) records deterministic synthetic quality measures and
   a 10,000-episode/10,000-session-file local performance sample, including the shared
   search presenter and verified source expansion. These measurements do not claim TUI

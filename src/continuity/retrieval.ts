@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto'
 import { lstatSync } from 'node:fs'
-import { parseContinuityEpisode, type ContinuityEpisode, type TemporalWindow } from './schemas.js'
+import { parseContinuityEpisode, type ContinuityEpisode, type SpeechAct, type TemporalWindow } from './schemas.js'
 import { canonicalSessionRecords, listAllProjectSessions, readSessionLineRecords } from './session-catalog.js'
 import { sessionLineDigest, stableSessionLineId } from '../harness/sessions.js'
 import type { SessionLineRecord } from '../harness/sessions.js'
+import { jevSpeechActsByUserMessage } from './jev-events.js'
 
 export interface EpisodeSearchOptions {
   text?: string
@@ -31,6 +32,7 @@ export interface ContextMessage {
   timestamp: string
   role: 'user' | 'assistant'
   content: unknown
+  speechAct?: SpeechAct
 }
 
 export type EpisodeSourceContextResult =
@@ -316,9 +318,12 @@ function verifyEpisodeSourceContext(
     return { status: 'stale', reason: 'The linked source content changed after indexing.', episodeId: episode.id }
   }
 
+  const jevSpeechActs = jevSpeechActsByUserMessage(sourceRecords, episode.projectId!, episode.sessionId)
   const messages = sourceRecords.flatMap((record) => {
     const message = contextMessage(record)
-    return message ? [message] : []
+    if (!message) return []
+    const speechAct = jevSpeechActs.get(message.sourceLineId)
+    return [speechAct ? { ...message, speechAct } : message]
   })
   const cap = Math.max(1, Math.min(maxMessages, 8))
   const episodeTruncated = messages.length > cap

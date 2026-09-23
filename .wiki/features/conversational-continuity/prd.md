@@ -109,8 +109,10 @@ chosen. The exact TypeScript contracts are in the design doc.
 
 Continuity indexes and summaries remain under the local per-user brain. Project
 configuration cannot widen global memory retrieval or control the user-wide Jev setting.
-The selected Jev route sends only the current user request after shared secret redaction
-when a TypeSafe key is configured. Prompts, assistant text, traces, and generated
+The selected Jev decision call classifies route and speech act using only the current user
+request after shared secret redaction when a TypeSafe key is configured. A high-confidence
+speech-act label is stored locally against its exact message digest; its source text is not
+duplicated. Prompts, assistant text, traces, and generated
 summaries are untrusted inputs to parsing. Cap fields, avoid copying raw transcripts, and
 do not infer sensitive attributes. Historical retrieval must not expose another project's
 detail unless relevant and separately authorized for the answer-provider handoff. See the
@@ -169,8 +171,8 @@ and no memory identity depends on color, position, or animation.
 2. Context reconstruction, automatic recall integration, and inspectable controls.
 3. Long-term memory provenance, explicit promotion, corrections, and forgetting.
 4. Day/week/month/quarter/year rollups and calibration from dogfood.
-5. Jev recall-intent routing, accepted and integrated; live synthetic evaluation remains
-   pending a TypeSafe credential.
+5. Jev recall routing and source-linked speech-act intake, accepted and integrated; live
+   synthetic quality evaluation remains pending a TypeSafe credential.
 
 Every phase is local-first and reversible. The derived index is rebuilt rather than
 backfilled destructively. See [rollout](rollout.md).

@@ -134,15 +134,16 @@ forget source-retention choice is still awaiting the product owner's answer.
   - [ ] Complete delete/restore/tombstone review after the source-retention choice and
     provider-prompt privacy review after handoff authorization.
 
-## Phase 5 — Jev decision model (accepted; recall routing implemented)
+## Phase 5 — Jev decision model (accepted; recall routing and speech-act intake implemented)
 
-The product owner selected Jev for recall-intent routing on 2026-09-23. The TypeSafe
-adapter and engine call path are implemented. Jev classifies each current user request;
-Athena adds only an ephemeral route hint to the answer-model system prompt. The answer
-model is told to rely on messages already in the active conversation and to state when
-other-session history is not loaded. This route does not yet retrieve or transfer episode
-text. The separate authorization for historical excerpts to the answer provider remains
-open. See [ADR 0003](adr/0003-jev-decision-model.md).
+The product owner selected Jev for recall routing and explicitly approved speech-act
+intake on 2026-09-23. The TypeSafe adapter and engine path are implemented. Each current
+user request is classified for route and speech act in one request; only a route hint is
+added to the answer-model prompt. High-confidence speech acts are stored locally as
+content-free events linked to the exact persisted user line. Verified labels support
+review-only candidate generation and contextual correction/retraction retrieval. Historical
+episode text still does not enter provider prompts; that handoff remains separately open.
+See [ADR 0003](adr/0003-jev-decision-model.md).
 
 - [x] 5.1 Build a labeled synthetic recall-intent corpus and measure the current local
   routing baseline. The 49-case corpus and deterministic ranker-intent proxy are
@@ -154,15 +155,22 @@ open. See [ADR 0003](adr/0003-jev-decision-model.md).
   `jev.enabled` setting defaults to `true` following the product decision; project
   settings cannot override it. `TYPESAFE_API_KEY` is required for a network call. Each
   call sends only the shared-secret-redacted current user request (maximum 12,000
-  characters), fixed `Choice` labels, and pinned model `jev-1.13.0`. It sends no hook
+  characters), two fixed `Choice` questions, and pinned model `jev-1.13.0`. It sends no hook
   context, conversation history, episode text, summaries, memory text, IDs, or project
   paths. SDK request logging and retries are disabled; a one-second decision timeout,
   invalid output, missing key, provider error, or explicit setting disable falls through
-  without blocking normal work. The selected route is added only to the active model call
-  and is not persisted.
-- [ ] 5.4 Consider Jev-assisted speech-act/correction/commitment candidate detection only
-  after the routing evaluation and a separate labeled precision study. Persisted source
-  verification and explicit review remain required; no Jev decision promotes memory.
+  without blocking normal work. The selected route is added only to the active model call;
+  speech-act labels are handled as described in 5.4.
+- [x] 5.4 Implement the approved Jev speech-act intake in the same decision request. Store
+  only `preferred`, `decided`, `promised`, `corrected`, or `retracted` labels at confidence
+  >= 0.85, as content-free local session events linked to the exact user-message digest.
+  Index and retrieval revalidate each event against its persisted user line. Verified
+  `preferred`/`decided`/`promised` labels can support inferred candidates only after matching
+  content appears in at least two independent sessions; candidates remain review-only and
+  the promotion path rechecks every source. Corrections and retractions are indexed as
+  context labels and never silently overwrite or delete memory. The balanced 36-case
+  synthetic speech-act corpus and live comparison runner are in place. Live quality results
+  remain pending a `TYPESAFE_API_KEY`; no model-quality result is claimed.
 - [x] 5.5 Pin `jev-1.13.0`, make global enablement the default as selected by the product
   owner, record content-free latency/token telemetry in local run traces, and add
   `bench/jev-recall-evaluation.ts` for a synthetic live comparison. The evaluator reports

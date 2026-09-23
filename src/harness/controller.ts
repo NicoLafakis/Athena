@@ -56,7 +56,8 @@ import {
 import { makeSkillTool } from '../tools/skill.js'
 import { makeAgentTool } from '../tools/agent.js'
 import { ContinuityStore } from '../continuity/store.js'
-import { createJevRecallRouter } from '../decision/jev.js'
+import { createJevRecallRouter, JEV_MODEL, type RecallIntentRouter } from '../decision/jev.js'
+import { JevSpeechActEventSchema, JEV_SPEECH_ACT_PERSISTENCE_CONFIDENCE } from '../continuity/schemas.js'
 
 function gitBranch(cwd: string): string | null {
   try {
@@ -124,6 +125,8 @@ export interface HarnessSessionControllerOptions {
    * is the deliberate `athena exec` contract; an interactive owner (voice, TUI) wires one.
    */
   askUser?: AskUserFn
+  /** Injectable decision router for deterministic harness integrations. */
+  recallRouter?: RecallIntentRouter
   onAnnouncement?: (announcement: Announcement) => void
   onEnvelope?: (envelope: InteractionEventEnvelope) => void
 }
@@ -314,7 +317,7 @@ export class HarnessSessionController {
     const continuityStore = new ContinuityStore(paths.continuityDir, {
       onWarn: (warning) => console.error(warning),
     })
-    const recallRouter = createJevRecallRouter({
+    const recallRouter = options.recallRouter ?? createJevRecallRouter({
       enabled: settings.jev.enabled,
       apiKey: process.env.TYPESAFE_API_KEY,
       telemetry: (event) => trace.append('decision-model-call', event),
@@ -471,6 +474,26 @@ export class HarnessSessionController {
               currentUserTurn
                 ? latestUserMessageSourceRef(session.file, store.projectId, session.id, currentUserTurn)
                 : null,
+            recordCurrentUserSpeechAct: ({ speechAct, confidence }) => {
+              if (confidence < JEV_SPEECH_ACT_PERSISTENCE_CONFIDENCE) return
+              const sourceRef = currentUserTurn
+                ? latestUserMessageSourceRef(session.file, store.projectId, session.id, currentUserTurn)
+                : null
+              if (!sourceRef) return
+              const event = JevSpeechActEventSchema.parse({
+                type: 'jev-speech-act-classification',
+                schemaVersion: 1,
+                model: JEV_MODEL,
+                sourceRef,
+                speechAct,
+                confidence,
+              })
+              try {
+                journal.appendEvent(event)
+              } catch {
+                console.error(`Jev speech-act label could not be saved to session ${session.id}; this turn will continue normally.`)
+              }
+            },
           }
         : {}),
     }

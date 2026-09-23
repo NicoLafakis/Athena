@@ -21,6 +21,7 @@ import {
   readSessionLineRecordsDetailed,
 } from './session-catalog.js'
 import type { SessionLineRecord } from '../harness/sessions.js'
+import { jevSpeechActsByUserMessage } from './jev-events.js'
 
 export interface ContinuityStoreOptions {
   onWarn?: (warning: string) => void
@@ -217,6 +218,11 @@ function makeEpisode(
     ? start.line.timeZone
     : undefined
   const allText = texts.map((item) => item.text).join('\n')
+  const jevSpeechActs = jevSpeechActsByUserMessage(group.records, projectId, sessionId)
+  const speechActs = [...new Set([
+    ...extractSpeechActs(userText),
+    ...jevSpeechActs.values(),
+  ])]
   const episodeId = `episode-${digest(`${projectId}\0${sessionId}\0${sourceRefs[0]?.recordId ?? start.lineNumber}`)}`
   return ContinuityEpisodeSchema.parse({
     schemaVersion: 1,
@@ -230,7 +236,7 @@ function makeEpisode(
     topics: extractTopics(allText),
     summary,
     sourceDigest: digest(group.records.map((record) => record.rawLine).join('\n')),
-    speechActs: extractSpeechActs(userText),
+    speechActs,
     completion: group.completion,
     createdAt: startTimestamp.toISOString(),
   })

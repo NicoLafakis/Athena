@@ -2,7 +2,7 @@
 
 - **Tier:** 3 — major / high trust impact
 - **Date:** 2026-09-23
-- **Status:** implementation in progress; local linked-episode catalog, CLI/slash inspection, source-verified semantic candidate generation/review, on-demand time rollups, explainable local ranking previews, immediate suppression of trashed sources, and the accepted Jev recall-intent route are implemented; automatic historical answer-provider handoff, forget/delete integration, and live Jev evaluation remain open
+- **Status:** implementation in progress; local linked-episode catalog, CLI/slash inspection, source-verified semantic candidate generation/review, on-demand time rollups, explainable local ranking previews, immediate suppression of trashed sources, Jev recall routing, and source-linked Jev speech-act intake are implemented; automatic historical answer-provider handoff, forget/delete integration, and live Jev quality evaluation remain open
 - **Product owner:** Nico
 
 ## What was asked
@@ -67,10 +67,13 @@ plausible-sounding recollection.
 - The product owner selected [Jev decision routing](adr/0003-jev-decision-model.md).
   `jev.enabled` defaults to true globally, but a TypeSafe call occurs only when
   `TYPESAFE_API_KEY` is configured. Jev receives only the current request after the shared
-  secret redactor; it receives no history or project identifiers. Its route adds a
-  temporary answer-model instruction to avoid unsupported cross-session claims. Automatic
-  retrieval and transfer of historical excerpts to the answer provider remain a separate,
-  pending authorization.
+  secret redactor; it receives no history or project identifiers. The same call classifies
+  speech act, and a high-confidence label is persisted locally with the exact user-message
+  digest. Verified labels support review-only candidate detection; correction and retraction
+  labels stay contextual and do not change memory by themselves. The route adds a temporary
+  answer-model instruction to avoid unsupported cross-session claims. Automatic retrieval
+  and transfer of historical excerpts to the answer provider remain a separate, pending
+  authorization.
 
 ### Dropping
 

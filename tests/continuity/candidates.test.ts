@@ -6,7 +6,7 @@ import { MemoryHygieneStore } from '../../src/brain/hygiene.js'
 import { ContinuityStore } from '../../src/continuity/store.js'
 import { generateSemanticCandidates, reviewSemanticCandidate } from '../../src/continuity/candidates.js'
 import { formatSemanticCandidateReview } from '../../src/continuity/presentation.js'
-import { SessionStore } from '../../src/harness/sessions.js'
+import { latestUserMessageSourceRef, SessionStore } from '../../src/harness/sessions.js'
 
 let root: string
 let sessionsRoot: string
@@ -30,6 +30,29 @@ function addTurn(project: string, text: string): ReturnType<SessionStore['create
   return session
 }
 
+function addJevTurn(
+  project: string,
+  text: string,
+  speechAct: 'preferred' | 'decided' | 'promised' | 'corrected' | 'retracted',
+): ReturnType<SessionStore['create']> {
+  const sessions = new SessionStore(sessionsRoot, project)
+  const session = sessions.create()
+  session.appendMessage({ role: 'user', content: text })
+  const sourceRef = latestUserMessageSourceRef(session.file, sessions.projectId, session.id)
+  if (!sourceRef) throw new Error('Expected a persisted user source reference in the fixture')
+  session.appendEvent({
+    type: 'jev-speech-act-classification',
+    schemaVersion: 1,
+    model: 'jev-1.13.0',
+    sourceRef,
+    speechAct,
+    confidence: 0.96,
+  })
+  session.appendMessage({ role: 'assistant', content: 'The statement is preserved with its source.' })
+  session.appendEvent({ type: 'turn-done' })
+  return session
+}
+
 function mutateSemanticRecord(memoryId: string, update: (record: Record<string, unknown>) => void): void {
   const memory = semanticStore.get(memoryId)!
   const lines = readFileSync(memory.file, 'utf8').split('\n')
@@ -41,6 +64,46 @@ function mutateSemanticRecord(memoryId: string, update: (record: Record<string, 
 }
 
 describe('source-verified semantic candidate generation', () => {
+  it('uses high-confidence, message-linked Jev labels for indirect repeated preferences', () => {
+    addJevTurn('C:/projects/jev-intake', 'I would like concise paragraphs as my default.', 'preferred')
+    addJevTurn('C:/projects/jev-intake', 'I would like concise paragraphs as my default.', 'preferred')
+    continuityStore.rebuild(sessionsRoot)
+
+    const result = generateSemanticCandidates(continuityStore, sessionsRoot, semanticStore)
+    const [candidate] = semanticStore.listAll()
+
+    expect(result.createdCount).toBe(1)
+    expect(candidate).toMatchObject({
+      status: 'candidate',
+      speechAct: 'preferred',
+      content: 'I would like concise paragraphs as my default.',
+    })
+    expect(semanticStore.listActive()).toEqual([])
+
+    const promoted = reviewSemanticCandidate(
+      semanticStore,
+      continuityStore,
+      sessionsRoot,
+      candidate!.memoryId,
+      'promote',
+    )
+    expect(promoted.status).toBe('active')
+  })
+
+  it('records corrections and retractions for continuity without inferring them as durable preferences', () => {
+    addJevTurn('C:/projects/jev-corrections', 'Correction: concise paragraphs are not my default.', 'corrected')
+    addJevTurn('C:/projects/jev-corrections', 'I retract the earlier concise-paragraph preference.', 'retracted')
+    continuityStore.rebuild(sessionsRoot)
+
+    const result = generateSemanticCandidates(continuityStore, sessionsRoot, semanticStore)
+
+    expect(continuityStore.listEpisodes().flatMap((episode) => episode.speechActs)).toEqual(
+      expect.arrayContaining(['corrected', 'retracted']),
+    )
+    expect(result.createdCount).toBe(0)
+    expect(semanticStore.listAll()).toEqual([])
+  })
+
   it('creates a reviewable project candidate from the same direct preference across distinct sessions', () => {
     addTurn('C:/projects/alpha', 'I prefer source-linked conversation memory.')
     addTurn('C:/projects/alpha', 'I prefer source-linked conversation memory!')

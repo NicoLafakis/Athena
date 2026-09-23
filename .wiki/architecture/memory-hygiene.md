@@ -45,7 +45,12 @@ call-triggered provider handoff; it does not
 auto-inject semantic records or authorize automatic episodic history retrieval.
 `athena memory candidates` /
 `/memory candidates` explicitly generate and list review-only records from repeated,
-direct user preferences, decisions, and promises in at least two digest-verified sessions.
+direct user preferences, decisions, and promises, plus indirect wording labeled by the
+source-linked Jev speech-act event, in at least two digest-verified sessions. Jev labels are
+content-free session events written only after the user message and linked by exact line
+digest. Episode indexing and candidate promotion verify the event against the current source
+line. Only `preferred`, `decided`, and `promised` labels can support candidate generation;
+correction and retraction labels remain contextual and do not supersede memory by themselves.
 `athena memory review <id> <promote|reject>` and its slash equivalent provide local
 decisions; inferred promotion rechecks source lines, claims, timestamps, project scope, and
 sensitive wording at decision time. Semantic records stay out of automatically assembled

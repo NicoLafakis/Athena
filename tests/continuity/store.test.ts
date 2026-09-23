@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readSessionLineRecords, sessionLineDigest, stableSessionLineId, SessionStore } from '../../src/harness/sessions.js'
+import { latestUserMessageSourceRef, readSessionLineRecords, sessionLineDigest, stableSessionLineId, SessionStore } from '../../src/harness/sessions.js'
 import { ContinuityStore } from '../../src/continuity/store.js'
 
 let root: string
@@ -16,6 +16,46 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }))
 
 describe('ContinuityStore', () => {
+  it('indexes source-verified Jev speech acts alongside each episode', () => {
+    const session = new SessionStore(sessionsRoot, 'C:/projects/jev-labels').create()
+    session.appendMessage({ role: 'user', content: 'I would like concise paragraphs as my default.' })
+    const sourceRef = latestUserMessageSourceRef(session.file, new SessionStore(sessionsRoot, 'C:/projects/jev-labels').projectId, session.id)
+    expect(sourceRef).not.toBeNull()
+    session.appendEvent({
+      type: 'jev-speech-act-classification', schemaVersion: 1, model: 'jev-1.13.0',
+      sourceRef, speechAct: 'preferred', confidence: 0.96,
+    })
+    session.appendEvent({ type: 'turn-done' })
+    const store = new ContinuityStore(join(root, 'continuity'))
+
+    store.rebuild(sessionsRoot)
+
+    expect(store.listEpisodes()[0]?.speechActs).toContain('preferred')
+  })
+
+  it('ignores a Jev label after its linked user message changes', () => {
+    const session = new SessionStore(sessionsRoot, 'C:/projects/jev-stale-label').create()
+    session.appendMessage({ role: 'user', content: 'I would like concise paragraphs as my default.' })
+    const storeForProject = new SessionStore(sessionsRoot, 'C:/projects/jev-stale-label')
+    const sourceRef = latestUserMessageSourceRef(session.file, storeForProject.projectId, session.id)
+    expect(sourceRef).not.toBeNull()
+    session.appendEvent({
+      type: 'jev-speech-act-classification', schemaVersion: 1, model: 'jev-1.13.0',
+      sourceRef, speechAct: 'preferred', confidence: 0.96,
+    })
+    session.appendEvent({ type: 'turn-done' })
+    const originalLines = readFileSync(session.file, 'utf8').trimEnd().split('\n')
+    const userLine = JSON.parse(originalLines[0]!) as { data: { content: string } }
+    userLine.data.content = 'The changed line is a plain statement.'
+    originalLines[0] = JSON.stringify(userLine)
+    writeFileSync(session.file, `${originalLines.join('\n')}\n`, 'utf8')
+    const store = new ContinuityStore(join(root, 'continuity'))
+
+    store.rebuild(sessionsRoot)
+
+    expect(store.listEpisodes()[0]?.speechActs).not.toContain('preferred')
+  })
+
   it('builds bounded linked episodes from canonical user turns without copying checkpoint snapshots', () => {
     const session = new SessionStore(sessionsRoot, 'C:/projects/alpha').create()
     session.appendMessage({ role: 'user', content: 'I decided to keep the local memory index. sk-ant-api03-supersecretvalue123' })

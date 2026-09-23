@@ -95,7 +95,13 @@ describe('Engine.runTurn', () => {
     }
     const recallDecision: DecisionResult<RecallRouteDecision> = {
         status: 'decision',
-        value: { route: 'temporal-recall', confidence: 0.92, probabilities },
+        value: {
+          route: 'temporal-recall', confidence: 0.92, probabilities,
+          speechAct: {
+            act: 'asked', confidence: 0.99,
+            probabilities: { none: 0.01, asked: 0.92, stated: 0.01, considered: 0.01, preferred: 0.01, decided: 0.01, promised: 0.01, corrected: 0.01, retracted: 0.01 },
+          },
+        },
     }
     const recallRouter: RecallIntentRouter = {
       classify: vi.fn(async () => recallDecision),
@@ -115,6 +121,72 @@ describe('Engine.runTurn', () => {
     expect(systems[0]).toContain('Do not invent historical details.')
     expect(JSON.stringify(persisted)).not.toContain('Jev classified')
     expect(JSON.stringify(engine.getMessages())).not.toContain('Jev classified')
+  })
+
+  it('persists only a high-confidence Jev speech-act label after the user message is written', async () => {
+    const probabilities = {
+      none: 0.01, asked: 0.01, stated: 0.01, considered: 0.01, preferred: 0.92,
+      decided: 0.01, promised: 0.01, corrected: 0.01, retracted: 0.01,
+    }
+    const recallRouter: RecallIntentRouter = {
+      classify: vi.fn(async () => ({
+        status: 'decision' as const,
+        value: {
+          route: 'none' as const,
+          confidence: 0.92,
+          probabilities: { none: 0.92, 'continue-current': 0.01, 'temporal-recall': 0.01, 'topic-recall': 0.01, 'preference-or-fact': 0.02, 'historical-decision': 0.02, 'similar-work': 0.01 },
+          speechAct: { act: 'preferred' as const, confidence: 0.96, probabilities },
+        },
+      })),
+    }
+    const order: string[] = []
+    const toolContext = makeCtx(process.cwd(), {
+      recordCurrentUserSpeechAct: ({ speechAct, confidence }) => {
+        order.push(`classified:${speechAct}:${confidence}`)
+      },
+    })
+    const { engine } = makeEngine(
+      [{ blocks: [textBlock('Understood.')], stopReason: 'end_turn' }],
+      {
+        recallRouter,
+        toolContext,
+        onMessagesChanged: (messages) => {
+          if (messages.some((message) => message.role === 'user')) order.push('user-written')
+        },
+      },
+    )
+
+    await engine.runTurn('I would like concise paragraphs as my default.')
+
+    expect(order.slice(0, 2)).toEqual(['user-written', 'classified:preferred:0.96'])
+    expect(engine.getMessages()[0]).toMatchObject({ role: 'user', content: 'I would like concise paragraphs as my default.' })
+  })
+
+  it('does not persist Jev speech-act labels below the confidence threshold', async () => {
+    const recordCurrentUserSpeechAct = vi.fn()
+    const recallRouter: RecallIntentRouter = {
+      classify: vi.fn(async () => ({
+        status: 'decision' as const,
+        value: {
+          route: 'none' as const,
+          confidence: 0.99,
+          probabilities: { none: 0.99, 'continue-current': 0.002, 'temporal-recall': 0.002, 'topic-recall': 0.002, 'preference-or-fact': 0.001, 'historical-decision': 0.001, 'similar-work': 0.002 },
+          speechAct: {
+            act: 'preferred' as const,
+            confidence: 0.84,
+            probabilities: { none: 0.01, asked: 0.01, stated: 0.01, considered: 0.01, preferred: 0.84, decided: 0.03, promised: 0.03, corrected: 0.03, retracted: 0.03 },
+          },
+        },
+      })),
+    }
+    const { engine } = makeEngine(
+      [{ blocks: [textBlock('Understood.')], stopReason: 'end_turn' }],
+      { recallRouter, toolContext: makeCtx(process.cwd(), { recordCurrentUserSpeechAct }) },
+    )
+
+    await engine.runTurn('I would like concise paragraphs as my default.')
+
+    expect(recordCurrentUserSpeechAct).not.toHaveBeenCalled()
   })
 
   it('keeps the normal system prompt when Jev falls back', async () => {

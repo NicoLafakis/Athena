@@ -76,8 +76,13 @@ and local slash-command handler.
   day/week/month/quarter/year rollups from a complete catalog, source-digest validation
   for CLI/slash inspection, immutable digest-invalidated index snapshots, and explicit
   generation/review of repeated source-verified semantic candidates. Newly inferred
-  sensitive claims are excluded from semantic-memory storage. Candidate text stays local;
-  ranking does not feed model prompts.
+  sensitive claims are excluded from semantic-memory storage. Jev speech-act labels are
+  stored as content-free session events linked to exact persisted user-line digests and
+  revalidated before indexing or retrieval. Candidate text stays local; ranking and Jev
+  do not feed historical text into model prompts.
+- `src/decision/` — optional, pinned TypeSafe Jev request classification for recall intent
+  and speech act. It sends only the current secret-redacted user request, adds a transient
+  route hint to the answer call, and falls back locally on missing credentials or errors.
   Automatic answer-time transfer to model prompts remains pending explicit authorization.
 - `src/experience/` — deterministic capture, compilation, storage, and retrieval of
   bounded experiential guidance.

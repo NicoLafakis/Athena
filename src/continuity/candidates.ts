@@ -55,13 +55,22 @@ function directClaim(content: string, episodeSpeechActs: SpeechAct[]): Candidate
   if (
     content.length > 2_000 ||
     content.includes('?') ||
-    TENTATIVE_CUES.test(content) ||
-    episodeSpeechActs.length !== 1
+    TENTATIVE_CUES.test(content)
   ) return null
-  const match = DIRECT_CLAIM_PATTERNS.find(([speechAct, pattern]) =>
-    speechAct === episodeSpeechActs[0] && pattern.test(content),
+  const matches = DIRECT_CLAIM_PATTERNS.filter(([speechAct, pattern]) =>
+    episodeSpeechActs.includes(speechAct) && pattern.test(content),
   )
-  return match?.[0] ?? null
+  return matches.length === 1 ? matches[0]![0] : null
+}
+
+function candidateSpeechAct(message: ContextMessage, episodeSpeechActs: SpeechAct[]): CandidateOccurrence['speechAct'] | null {
+  const content = messageText(message)
+  if (!content || TENTATIVE_CUES.test(content)) return null
+  if (message.speechAct === 'preferred' || message.speechAct === 'decided' || message.speechAct === 'promised') {
+    return message.speechAct
+  }
+  if (message.speechAct === 'corrected' || message.speechAct === 'retracted') return null
+  return directClaim(content, episodeSpeechActs)
 }
 
 function occurrenceOrder(left: CandidateOccurrence, right: CandidateOccurrence): number {
@@ -111,8 +120,7 @@ export function generateSemanticCandidates(
     (episode) =>
       episode.completion === 'completed' &&
       episode.projectId !== null &&
-      episode.speechActs.length === 1 &&
-      ['preferred', 'decided', 'promised'].includes(episode.speechActs[0]!),
+      episode.speechActs.some((act) => ['preferred', 'decided', 'promised'].includes(act)),
   )
   const contexts = loadEpisodeSourceContexts(sessionsRoot, episodes)
   const groups = new Map<string, Map<string, CandidateOccurrence>>()
@@ -123,7 +131,7 @@ export function generateSemanticCandidates(
       if (message.role !== 'user') continue
       const content = messageText(message)
       if (!content || redactSessionValue(content) !== content) continue
-      const speechAct = directClaim(content, context.episode.speechActs)
+      const speechAct = candidateSpeechAct(message, context.episode.speechActs)
       if (!speechAct) continue
       const sourceRef = context.episode.sourceRefs.find(
         (source) => source.kind === 'session-message' && source.recordId === message.sourceLineId,
@@ -238,7 +246,14 @@ export function reviewSemanticCandidate(
     if (
       !owner || !context || !message || message.role !== 'user' || message.timestamp !== source.timestamp ||
       !content || normalizeClaim(content) !== normalizeClaim(memory.content) ||
-      directClaim(content, owner.speechActs) !== memory.speechAct
+      candidateSpeechAct(message, context.episode.speechActs) !== memory.speechAct ||
+      context.sourceRefs.find((verified) =>
+        verified.kind === source.kind &&
+        verified.projectId === source.projectId &&
+        verified.sessionId === source.sessionId &&
+        verified.recordId === source.recordId &&
+        verified.timestamp === source.timestamp,
+      )?.lineDigest !== source.lineDigest
     ) {
       throw new Error('Inferred memory source verification failed: a supporting user claim no longer matches.')
     }

@@ -61,6 +61,16 @@ export const SpeechActSchema = z.enum([
   'retracted',
 ])
 
+export const JevPersistedSpeechActSchema = z.enum([
+  'preferred',
+  'decided',
+  'promised',
+  'corrected',
+  'retracted',
+])
+
+export const JEV_SPEECH_ACT_PERSISTENCE_CONFIDENCE = 0.85
+
 export const SourceRefSchema = z
   .object({
     kind: z.enum(['session-message', 'session-event', 'run-event', 'memory-file', 'experience']),
@@ -88,6 +98,27 @@ export const SourceRefSchema = z
       source.kind !== 'session-event'
     ) {
       ctx.addIssue({ code: 'custom', path: ['lineDigest'], message: 'Line digests require a session source' })
+    }
+  })
+
+/** Content-free, high-confidence Jev label linked to the exact persisted user line. */
+export const JevSpeechActEventSchema = z
+  .object({
+    type: z.literal('jev-speech-act-classification'),
+    schemaVersion: z.literal(1),
+    model: z.string().min(1).max(128),
+    sourceRef: SourceRefSchema,
+    speechAct: JevPersistedSpeechActSchema,
+    confidence: z.number().min(JEV_SPEECH_ACT_PERSISTENCE_CONFIDENCE).max(1),
+  })
+  .strict()
+  .superRefine((event, ctx) => {
+    if (event.sourceRef.kind !== 'session-message' || !event.sourceRef.lineDigest) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['sourceRef'],
+        message: 'Jev speech-act labels require a content-digested user-message source',
+      })
     }
   })
 
