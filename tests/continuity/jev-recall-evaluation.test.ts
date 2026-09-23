@@ -1,0 +1,69 @@
+import { describe, expect, it, vi } from 'vitest'
+import type { RecallIntentRouter, RecallRoute } from '../../src/decision/jev.js'
+import {
+  evaluateJevRecallCorpus,
+  type RecallEvaluationCorpus,
+} from '../../bench/jev-recall-evaluation.js'
+
+const labels: RecallRoute[] = [
+  'none',
+  'continue-current',
+  'temporal-recall',
+  'topic-recall',
+  'preference-or-fact',
+  'historical-decision',
+  'similar-work',
+]
+
+function probabilities(route: RecallRoute): Record<RecallRoute, number> {
+  return Object.fromEntries(labels.map((label) => [label, label === route ? 1 : 0])) as Record<RecallRoute, number>
+}
+
+describe('Jev recall evaluation', () => {
+  it('reports decision quality, fallback coverage, latency, tokens, and estimated cost', async () => {
+    const corpus: RecallEvaluationCorpus = {
+      schemaVersion: 1,
+      asOf: '2026-09-23T12:00:00.000Z',
+      cases: [
+        { id: 'ordinary', intent: 'none', text: 'Write a new README.' },
+        { id: 'memory', intent: 'none', text: 'What did we decide last week?' },
+        { id: 'temporal', intent: 'temporal-recall', text: 'What happened yesterday?' },
+      ],
+    }
+    const classify = vi.fn(async (text: string) => {
+      if (text === 'Write a new README.') {
+        return {
+          status: 'fallback',
+          reason: 'invalid-response',
+          usage: { inputTokens: 4, outputTokens: 1 },
+        } as const
+      }
+      const route: RecallRoute = text === 'What did we decide last week?' ? 'temporal-recall' : 'temporal-recall'
+      return {
+        status: 'decision',
+        value: { route, confidence: 0.9, probabilities: probabilities(route) },
+        usage: { inputTokens: 11, outputTokens: 0 },
+      } as const
+    })
+    const router: RecallIntentRouter = { classify }
+
+    const report = await evaluateJevRecallCorpus(corpus, router)
+
+    expect(classify).toHaveBeenCalledTimes(3)
+    expect(report).toMatchObject({
+      total: 3,
+      completed: 2,
+      fallbackCount: 1,
+      correct: 1,
+      accuracy: 0.5,
+      coverage: 2 / 3,
+      noRecallFalsePositives: 1,
+      noRecallDecided: 1,
+      inputTokens: 26,
+      outputTokens: 1,
+    })
+    expect(report.estimatedInputCostUsd).toBeCloseTo(0.000001092, 15)
+    expect(report.medianLatencyMs).toBeGreaterThanOrEqual(0)
+    expect(report.multiclassBrierScore).toBeGreaterThanOrEqual(0)
+  })
+})

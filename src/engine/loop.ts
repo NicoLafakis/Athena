@@ -14,6 +14,7 @@ import { RunBudget } from './run.js'
 import type { ToolRegistry } from '../tools/registry.js'
 import type { HookRunner } from '../harness/hooks.js'
 import { redactSessionValue } from '../harness/redaction.js'
+import type { RecallIntentRouter, RecallRouteDecision } from '../decision/jev.js'
 import {
   modelCapabilities,
   modelId,
@@ -64,6 +65,20 @@ export interface EngineOptions {
   onMessagesChanged?: (messages: MessageParam[]) => void // session persistence seam (Task 11)
   limits?: RunLimits
   preflightContext?: boolean
+  /** Optional typed classifier for current-turn continuity intent. */
+  recallRouter?: RecallIntentRouter
+}
+
+function recallRouteGuidance(decision: RecallRouteDecision): string {
+  return [
+    '<athena-recall-routing>',
+    `Jev classified the current request as ${decision.route}.`,
+    'Use the conversation messages actually present in this turn when they contain the answer.',
+    'Athena has not attached source-verified text from other sessions or projects to this turn.',
+    'If answering requires another session or project, say that the source history is not loaded and ask the user to use `athena memory search` or `/memory search`.',
+    'The route is an intent hint, not evidence that a matching memory exists. Do not invent historical details.',
+    '</athena-recall-routing>',
+  ].join('\n')
 }
 
 export class Engine {
@@ -72,6 +87,8 @@ export class Engine {
   private abortController: AbortController
   private turnInFlight = false
   private readonly budget: RunBudget
+  private turnRecallDirective: string | undefined
+  private recallUnavailableNoticeSent = false
 
   constructor(opts: EngineOptions) {
     this.opts = opts
@@ -189,11 +206,34 @@ export class Engine {
       bus.emit({ type: 'turn-done', usage: result.usage, result })
       return result
     }
+    this.turnRecallDirective = undefined
+    if (this.opts.recallRouter) {
+      try {
+        const decision = await this.opts.recallRouter.classify(userText, { signal })
+        if (decision.status === 'decision' && decision.value.route !== 'none') {
+          this.turnRecallDirective = recallRouteGuidance(decision.value)
+        } else if (
+          decision.status === 'fallback' &&
+          decision.reason === 'unavailable' &&
+          this.opts.recallRouter.configured === false &&
+          !this.recallUnavailableNoticeSent
+        ) {
+          this.recallUnavailableNoticeSent = true
+          bus.emit({
+            type: 'info',
+            message: 'Jev recall routing is enabled but unavailable; local conversation handling continues. Set TYPESAFE_API_KEY to activate Jev, or set jev.enabled to false in ~/.athena/settings.json.',
+          })
+        }
+      } catch {
+        // Optional intent classification cannot prevent the user's turn from running.
+      }
+    }
     const text = promptHook.addedContext
       ? `${userText}\n\n<hook-context>\n${promptHook.addedContext}\n</hook-context>`
       : userText
     this.opts.toolContext.setCurrentUserTurnPrompt?.(text)
     this.push({ role: 'user', content: text })
+    const systemPrompt = this.systemPromptForTurn()
     let terminal: RunResult | null = null
 
     for (;;) {
@@ -221,7 +261,7 @@ export class Engine {
       if (this.opts.preflightContext) {
         contextManager.setModelWindowTokens(capabilities.contextWindowTokens)
         estimatedInputTokens = estimateRequestTokens({
-          system: this.opts.systemPrompt,
+          system: systemPrompt,
           messages: outboundMessages,
           tools,
         })
@@ -271,7 +311,7 @@ export class Engine {
             bus.emit({ type: 'compaction', summary })
             outboundMessages = this.outboundMessages()
             estimatedInputTokens = estimateRequestTokens({
-              system: this.opts.systemPrompt,
+              system: systemPrompt,
               messages: outboundMessages,
               tools,
             })
@@ -311,7 +351,7 @@ export class Engine {
             model: req.model,
             thinking: req.thinking,
             effort: req.effort,
-            system: this.opts.systemPrompt,
+            system: systemPrompt,
             // Anthropic thinking blocks carry provider-signed signatures; replaying them to a
             // model that does not speak thinking (any Kimi model) risks a 400 on the compat
             // endpoint. Strip them from the outbound view only - history stays intact so a
@@ -576,6 +616,12 @@ export class Engine {
           : message,
       )
       .filter((message) => !Array.isArray(message.content) || message.content.length > 0)
+  }
+
+  private systemPromptForTurn(): string {
+    return this.turnRecallDirective
+      ? `${this.opts.systemPrompt}\n\n${this.turnRecallDirective}`
+      : this.opts.systemPrompt
   }
 
   private recordLimit(reason: string): RunResult {

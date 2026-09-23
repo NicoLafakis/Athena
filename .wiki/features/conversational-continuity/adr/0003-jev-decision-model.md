@@ -1,42 +1,52 @@
-# ADR 0003: Use Jev as an optional decision model
+# ADR 0003: Use Jev as Athena's recall-intent decision model
 
-- **Status:** Proposed; no Jev runtime integration exists.
+- **Status:** Accepted; pinned recall routing is integrated into the harness. Live quality
+  and cost evaluation remains pending because no TypeSafe credential was configured.
 - **Date:** 2026-09-23
 - **Context:** Athena needs to recognize implicit continuity intent and select the
   appropriate local memory path without confusing a conversation model with the memory
   system itself.
 
-## Decision proposal
+## Decision
 
-Treat Jev as an optional, typed decision service beside Athena's generative `ModelClient`.
-Do not make it an answer model, memory database, source of truth, or permission authority.
-Keep the decision interface separate so the engine's streaming/tool-use contract does not
-depend on TypeSafe.
+Use Jev as a typed decision service beside Athena's generative `ModelClient`. It is not an
+answer model, memory database, source of truth, or permission authority. The `DecisionClient`
+interface stays separate from streaming `ModelClient`; the harness builds its Jev adapter
+in `src/decision/jev.ts` and invokes it once per inbound user request.
 
-The recommended first integration slice is a recall-intent `Choice` in the harness before
-local continuity retrieval. It classifies the current inbound request into a bounded set
-such as `none`, `continue-current`, `temporal-recall`, `topic-recall`, `preference-or-fact`,
-`historical-decision`, and `similar-work`. Include `none` as a valid answer. Athena then
-uses the original request with its local temporal parser, project/sensitivity filters,
-live-source checks, deterministic ranker, and bounded source expansion. Jev does not
-choose source records or rewrite the query.
+The implemented first slice classifies the current inbound request into `none`,
+`continue-current`, `temporal-recall`, `topic-recall`, `preference-or-fact`,
+`historical-decision`, or `similar-work`. The route is validated against a strict local
+schema. A non-`none` route adds an ephemeral instruction to the active answer-model system
+prompt: use only conversation messages present in the turn; if another session or project
+is needed, say that its source history is not loaded and point to local memory search. The
+route is an intent hint, not evidence that a matching memory exists. This first slice does
+not automatically retrieve or disclose cross-session episode text.
 
-For the first slice, send only the shared-redactor-processed current user request and fixed
-question definitions. Do not send conversation history, retrieved episodes, summaries,
-semantic memory text, source IDs, or project paths. The feature is disabled by default and
-requires an explicit Jev setting and credential. Its authorization is separate from any
-future choice to send source-verified historical excerpts to an answer provider.
+The TypeSafe request contains only the shared-secret-redactor-processed current user
+request and fixed question definitions. It excludes hook-added context, conversation
+history, retrieved episodes, summaries, semantic memory text, source IDs, and project
+paths. The existing redactor targets known credential fields and secret-shaped tokens; it
+does not remove names, general personal information, or arbitrary sensitive prose. The
+product owner selected Jev routing on 2026-09-23. Global `jev.enabled` defaults to `true`
+and can be set to `false` in `~/.athena/settings.json`; project settings cannot change it.
+The API key is supplied through `TYPESAFE_API_KEY` and is not written to settings or
+credentials files. A missing key means no network call and a local fallback. This decision
+does not authorize historical excerpts to the configured answer provider; that separate
+answer-time handoff remains pending.
 
-Use TypeSafe's `Choice` probabilities and confidence to decide whether the route is useful
-only after an Athena-specific labeled evaluation. Confidence is derived from the returned
-probability distribution, and calibration describes groups of predictions rather than
-guaranteeing one decision. `Noul` returns a yes probability without a separate confidence
-field; do not treat it as an ordered score. Thresholds are risk-specific and must be
-measured against Athena's routing outcomes. Invalid or unknown choices, low-confidence
-answers, timeouts, missing credentials, rate limits, and provider errors fall through to
-the existing local behavior and never block a user turn.
+The adapter pins model `jev-1.13.0` through TypeSafe JavaScript SDK `0.6.0`, disables SDK
+request logging and retries, and enforces a one-second outer deadline with a 900 ms
+per-attempt SDK timeout. Requests longer than 12,000 characters are skipped. Invalid or
+unknown choices, malformed probabilities, timeouts, missing credentials, rate limits, and
+provider errors fall through to the ordinary answer path. A route hint is transient and is
+not saved in session messages. TypeSafe confidence and probabilities are retained for
+evaluation but there is no calibrated confidence threshold yet; current route use follows
+the explicit product decision and must be reviewed against the synthetic live evaluation.
+`Noul` returns a yes probability without a separate confidence field; do not treat it as an
+ordered score.
 
-After routing proves useful, evaluate a separate memory-intake experiment. Jev may label
+After routing shows value, evaluate a separate memory-intake experiment. Jev may label
 whether persisted user-authored text appears to express a preference, decision, promise,
 correction, or tentative thought. Athena must still derive source IDs and timestamps from
 its own records, reverify the exact source and context, enforce sensitivity and
@@ -62,17 +72,18 @@ evaluate.
 As checked on 2026-09-23, the model page lists Jev 1.13 (`jev-1.13.0`) at $0.042 per
 million input tokens, output tokens free, with a 64k total context limit and 32k limit for
 state plus the longest question. Published request/token limits are dynamic and may change.
-The `jev-latest` alias can move to a new model; pin the version used in evaluation and
-recalibrate before upgrading. The official JavaScript SDK supports Node.js 20+, matching
-Athena's declared minimum runtime. The repository has no TypeSafe dependency or adapter at
-this ADR's date. Review the SDK's logging defaults before adoption; its documentation says
-debug logging can include request bodies.
+The `jev-latest` alias can move to a new model; keep the versioned ID pinned and rerun the
+synthetic evaluation before upgrading. The SDK supports Node.js 20+, matching Athena's
+minimum runtime. Decision calls write content-free outcome, elapsed-time, and token-count
+events to the local run trace. Debug request logging is disabled because the SDK can log
+request bodies at debug level.
 
 TypeSafe states that it does not train or fine-tune on customer input. Its privacy policy
 also says it may retain personal data as reasonably necessary to provide or support the
 service, may disclose input to service providers, and hosts the service in the United
-States. That policy is not a zero-retention guarantee. Recheck the current agreement and
-user consent before enabling any external call.
+States. That policy is not a zero-retention guarantee. The product owner authorized the
+bounded current-request routing path; recheck the current agreement before materially
+changing the payload scope or provider configuration.
 
 ## Evaluation and release gates
 
@@ -81,28 +92,28 @@ user consent before enabling any external call.
    The checked-in 49-case fixture is complete. Its current local baseline is the intent
    inferred inside the manual ranking preview, not an answer-time router; see
    [the calibration snapshot](../calibration.md).
-2. When a provider experiment is authorized, compare Jev with that local proxy. Measure
-   class precision/recall, no-recall false positives, confidence calibration, latency,
-   token count, and estimated cost. Define acceptance thresholds before testing; do not
-   import example confidence cutoffs from vendor documentation. The present measurement
-   does not select Jev thresholds or an adoption bar.
-3. Fake the HTTP/SDK boundary in integration tests. Verify disabled mode performs zero
-   calls, the payload contains only allowed fields, response values are schema-checked,
-   and every failure takes a local fallback.
-4. Dogfood with synthetic or separately authorized text before using representative live
-   histories. Historical episode text requires its own explicit authorization.
-5. Pin the tested model ID and keep Jev disabled by default until the product owner opts
-   into this additional provider path.
+2. Run `pnpm exec tsx bench/jev-recall-evaluation.ts` with `TYPESAFE_API_KEY` to compare
+   Jev against the 49-case synthetic corpus. It measures route precision/recall, coverage,
+   no-recall false positives, multiclass Brier score, latency, input/output tokens, and
+   estimated cost. This live run was not possible during integration because the key was
+   absent; no live Jev quality result is claimed.
+3. Tests fake the SDK HTTP boundary. They verify no call while disabled or without a key,
+   exact allowed payload fields, redaction, model pinning, strict response validation,
+   token-only telemetry, timeout/rate-limit fallback, and ephemeral system-prompt use.
+4. Dogfood with synthetic or separately authorized text. Historical episode text requires
+   its own explicit authorization before it enters any provider prompt.
+5. The product owner has selected global default enablement. Keep the key absent or set
+   `jev.enabled` to `false` to disable calls; reevaluate before changing the pinned model.
 
 ## Alternatives
 
 | Option | Assessment |
 |---|---|
-| Keep routing entirely deterministic | Safe local baseline with no added vendor boundary; measure its quality first. |
+| Keep routing entirely deterministic | Safe local baseline with no added vendor boundary; preserve it as a fallback and comparison point. |
 | Ask the generative model to classify recall intent | Can produce free-form behavior and couples routing to answer-model/tool-selection latency; retain it as the conversational answer path. |
 | Use Jev to generate memory summaries or answers | Does not fit Jev's typed decision output and would not preserve Athena's source-context contract. |
 | Let Jev promote memory, delete data, or bypass local policy | Rejected; these decisions require source verification and explicit user control. |
-| Add optional Jev recall routing, then separately evaluate candidate labeling | Recommended proposal; bounded decisions, local source authority, and measurable rollout. |
+| Add Jev recall routing, then separately evaluate candidate labeling | Selected and implemented for bounded decisions, local source authority, and measurable rollout. |
 
 ## Official research sources
 

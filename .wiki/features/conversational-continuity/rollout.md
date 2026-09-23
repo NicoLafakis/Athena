@@ -6,9 +6,11 @@
 
 - Keep current memory and session behavior as the fallback.
 - The index is derived and disposable; source session files are not rewritten.
-- Do not enable automatic memory promotion or broad prompt recall until source-link,
-  deletion, privacy, and cross-project tests pass.
-- No network access, new credential, background model call, or cross-machine sync.
+- Do not enable automatic memory promotion or historical answer-prompt recall until
+  source-link, deletion, privacy, and cross-project tests pass.
+- Capture, indexing, and ranking remain local. The accepted Jev route may send the current
+  secret-redacted user request to TypeSafe when `TYPESAFE_API_KEY` is present; no history
+  enters that request. The call is synchronous and bounded, not a background task.
 
 ## Phases and exit gates
 
@@ -34,7 +36,8 @@ Connect bounded retrieval to conversational turns; dogfood date/topic/project qu
 verify current source precedence, uncertainty, and no irrelevant context leakage.
 
 **Exit:** acceptance criteria for source-backed answers and no-hit/conflict behavior pass.
-Automatic recall stays opt-in until this gate.
+Historical answer-time retrieval remains disabled until this gate and its separate
+authorization are complete.
 
 ### Phase 3: semantic memory lifecycle
 
@@ -93,13 +96,16 @@ authorization and its privacy tests.
 - Rebuild optional index: `athena memory rebuild`.
 - If source history is missing, mark dependent summaries unavailable. Do not reconstruct
   or silently restore a source from a summary.
-- Automatic answer-time recall is not enabled. Explicit CLI/slash search and timeline
-  remain available.
+- Jev route hints are enabled by the global default; if the TypeSafe key is absent, no
+  call is made and normal prompt handling continues. Set `jev.enabled` to `false` to
+  disable the route. Automatic historical answer-time retrieval is not enabled. Explicit
+  CLI/slash search and timeline remain available.
 
 ## Rollback
 
-Disable automatic recall and remove the derived continuity index. This does not touch
-session JSONL, RunTrace, user memory files, credentials, or learning records. Managed
-semantic memories retain their source links and currently support review and correction;
-forget controls and source-session integration are unfinished. Re-enable only after
-repairing or rebuilding derived data.
+Set global `jev.enabled` to `false` to disable Jev routing, then remove the derived
+continuity index only if its local state needs rebuilding. This does not touch session
+JSONL, RunTrace, user memory files, credentials, or learning records. Managed semantic
+memories retain their source links and currently support review and correction; forget
+controls and source-session integration are unfinished. Historical answer-time retrieval
+remains outside this Jev route and requires its own authorization and implementation.

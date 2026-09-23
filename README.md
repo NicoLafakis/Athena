@@ -230,6 +230,15 @@ The optional global `timeZone` field accepts an IANA timezone (for example,
 `"timeZone": "America/New_York"`) for conversational timeline queries; project settings
 cannot override it.
 
+Jev recall-intent routing is enabled in global settings by default following the product
+decision. It makes no network call unless `TYPESAFE_API_KEY` is set. When configured,
+TypeSafe receives only the current user request after Athena's shared secret redactor,
+with a 12,000-character limit; it receives no prior conversation, memory text, source IDs,
+or project paths. That redactor handles known credentials, not general personal
+information. Set `"jev": {"enabled": false}` in the global settings file to disable
+routing. The route adds a temporary instruction to avoid inventing missing cross-session
+details; it does not retrieve or send historical context to the answer provider.
+
 Athena's local conversation catalog can be inspected across projects:
 
 ```sh
@@ -261,8 +270,9 @@ asks for a rebuild.
 `memory rank` locally previews selected working, episodic, semantic, and rollup layers with
 bounded IDs, scope, time, scores, and reason labels. `/memory rank` also considers text in
 the active in-memory conversation. The preview does not show query/source text and does
-not add historical excerpts to provider prompts.
-Automatic recall inside provider prompts is pending explicit authorization.
+not add historical excerpts to provider prompts. Jev's intent route is separate from
+historical retrieval; automatic historical excerpts to the answer provider remain pending
+explicit authorization.
 
 The `Memory` tool can also save an explicitly requested durable fact as a semantic-memory
 record tied to the current persisted user message. A clear user correction can supersede
@@ -294,6 +304,9 @@ Environment variables override stored provider keys:
 - `ANTHROPIC_API_KEY`
 - `MOONSHOT_API_KEY`
 - `KIMI_CODE_API_KEY`
+
+`TYPESAFE_API_KEY` is a separate environment-only credential for Jev; it is not an answer
+model provider key and is not stored in `credentials.json`.
 
 `athena doctor --json` reports installation, trust, credential-vault, provider,
 dependency, process-sandbox, permission-posture, protected-paths, and update

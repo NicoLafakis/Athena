@@ -22,6 +22,7 @@ describe('loadSettings', () => {
     const s = loadSettings(paths)
     expect(s.model).toBe(SettingsSchema.parse({}).model)
     expect(s.permissionMode).toBe('normal')
+    expect(s.jev.enabled).toBe(true)
     expect(s.allow).toEqual([])
     expect(s.accessibility).toEqual({
       presentation: 'standard',
@@ -137,6 +138,23 @@ describe('loadSettings', () => {
 
     expect(settings.timeZone).toBe('Europe/Paris')
     expect(warnings).toContain('Project settings cannot override the global user timezone; ignoring project timeZone.')
+  })
+
+  it('keeps Jev enablement global so an individual project cannot opt into provider calls', () => {
+    mkdirSync(join(home, '.athena'), { recursive: true })
+    writeFileSync(join(home, '.athena', 'settings.json'), JSON.stringify({ jev: { enabled: true } }))
+    mkdirSync(join(project, '.athena'), { recursive: true })
+    writeFileSync(join(project, '.athena', 'settings.json'), JSON.stringify({ jev: { enabled: false } }))
+    const warnings: string[] = []
+
+    const settings = loadSettings(
+      resolveBrainPaths({ cwd: project, homeOverride: home }),
+      'anthropic',
+      (warning) => warnings.push(warning),
+    )
+
+    expect(settings.jev.enabled).toBe(true)
+    expect(warnings).toContain('Project settings cannot override global Jev decision settings; ignoring project jev.')
   })
 
   it('drops an invalid optional global timezone and reports the OS fallback', () => {

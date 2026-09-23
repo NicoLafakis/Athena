@@ -56,6 +56,7 @@ import {
 import { makeSkillTool } from '../tools/skill.js'
 import { makeAgentTool } from '../tools/agent.js'
 import { ContinuityStore } from '../continuity/store.js'
+import { createJevRecallRouter } from '../decision/jev.js'
 
 function gitBranch(cwd: string): string | null {
   try {
@@ -313,6 +314,11 @@ export class HarnessSessionController {
     const continuityStore = new ContinuityStore(paths.continuityDir, {
       onWarn: (warning) => console.error(warning),
     })
+    const recallRouter = createJevRecallRouter({
+      enabled: settings.jev.enabled,
+      apiKey: process.env.TYPESAFE_API_KEY,
+      telemetry: (event) => trace.append('decision-model-call', event),
+    })
 
     const registry = new ToolRegistry()
     for (const t of [
@@ -481,6 +487,7 @@ export class HarnessSessionController {
       model,
       effort,
       systemPrompt,
+      recallRouter,
       maxTokens: settings.maxOutputTokens ?? activeCapabilities.maxOutputTokens,
       preflightContext: true,
       ...(askUser ? { askUser } : {}),

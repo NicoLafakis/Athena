@@ -107,11 +107,13 @@ chosen. The exact TypeScript contracts are in the design doc.
 
 ## 10. Security, privacy, and access control
 
-All data remains under the local per-user brain. No project configuration can widen
-global memory retrieval or trigger external transmission. Prompts, assistant text, traces,
-and generated summaries are untrusted inputs to parsing. Reuse secret redaction, cap all
-fields, avoid copying raw transcripts, and do not infer sensitive attributes. Retrieval
-must not expose another project’s detail unless relevant to the user’s request. See the
+Continuity indexes and summaries remain under the local per-user brain. Project
+configuration cannot widen global memory retrieval or control the user-wide Jev setting.
+The selected Jev route sends only the current user request after shared secret redaction
+when a TypeSafe key is configured. Prompts, assistant text, traces, and generated
+summaries are untrusted inputs to parsing. Cap fields, avoid copying raw transcripts, and
+do not infer sensitive attributes. Historical retrieval must not expose another project's
+detail unless relevant and separately authorized for the answer-provider handoff. See the
 [threat model](threat-model.md).
 
 ## 11. Data integrity and write path
@@ -133,10 +135,11 @@ tool-to-prompt behavior. Verify against acceptance criteria and the invariant.
 
 ## 13. Observability
 
-Local diagnostics record counts, duration, index version, and source IDs only. Do not log
-query text, memory content, summaries, personal values, or full paths. `/memory status`
-reports indexed-source count, last successful scan, stale/missing index condition, and
-recovery guidance without printing content.
+Local diagnostics record counts, duration, index version, and source IDs only. Decision
+traces may record provider/model, outcome, duration, and token counts; they never record
+request or response content. Do not log query text, memory content, summaries, personal
+values, or full paths. `/memory status` reports indexed-source count, last successful
+scan, stale/missing index condition, and recovery guidance without printing content.
 
 ## 14. Error handling and user feedback
 
@@ -147,10 +150,12 @@ instruction. Corrupt optional data reports the artifact and `athena memory rebui
 
 ## 15. Performance and cost
 
-Local recall adds no provider call by itself and is bounded by the NFR budgets. If the
-current response model summarizes retrieved evidence, that is the ordinary user-request
-call, never an automatic boot/session-end call. Relevance ranking is local and
-deterministic. Candidate and prompt budgets are explicit.
+Indexing and local recall search make no provider call. Jev may make one synchronous,
+one-second-bounded call per user turn when a TypeSafe key is configured; its input and
+cost are measured by the synthetic evaluator and token trace. No historical context is
+sent to the answer provider as part of this decision route. If the current response model
+later summarizes authorized retrieved evidence, that is the ordinary user-request call,
+never an automatic boot/session-end call. Candidate and prompt budgets are explicit.
 
 ## 16. Accessibility
 
@@ -164,6 +169,8 @@ and no memory identity depends on color, position, or animation.
 2. Context reconstruction, automatic recall integration, and inspectable controls.
 3. Long-term memory provenance, explicit promotion, corrections, and forgetting.
 4. Day/week/month/quarter/year rollups and calibration from dogfood.
+5. Jev recall-intent routing, accepted and integrated; live synthetic evaluation remains
+   pending a TypeSafe credential.
 
 Every phase is local-first and reversible. The derived index is rebuilt rather than
 backfilled destructively. See [rollout](rollout.md).

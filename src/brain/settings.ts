@@ -218,6 +218,13 @@ export const VmpConnectorSchema = z.object({
 }).strict()
 export type VmpConnectorSettings = z.infer<typeof VmpConnectorSchema>
 
+/** Jev classification is an account-wide user choice because it sends the current
+ * redacted request to an external decision service. Project settings cannot opt in. */
+export const JevDecisionSettingsSchema = z.object({
+  enabled: z.boolean().default(true),
+}).strict()
+export type JevDecisionSettings = z.infer<typeof JevDecisionSettingsSchema>
+
 const baseShape = {
   effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('high'),
   timeZone: z.string().max(128).refine(isIanaTimeZone, 'Expected a supported IANA timezone').optional(),
@@ -235,6 +242,7 @@ const baseShape = {
   hooks: z.array(HookDefSchema).default([]),
   mcpServers: z.record(z.string(), McpServerSchema).default({}),
   accessibility: AccessibilitySettingsSchema.default({}),
+  jev: JevDecisionSettingsSchema.default({}),
   vmp: VmpConnectorSchema.default({}),
 }
 
@@ -309,11 +317,25 @@ export function loadSettings(
     )
     global['accessibility'] = AccessibilitySettingsSchema.parse({})
   }
+  const globalJev = JevDecisionSettingsSchema.safeParse(global['jev'] ?? {})
+  if (globalJev.success) {
+    global['jev'] = globalJev.data
+  } else {
+    onWarn?.(
+      `Global Jev settings in ${paths.settingsFile} are invalid; using the enabled-by-default configuration. ` +
+      `Fix or remove the jev object in ${paths.settingsFile}.`,
+    )
+    global['jev'] = JevDecisionSettingsSchema.parse({})
+  }
   if (Object.prototype.hasOwnProperty.call(project, 'accessibility')) {
     onWarn?.(
       'Project settings cannot override global accessibility preferences; ignoring project accessibility.',
     )
     delete project['accessibility']
+  }
+  if (Object.prototype.hasOwnProperty.call(project, 'jev')) {
+    onWarn?.('Project settings cannot override global Jev decision settings; ignoring project jev.')
+    delete project['jev']
   }
   if (project['permissionMode'] === 'trusted') {
     onWarn?.('Project settings cannot select trusted permission mode; using the global/default mode.')

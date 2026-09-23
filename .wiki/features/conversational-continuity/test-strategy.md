@@ -20,7 +20,7 @@
 | FR-014 / AC-010 budgets | Ranking + performance + prompt integration | Local candidate count/source-ID caps and privacy-safe metrics; no background model calls; prompt handoff remains future work |
 | FR-015 / AC-007 rebuild/failure | Integration | Truncated JSONL, corrupt index, missing project, permission error, atomic-write failure |
 | Live-source presentation | Integration | Move a source session into `.trash` without rebuilding; ranking, linked semantic memory, direct `Memory.read`, and rollup text disappear immediately |
-| Optional Jev routing (proposed) | Evaluation + decision-client unit tests | Compare to local baseline on labeled synthetic queries; verify disabled mode makes zero calls; enforce caller-schema validation, timeout/rate-limit fallback, and content-free telemetry. When an adapter is proposed, add no-history payload and fake-transport adapter tests |
+| Jev recall routing (accepted and integrated) | Decision unit + fake SDK transport + engine integration + synthetic live evaluation | Verify disabled/missing-key zero calls, exact secret-redacted request fields, fixed model and labels, strict output shape, usage-only telemetry, timeout/rate-limit/oversized-input fallback, and transient prompt guidance. Run the 49-case synthetic live comparison when a TypeSafe key is available. |
 
 ## Implemented evidence at this checkpoint
 
@@ -61,16 +61,20 @@
   semantic content, then trash that session and assert `Memory.read` no longer returns it.
   An unreviewed inferred candidate is also tested to ensure model-facing reads cannot
   return its claim text.
-- Jev preparation uses a balanced, 49-case synthetic recall-intent corpus. Its baseline
+- Jev routing uses a balanced, 49-case synthetic recall-intent corpus. Its baseline
   regression locks the current local ranker's proxy confusion matrix, including the
   absence of a `none` class and the resulting proxy false positives. This classifier is
-  ranking metadata only; it is not wired to answer-time retrieval. No Jev request or live
-  history is used by this evaluation.
+  ranking metadata only; it is not wired to answer-time retrieval. A separate
+  `bench/jev-recall-evaluation.ts` sends only those synthetic request strings to the
+  pinned Jev model and reports route quality, coverage, no-recall false positives, Brier
+  score, latency, token volume, and estimated cost. It has not been run because
+  `TYPESAFE_API_KEY` was unavailable; no live quality result is claimed.
 - The optional `DecisionClient` seam is separate from streaming `ModelClient`. Fake-
   transport tests cover typed response validation, disabled/unavailable fallback, timeout
-  abort, rate-limit fallback, and content-free telemetry; telemetry sink failures cannot
-  change the decision. The seam has no TypeSafe adapter or harness call site, so these tests
-  do not claim provider integration or prove any user data is sent.
+  abort, rate-limit fallback, content-free outcome/latency/token telemetry, and isolation
+  from telemetry sink failures. The TypeSafe adapter test uses an injected fake HTTP fetch
+  to verify the exact request body and output mapping. Engine tests verify route guidance
+  exists only in the active answer call and is absent from persisted messages.
 - [`calibration.md`](calibration.md) records deterministic synthetic quality measures and
   a 10,000-episode/10,000-session-file local performance sample, including the shared
   search presenter and verified source expansion. These measurements do not claim TUI
@@ -110,9 +114,11 @@
   noninteractive paths.
 - Do not treat local CLI/slash source display as evidence that provider prompt transfer,
   automatic relevance routing, or prompt-isolation behavior is implemented.
-- Jev remains an optional future provider. Its adapter tests must use a fake transport;
-  evaluation requests use synthetic text only. Test that the first routing slice sends no
-  historical source or project identifiers, and that Jev output cannot bypass local
-  source, scope, sensitivity, permission, or memory-review gates.
+- Jev is the selected intent provider. Adapter tests use a fake HTTP fetch; evaluation
+  requests use synthetic text only. Verify that the request contains no historical source
+  or project identifiers, and that Jev output cannot bypass local source, scope,
+  sensitivity, permission, or memory-review gates. This authorization covers the current
+  redacted request only; historical input to Jev and historical answer-provider handoff
+  require a separate scope decision.
 - Live dogfood is required for subjective recall usefulness, but it supplements rather
   than replaces deterministic correctness and privacy tests.

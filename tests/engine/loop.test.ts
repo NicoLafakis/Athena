@@ -1,10 +1,13 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { z } from 'zod'
 import type { ContentBlock, MessageParam } from '@anthropic-ai/sdk/resources/messages'
 import { EngineEventBus } from '../../src/engine/events.js'
 import { ContextManager } from '../../src/engine/context.js'
 import { Engine, repairDanglingToolUses, zodToJsonSchema, toolInputSchema, type EngineOptions } from '../../src/engine/loop.js'
 import type { ModelClient } from '../../src/engine/client.js'
+import type { RecallIntentRouter } from '../../src/decision/jev.js'
+import type { RecallRouteDecision } from '../../src/decision/jev.js'
+import type { DecisionResult } from '../../src/decision/client.js'
 import { ToolRegistry } from '../../src/tools/registry.js'
 import { readTool } from '../../src/tools/read.js'
 import { HookRunner } from '../../src/harness/hooks.js'
@@ -70,6 +73,71 @@ function makeEngine(
 }
 
 describe('Engine.runTurn', () => {
+  it('uses a Jev recall route as ephemeral answer guidance without persisting it', async () => {
+    const scripted = new MockAnthropicClient([{ blocks: [textBlock('I do not have the earlier project context loaded.')], stopReason: 'end_turn' }])
+    const systems: string[] = []
+    const persisted: MessageParam[][] = []
+    const client: ModelClient = {
+      async stream(params, callbacks) {
+        systems.push(params.system)
+        return scripted.stream(params, callbacks)
+      },
+      complete: (params) => scripted.complete(params),
+    }
+    const probabilities = {
+      none: 0.01,
+      'continue-current': 0.01,
+      'temporal-recall': 0.92,
+      'topic-recall': 0.01,
+      'preference-or-fact': 0.01,
+      'historical-decision': 0.02,
+      'similar-work': 0.02,
+    }
+    const recallDecision: DecisionResult<RecallRouteDecision> = {
+        status: 'decision',
+        value: { route: 'temporal-recall', confidence: 0.92, probabilities },
+    }
+    const recallRouter: RecallIntentRouter = {
+      classify: vi.fn(async () => recallDecision),
+    }
+    const { engine } = makeEngine(
+      [{ blocks: [textBlock('unused')], stopReason: 'end_turn' }],
+      { client, recallRouter, onMessagesChanged: (messages) => persisted.push(structuredClone(messages)) },
+    )
+
+    await engine.runTurn('What did we decide earlier this week?')
+
+    expect(recallRouter.classify).toHaveBeenCalledOnce()
+    expect(recallRouter.classify).toHaveBeenCalledWith('What did we decide earlier this week?', {
+      signal: expect.any(AbortSignal),
+    })
+    expect(systems[0]).toContain('Jev classified the current request as temporal-recall.')
+    expect(systems[0]).toContain('Do not invent historical details.')
+    expect(JSON.stringify(persisted)).not.toContain('Jev classified')
+    expect(JSON.stringify(engine.getMessages())).not.toContain('Jev classified')
+  })
+
+  it('keeps the normal system prompt when Jev falls back', async () => {
+    const recallFallback: DecisionResult<RecallRouteDecision> = { status: 'fallback', reason: 'unavailable' }
+    const recallRouter: RecallIntentRouter = {
+      classify: vi.fn(async () => recallFallback),
+    }
+    const scripted = new MockAnthropicClient([{ blocks: [textBlock('Hello!')], stopReason: 'end_turn' }])
+    let system = ''
+    const client: ModelClient = {
+      async stream(params, callbacks) {
+        system = params.system
+        return scripted.stream(params, callbacks)
+      },
+      complete: (params) => scripted.complete(params),
+    }
+    const { engine } = makeEngine([], { client, recallRouter })
+
+    await engine.runTurn('hi')
+
+    expect(system).toBe('sys')
+  })
+
   it('text-only turn: streams deltas, appends assistant message, emits turn-done', async () => {
     const { engine, events } = makeEngine([{ blocks: [textBlock('Hello!')], stopReason: 'end_turn' }])
     await engine.runTurn('hi')

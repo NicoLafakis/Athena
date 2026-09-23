@@ -132,31 +132,41 @@ forget source-retention choice is still awaiting the product owner's answer.
   - [ ] Complete delete/restore/tombstone review after the source-retention choice and
     provider-prompt privacy review after handoff authorization.
 
-## Optional Phase 5 — Jev decision model (integration proposed)
+## Phase 5 — Jev decision model (accepted; recall routing implemented)
 
-Jev is a TypeSafe System One model that returns structured judgments; it is not Athena's
-conversation or answer model. The researched integration boundary and vendor-data review
-are in [ADR 0003](adr/0003-jev-decision-model.md). The optional typed decision-client seam
-is implemented, but no TypeSafe adapter or live call exists. A product question about
-which first slice to pursue is still pending; recommendation is staged work with recall
-routing first.
+The product owner selected Jev for recall-intent routing on 2026-09-23. The TypeSafe
+adapter and engine call path are implemented. Jev classifies each current user request;
+Athena adds only an ephemeral route hint to the answer-model system prompt. The answer
+model is told to rely on messages already in the active conversation and to state when
+other-session history is not loaded. This route does not yet retrieve or transfer episode
+text. The separate authorization for historical excerpts to the answer provider remains
+open. See [ADR 0003](adr/0003-jev-decision-model.md).
 
 - [x] 5.1 Build a labeled synthetic recall-intent corpus and measure the current local
-  routing baseline before selecting Jev thresholds or an adoption bar. The 49-case
-  corpus and deterministic ranker-intent proxy are measured in
-  [calibration.md](calibration.md); answer-time automatic history routing remains absent.
+  routing baseline. The 49-case corpus and deterministic ranker-intent proxy are
+  measured in [calibration.md](calibration.md); live Jev comparison remains pending.
 - [x] 5.2 Define an optional `DecisionClient` separate from streaming `ModelClient`; test
   typed output validation, fallback, timeout/rate-limit handling, zero calls while disabled,
-  and content-free telemetry with a fake transport. The implementation is a dependency-
-  injected seam only; it has no TypeSafe SDK, credentials, network transport, or harness
-  call site.
-- [ ] 5.3 If recall routing is selected, add the TypeSafe adapter behind an explicit
-  opt-in. Send only the redacted current user request for the first slice; no source
-  excerpts, summaries, memory text, IDs, or project paths. Keep local time, project,
-  sensitivity, availability, and ranking rules authoritative.
+  and content-free telemetry with a fake transport.
+- [x] 5.3 Add the pinned TypeSafe adapter and route it through the harness. The global
+  `jev.enabled` setting defaults to `true` following the product decision; project
+  settings cannot override it. `TYPESAFE_API_KEY` is required for a network call. Each
+  call sends only the shared-secret-redacted current user request (maximum 12,000
+  characters), fixed `Choice` labels, and pinned model `jev-1.13.0`. It sends no hook
+  context, conversation history, episode text, summaries, memory text, IDs, or project
+  paths. SDK request logging and retries are disabled; a one-second decision timeout,
+  invalid output, missing key, provider error, or explicit setting disable falls through
+  without blocking normal work. The selected route is added only to the active model call
+  and is not persisted.
 - [ ] 5.4 Consider Jev-assisted speech-act/correction/commitment candidate detection only
   after the routing evaluation and a separate labeled precision study. Persisted source
   verification and explicit review remain required; no Jev decision promotes memory.
-- [ ] 5.5 Pin the evaluated model version and document observed quality, latency, input
-  volume, cost, and privacy limits before enabling a release default. `jev-latest` can
-  change independently and is not suitable for calibrated rollout without reevaluation.
+- [x] 5.5 Pin `jev-1.13.0`, make global enablement the default as selected by the product
+  owner, record content-free latency/token telemetry in local run traces, and add
+  `bench/jev-recall-evaluation.ts` for a synthetic live comparison. The evaluator reports
+  coverage, route precision/recall, no-recall false positives, Brier score, latency, token
+  volume, and estimated input cost.
+  - [ ] Run the 49-case synthetic live comparison and record its results once a
+    `TYPESAFE_API_KEY` is available; it was not configured during this implementation.
+    The route is installed and enabled by policy, while live model quality and spend remain
+    unmeasured.

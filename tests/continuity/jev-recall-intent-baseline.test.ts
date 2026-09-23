@@ -8,7 +8,7 @@ import {
 describe('Jev recall-intent evaluation baseline', () => {
   const corpus = loadRecallCorpus()
 
-  it('keeps the synthetic corpus balanced across all seven proposed routes', () => {
+  it('keeps the synthetic corpus balanced across all seven implemented route labels', () => {
     expect(corpus.cases).toHaveLength(49)
     expect(new Set(corpus.cases.map((item) => item.id)).size).toBe(49)
 

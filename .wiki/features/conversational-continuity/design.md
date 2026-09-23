@@ -110,51 +110,54 @@ This preview does not yet expand selected IDs into answer context. A future prov
 handoff must re-verify sources, preserve adjacent conversation context, apply project
 disclosure rules, and pass prompt-isolation tests after explicit authorization.
 
-### Optional decision model: Jev (proposed; not wired)
+### Jev recall-intent routing (integrated)
 
-Jev is TypeSafe's System One decision model. It accepts natural language and structured
-text state, then returns typed `Choice`, `Score`, or `Noul` answers with probabilities;
-it does not generate conversational replies, summaries, or reasoning text. Athena's
-`ModelClient` remains the answer-generation and tool-use path. If adopted, Jev belongs
-behind a separate optional decision interface composed by `HarnessSessionController`,
-with deterministic policy and validation in Athena. See [ADR 0003](adr/0003-jev-decision-model.md).
+Jev is TypeSafe's System One decision model. It accepts natural language or structured
+state and returns typed `Choice`, `Score`, or `Noul` answers; Athena's `ModelClient`
+remains responsible for conversational replies and tools. The pinned adapter and route
+classification live in `src/decision/jev.ts`; the shared harness builds it in
+`src/harness/controller.ts`, and `src/engine/loop.ts` uses the result for the current turn.
+See [ADR 0003](adr/0003-jev-decision-model.md).
 
-The recommended first slice is an optional recall-intent `Choice` before local retrieval.
-Its fixed options should distinguish no recall, continuation of the active thread,
-temporal recall, topic recall, preference/fact recall, historical decision recall, and
-similar-work lookup. The inbound user message is the only state sent in this slice, after
-the shared secret redactor; it contains no retrieved episode, memory text, source ID, or
-project path. Athena applies explicit time/project/sensitivity/source-availability gates
-and its existing local ranker after the route. `none`, low confidence, invalid output,
-timeout, missing key, rate limit, or disabled configuration falls back to the existing
-local path without blocking the turn.
+The current `Choice` labels are `none`, `continue-current`, `temporal-recall`,
+`topic-recall`, `preference-or-fact`, `historical-decision`, and `similar-work`. The
+adapter sends the original inbound user request after the shared secret redactor. It does
+not include hook-added context, active session history, episode or semantic text, source
+IDs, or project paths. The shared redactor catches known credential fields and secret
+patterns; it is not a general personal-information scrubber. The request is capped at
+12,000 characters.
 
-Jev answers are advisory routing signals. They cannot supply source identities, change
-retention, invoke tools, authorize a project, promote semantic memory, or write a reply.
-Confidence is derived from a Choice/Score probability distribution and must be calibrated
-against Athena's labeled corpus; Noul exposes a yes probability and no separate confidence
-field. Thresholds are action-specific and must be measured for Athena rather than copied
-from generic examples. Pin a versioned model while calibrating because `jev-latest` can
-move between releases. The TypeSafe JavaScript SDK supports Node 20+, which matches
-Athena's declared runtime; dependency adoption remains subject to a transport and package
-review.
+For any non-`none` route, Athena adds a transient instruction to the active answer-model
+system prompt. It directs the model to use messages already present in the conversation,
+avoid inventing cross-session details, and ask the user to use local memory search when a
+different session or project is needed. The route does not retrieve sources or transfer
+historical content. It is removed after the turn and never enters persisted session
+messages. Confidence and probabilities are retained for evaluation; there is no calibrated
+confidence threshold yet. The user selected this rollout on 2026-09-23, so the route is
+used while live quality results remain outstanding.
 
-Jev is an additional external provider boundary. The feature must be disabled by default
-and separately opted into with a TypeSafe credential. The first slice does not transmit
-historical continuity content; enabling it authorizes sending eligible, redacted current
-user requests to TypeSafe for routing. This consent is distinct from authorizing verified
-historical excerpts to the configured answer provider. TypeSafe states that customer
-inputs are not used for model training; its privacy policy also describes retention for
-service purposes, processing by service providers, and U.S. hosting. Recheck current terms
-before release. Source links and a research snapshot are in ADR 0003.
+Global `jev.enabled` defaults to `true`; a project cannot override the user's setting.
+The network path requires `TYPESAFE_API_KEY`. Without the key, the adapter makes no call
+and the engine falls back to ordinary prompt handling. A user may disable the route with
+`jev.enabled: false`. The TypeSafe JavaScript SDK is pinned at `0.6.0`, model `jev-1.13.0`;
+SDK logging and retries are disabled, and the decision deadline is one second. Content-free
+outcome, elapsed-time, and token-count telemetry is written to the local run trace.
+Historical excerpts sent to the configured answer provider remain a separate decision
+and are not part of the Jev authorization.
+
+TypeSafe states that customer inputs are not used for model training; its privacy policy
+also describes retention for service purposes, processing by service providers, and U.S.
+hosting. Recheck current terms before material changes to the provider path. Source links
+and the research snapshot are in ADR 0003.
 
 A later memory-intake slice may use Jev to classify a persisted user utterance's speech
 act or flag possible correction/commitment signals. Athena would still resolve the source,
 verify the exact persisted user text and timestamps, enforce repeated-evidence and
 sensitivity rules, and leave every inferred item in candidate status for explicit review.
-It should ship only if a labeled comparison shows measurable benefit over current local
-rules without reducing precision. Jev must not be the memory store or the authority for
-what actually happened.
+It is a separate future slice: first complete labeled evaluation and show measurable
+benefit over current local rules without reducing precision. No Jev decision may promote
+memory, change source history, or bypass source, sensitivity, review, or permission gates.
+Jev is not the memory store or the authority for what actually happened.
 
 ### Target answer-time retrieval routing (not connected)
 

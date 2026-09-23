@@ -5,6 +5,7 @@ import {
   OptionalDecisionClient,
   type DecisionTelemetryEvent,
   type DecisionTransport,
+  type DecisionTransportOutput,
 } from '../../src/decision/client.js'
 
 const AnswerSchema = z.object({
@@ -34,7 +35,7 @@ function client(options: {
 
 describe('OptionalDecisionClient', () => {
   it('returns a schema-validated typed decision', async () => {
-    const transport: DecisionTransport = { evaluate: vi.fn(async () => ({ route: 'temporal-recall' })) }
+    const transport: DecisionTransport = { evaluate: vi.fn(async () => ({ value: { route: 'temporal-recall' } })) }
     const result = await client({ transport }).evaluate(request)
 
     expect(result).toEqual({ status: 'decision', value: { route: 'temporal-recall' } })
@@ -42,14 +43,23 @@ describe('OptionalDecisionClient', () => {
   })
 
   it('falls back when the provider response fails the caller schema', async () => {
-    const transport: DecisionTransport = { evaluate: vi.fn(async () => ({ route: 'unknown-route' })) }
+    const transport: DecisionTransport = {
+      evaluate: vi.fn(async () => ({
+        value: { route: 'unknown-route' },
+        usage: { inputTokens: 23, outputTokens: 1 },
+      })),
+    }
     const result = await client({ transport }).evaluate(request)
 
-    expect(result).toEqual({ status: 'fallback', reason: 'invalid-response' })
+    expect(result).toEqual({
+      status: 'fallback',
+      reason: 'invalid-response',
+      usage: { inputTokens: 23, outputTokens: 1 },
+    })
   })
 
   it('makes zero transport calls while disabled', async () => {
-    const transport: DecisionTransport = { evaluate: vi.fn(async () => ({ route: 'none' })) }
+    const transport: DecisionTransport = { evaluate: vi.fn(async () => ({ value: { route: 'none' } })) }
     const result = await client({ enabled: false, transport }).evaluate(request)
 
     expect(result).toEqual({ status: 'fallback', reason: 'disabled' })
@@ -67,7 +77,7 @@ describe('OptionalDecisionClient', () => {
     const transport: DecisionTransport = {
       evaluate: vi.fn((_payload, options) => {
         transportSignal = options.signal
-        return new Promise(() => {})
+        return new Promise<DecisionTransportOutput>(() => {})
       }),
     }
     const result = await client({ transport, timeoutMs: 5 }).evaluate(request)
@@ -103,12 +113,28 @@ describe('OptionalDecisionClient', () => {
   })
 
   it('does not let a telemetry sink failure change the decision result', async () => {
-    const transport: DecisionTransport = { evaluate: vi.fn(async () => ({ route: 'none' })) }
+    const transport: DecisionTransport = { evaluate: vi.fn(async () => ({ value: { route: 'none' } })) }
     const result = await client({
       transport,
       telemetry: () => { throw new Error('telemetry unavailable') },
     }).evaluate(request)
 
     expect(result).toEqual({ status: 'decision', value: { route: 'none' } })
+  })
+
+  it('records provider token usage without including request or response content', async () => {
+    const events: DecisionTelemetryEvent[] = []
+    const transport: DecisionTransport = {
+      evaluate: vi.fn(async () => ({
+        value: { route: 'temporal-recall' },
+        usage: { inputTokens: 23, outputTokens: 0 },
+      })),
+    }
+
+    const result = await client({ transport, telemetry: (event) => events.push(event) }).evaluate(request)
+
+    expect(result.status).toBe('decision')
+    expect(events[0]).toMatchObject({ inputTokens: 23, outputTokens: 0, outcome: 'decision' })
+    expect(JSON.stringify(events)).not.toContain('CONTINUITY_DECISION_SENTINEL')
   })
 })

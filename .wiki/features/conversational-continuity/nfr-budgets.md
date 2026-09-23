@@ -40,17 +40,24 @@ sample; representative live-history performance remains unmeasured.
 
 ## Privacy and cost
 
-- No provider/network request for capture, indexing, or ranking while optional decision
-  providers are disabled; Jev is disabled by default.
-- If enabled in a future Jev routing slice, allow at most one request for an eligible
-  user turn, after local cheap gates. Send only the redacted current request and fixed
-  choice labels; do not send retrieved history, memory text, source IDs, or project paths.
-- Measure the Jev request latency, input tokens, and cost on the labeled synthetic corpus
-  before setting release budgets. Timeout, rate limit, or provider error must fall back to
-  local routing without blocking the turn.
-- No duplicate raw transcript store or new paid service by default; an enabled Jev
-  integration is a separately opted-in paid provider path.
-- Logs contain no query strings, content, user facts, or project paths.
+- Capture, indexing, and local ranking make no provider calls. Jev routing is enabled in
+  global settings by default following the user's decision, but a call requires
+  `TYPESAFE_API_KEY`; without it there is no network request.
+- When configured, send at most one synchronous Jev request per inbound user turn. Send
+  only the current request after shared secret redaction (maximum 12,000 characters) and
+  fixed choice labels; do not send hook context, history, episode text, summaries, memory
+  text, source IDs, or project paths.
+- The outer decision deadline is one second, with SDK retries disabled. The added wait is
+  bounded; timeout, rate limit, invalid output, or provider error continues the answer
+  turn without a route hint.
+- Measure Jev route precision/recall, no-recall false positives, calibration, latency,
+  token volume, and estimated cost on the labeled synthetic corpus. The live comparison
+  runner is implemented; results remain pending a configured key.
+- There is no duplicate raw transcript store. Jev is a paid provider path only when the
+  user configures its key; disable it with global `jev.enabled: false`.
+- Logs and local traces contain no query strings, user content, route labels, facts, or
+  project paths. Decision telemetry may contain provider/model, outcome, elapsed time,
+  and input/output token counts.
 - Secret-shaped fixtures produce zero leaks in indexes, rollups, prompt context, or logs.
 - Local index size is measured on representative histories; an initial target is under
   10% of source session size, excluding source files themselves.

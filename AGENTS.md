@@ -75,6 +75,8 @@ Keychain, Secret Service) and carrying one to another machine fails to decrypt.
   passphrase or unlock prompt. Each machine runs `athena auth` once. Env vars
   (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `MOONSHOT_API_KEY`, `KIMI_CODE_API_KEY`) are
   the zero-file path.
+- `TYPESAFE_API_KEY` is a separate environment-only credential for the Jev decision
+  service. It is not an answer-provider key and must never enter Athena credential files.
 - An undecryptable entry is an actionable error naming `athena auth`, never a raw stack
   and never a silent "not configured".
 

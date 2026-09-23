@@ -82,7 +82,9 @@ older state remains available as history.
 Recall selection considers query intent, requested time, entities/topics, active
 conversation, scope, evidence quality, confidence, and freshness. Current repository
 facts continue to come from current files/runtime evidence, not a stale conversational
-summary.
+summary. The accepted Jev route classifies only the current user request and provides an
+ephemeral hint to the answer model; it is not evidence that a source exists and does not
+perform historical retrieval.
 
 ### FR-010 — Time rollups
 
@@ -107,9 +109,14 @@ command exists until one is implemented.
 
 ### FR-013 — Privacy and locality
 
-Continuity indexes and summaries are local to the OS user. No new cloud sync, external
-service, raw transcript duplication, or background provider call is introduced. Existing
-secret redaction is reused and expanded where needed for generated summaries.
+Continuity indexes and summaries are local to the OS user. There is no cloud sync or raw
+transcript duplication. Jev is a separately configured external decision service: when
+`TYPESAFE_API_KEY` is present and global `jev.enabled` is true, it receives the current
+request after shared secret redaction, up to 12,000 characters. The existing redactor does
+not remove general personal information or arbitrary sensitive prose. It receives no
+history, episode text, source identifiers, or project paths. No project setting can enable
+or disable the global decision setting. Historical excerpts to an answer provider remain
+separately pending explicit authorization.
 
 ### FR-014 — Bounded retrieval
 
@@ -154,8 +161,13 @@ does not make optional continuity a boot precondition.
   prompt.
 - **AC-009:** Every returned episode or promoted memory includes machine-readable source
   references that resolve to the expected original message/trace.
-- **AC-010:** The recall path adds no background model call and stays within the latency,
-  context, and privacy budgets in [NFR budgets](nfr-budgets.md).
+- **AC-010:** Indexing and local search add no provider call. When the Jev setting and key
+  are present, the current turn may make one synchronous decision call with a one-second
+  deadline and the bounded payload in FR-013; failures fall through to the ordinary turn.
+  Historical excerpts are not sent to the answer provider without separate authorization.
+- **AC-011:** The Jev adapter sends no hook-added context or prior session material, validates
+  the route and probability schema, records only content-free token/latency telemetry, and
+  never persists its route hint in session messages.
 
 ## Non-goals
 

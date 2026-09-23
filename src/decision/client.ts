@@ -1,5 +1,5 @@
 import { performance } from 'node:perf_hooks'
-import type { ZodType } from 'zod'
+import { z, type ZodType } from 'zod'
 
 export type DecisionFallbackReason =
   | 'disabled'
@@ -9,10 +9,17 @@ export type DecisionFallbackReason =
   | 'rate-limited'
   | 'cancelled'
   | 'provider-error'
+  | 'input-too-large'
+  | 'invalid-input'
 
 export type DecisionResult<Output> =
-  | { status: 'decision'; value: Output }
-  | { status: 'fallback'; reason: DecisionFallbackReason }
+  | { status: 'decision'; value: Output; usage?: DecisionUsage }
+  | { status: 'fallback'; reason: DecisionFallbackReason; usage?: DecisionUsage }
+
+export interface DecisionUsage {
+  inputTokens: number
+  outputTokens: number
+}
 
 export interface DecisionRequest<Output> {
   /** Provider-specific input. Keep it to the explicitly approved decision payload. */
@@ -22,7 +29,12 @@ export interface DecisionRequest<Output> {
 }
 
 export interface DecisionTransport {
-  evaluate(payload: unknown, options: { signal: AbortSignal }): Promise<unknown>
+  evaluate(payload: unknown, options: { signal: AbortSignal }): Promise<DecisionTransportOutput>
+}
+
+export interface DecisionTransportOutput {
+  value: unknown
+  usage?: DecisionUsage
 }
 
 export type DecisionTelemetryOutcome =
@@ -35,6 +47,8 @@ export interface DecisionTelemetryEvent {
   model: string
   outcome: DecisionTelemetryOutcome
   elapsedMs: number
+  inputTokens?: number
+  outputTokens?: number
 }
 
 export type DecisionTelemetryRecorder = (event: DecisionTelemetryEvent) => void
@@ -127,16 +141,17 @@ export class OptionalDecisionClient implements DecisionClient {
     })
 
     try {
-      const raw = await Promise.race([
+      const response = await Promise.race([
         this.transport.evaluate(request.payload, { signal: controller.signal }),
         timeoutPromise,
         cancelPromise,
       ])
-      const parsed = request.responseSchema.safeParse(raw)
+      const usage = parseUsage(response.usage)
+      const parsed = request.responseSchema.safeParse(response.value)
       if (!parsed.success) {
-        return this.finish({ status: 'fallback', reason: 'invalid-response' }, 'invalid-response', startedAt)
+        return this.finish({ status: 'fallback', reason: 'invalid-response' }, 'invalid-response', startedAt, usage)
       }
-      return this.finish({ status: 'decision', value: parsed.data }, 'decision', startedAt)
+      return this.finish({ status: 'decision', value: parsed.data }, 'decision', startedAt, usage)
     } catch (error) {
       if (timeoutReached || error instanceof DecisionTimeoutError) {
         return this.finish({ status: 'fallback', reason: 'timeout' }, 'timeout', startedAt)
@@ -158,6 +173,7 @@ export class OptionalDecisionClient implements DecisionClient {
     result: DecisionResult<Output>,
     outcome: DecisionTelemetryOutcome,
     startedAt: number,
+    usage?: { inputTokens: number; outputTokens: number },
   ): DecisionResult<Output> {
     try {
       this.telemetry?.({
@@ -165,10 +181,20 @@ export class OptionalDecisionClient implements DecisionClient {
         model: this.model,
         outcome,
         elapsedMs: Math.max(0, Math.round(performance.now() - startedAt)),
+        ...(usage ? { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } : {}),
       })
     } catch {
       // An optional telemetry sink cannot block a decision or its fallback.
     }
-    return result
+    return usage ? { ...result, usage } : result
   }
+}
+
+function parseUsage(value: DecisionUsage | undefined): DecisionUsage | undefined {
+  if (!value) return undefined
+  const parsed = z.object({
+    inputTokens: z.number().int().nonnegative(),
+    outputTokens: z.number().int().nonnegative(),
+  }).strict().safeParse(value)
+  return parsed.success ? parsed.data : undefined
 }

@@ -2,7 +2,7 @@
 
 - **Tier:** 3 — major / high trust impact
 - **Date:** 2026-09-23
-- **Status:** implementation in progress; local linked-episode catalog, CLI/slash inspection, source-verified semantic candidate generation/review, on-demand time rollups, explainable local ranking previews, and immediate suppression of trashed sources are implemented; provider prompt handoff and Jev integration are not implemented
+- **Status:** implementation in progress; local linked-episode catalog, CLI/slash inspection, source-verified semantic candidate generation/review, on-demand time rollups, explainable local ranking previews, immediate suppression of trashed sources, and the accepted Jev recall-intent route are implemented; automatic historical answer-provider handoff, forget/delete integration, and live Jev evaluation remain open
 - **Product owner:** Nico
 
 ## What was asked
@@ -52,7 +52,7 @@ plausible-sounding recollection.
 - Explicit recall, remember, correct, review, and forget controls, with CLI and
   accessibility parity.
 
-### Proposed defaults to carry into implementation
+### Product decisions and current behavior
 
 - Existing per-user session JSONL remains the canonical conversation record. The user
   selected **linked episodes**: the new index may contain bounded summaries and metadata
@@ -64,9 +64,13 @@ plausible-sounding recollection.
   are not decisions.
 - No automatic age-based deletion. Explicit source deletion/forgetting invalidates its
   derived records. Retention controls can be added without changing source identity.
-- No provider call is made for continuity by default. [Jev decision routing](adr/0003-jev-decision-model.md)
-  is a proposal for an explicit opt-in; its first slice would send only the redacted
-  current request and leave source selection and memory policy local.
+- The product owner selected [Jev decision routing](adr/0003-jev-decision-model.md).
+  `jev.enabled` defaults to true globally, but a TypeSafe call occurs only when
+  `TYPESAFE_API_KEY` is configured. Jev receives only the current request after the shared
+  secret redactor; it receives no history or project identifiers. Its route adds a
+  temporary answer-model instruction to avoid unsupported cross-session claims. Automatic
+  retrieval and transfer of historical excerpts to the answer provider remain a separate,
+  pending authorization.
 
 ### Dropping
 
