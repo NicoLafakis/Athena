@@ -34,11 +34,15 @@ and deletes cannot modify files under `memory/semantic/`.
 
 Managed records are not added to `MEMORY.md`, and `loadMemoryIndex` does not load them.
 They are locally inspectable through the `Memory` tool, but automatic answer-time use is
-still gated on the separately documented provider handoff. Candidate generation from
-episode retrieval, a human-facing candidate review surface, source-session forget/delete
-integration, and citation-verification hooks remain unfinished. The user has not yet
-selected the source-retention behavior for a forget action, so no semantic forget command
-is exposed.
+still gated on the separately documented provider handoff. `athena memory candidates` /
+`/memory candidates` explicitly generate and list review-only records from repeated,
+direct user preferences, decisions, and promises in at least two digest-verified sessions.
+`athena memory review <id> <promote|reject>` and its slash equivalent provide local
+decisions; inferred promotion rechecks source lines, claims, timestamps, project scope, and
+sensitive wording at decision time. The records stay out of provider prompts. Source-session
+forget/delete integration and citation-verification hooks for legacy free-text files remain
+unfinished. The user has not yet selected the source-retention behavior for a forget action,
+so no semantic forget command is exposed.
 
 The [self-reflection journal](self-reflection-journal.md) remains operational evidence.
 Continuity may consume it when implemented, but it is neither a transcript archive nor a
@@ -309,10 +313,12 @@ patch that never touches the body:
 All four are additive to the existing schema and route through the same
 `safeResolve`/`updateIndex` machinery — no new path-traversal surface.
 
-## The review surface
+## Planned legacy citation review surface
 
-`/memory review` (alongside the existing bare `/memory`, which keeps printing the raw
-index — `cli.ts:666`, `tui/slash.ts:21,42`) opens an Ink picker reusing the pattern
+This planned surface is for flagged legacy free-text files, distinct from the implemented
+semantic candidate commands above. Its command syntax must coexist with
+`/memory review <memory-id> <promote|reject>` rather than replace it. It would open an Ink
+picker reusing the pattern
 already shipped for `SessionPicker` (`src/tui/components/SessionPicker.tsx`) and the arg
 picker (`src/tui/argPicker.ts`/`ArgPickerPopup.tsx`): a windowed keyboard-driven list,
 not a fullscreen modal workflow.
