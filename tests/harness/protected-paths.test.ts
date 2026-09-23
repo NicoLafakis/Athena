@@ -111,6 +111,7 @@ describe('filesystem aliases', () => {
       const fence = new ProtectedPaths([alias])
 
       expect(fence.deniedRoot(join(canonicalTarget, 'child'), root)).toBe(alias)
+      expect(fence.scanCommand(`rm -rf ${join(alias, 'child')}`, root)?.root).toBe(alias)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

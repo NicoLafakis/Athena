@@ -235,23 +235,29 @@ export class ProtectedPaths {
   readonly roots: readonly string[]
   private readonly platform: NodeJS.Platform
   private readonly env: NodeJS.ProcessEnv
-  private readonly rootSegments: readonly string[][]
+  private readonly rootEntries: readonly { label: string; segments: string[] }[]
 
   constructor(roots: readonly string[], options: ProtectedPathsOptions = {}) {
     this.platform = options.platform ?? process.platform
     this.env = options.env ?? process.env
     const cleaned = roots.map((root) => root.trim()).filter((root) => root !== '')
     this.roots = cleaned
-    this.rootSegments = cleaned.map((root) => {
+    this.rootEntries = cleaned.flatMap((root) => {
+      const entries = [{ label: root, segments: this.segmentsFor(root, root) }]
       const absolute = this.platform === 'win32' ? win32.isAbsolute(root) : posix.isAbsolute(root)
-      if (!absolute) return this.segmentsFor(root, root)
+      if (!absolute) return entries
       try {
         const canonical = realpathSync.native(root)
-        return this.segmentsFor(canonical, canonical)
+        const segments = this.segmentsFor(canonical, canonical)
+        if (!entries.some((entry) => entry.segments.length === segments.length &&
+          entry.segments.every((segment, index) => segment === segments[index]))) {
+          entries.push({ label: root, segments })
+        }
+        return entries
       } catch {
         // Synthetic/platform-specific paths and unavailable roots retain the
         // existing lexical fence. Canonicalize only roots the host can verify.
-        return this.segmentsFor(root, root)
+        return entries
       }
     })
   }
@@ -280,11 +286,11 @@ export class ProtectedPaths {
     } catch {
       return null
     }
-    for (let i = 0; i < this.rootSegments.length; i++) {
-      const root = this.rootSegments[i]!
+    for (const entry of this.rootEntries) {
+      const root = entry.segments
       if (root.length === 0 || candidate.length < root.length) continue
       if (root.every((segment, index) => this.segmentEquals(segment, candidate[index]!))) {
-        return this.roots[i]!
+        return entry.label
       }
     }
     return null
