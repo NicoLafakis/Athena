@@ -76,16 +76,16 @@ Measured on 2026-09-23 on the development host with a synthetic, 10,000-episode,
 7,971,559-byte index. Ten warm calls per path were measured after one cold validated read
 using the checked-in benchmark script.
 
-- Cold index read, parse, and validation: **339.73 ms**.
-- Warm `ContinuityStore.listEpisodes()` plus `searchEpisodes()` median: **41.44 ms**;
-  observed range **34.77–54.96 ms**.
+- Cold index read, parse, and validation: **232.93 ms**.
+- Warm `ContinuityStore.listEpisodes()` plus `searchEpisodes()` median: **23.86 ms**;
+  observed range **20.43–45.67 ms**.
 - Grouped digest-verified source-context expansion for 5 episodes while enumerating
-  10,000 session files: median **25.68 ms**, observed range **22.45–42.23 ms**.
+  10,000 session files: median **24.99 ms**, observed range **21.04–28.95 ms**.
 - Warm shared `formatContinuitySearch()` path (search, index, source resolution, digest
-  checks, and bounded output) median **31.69 ms**, observed range **25.42–46.20 ms**. This
+  checks, and bounded output) median **22.96 ms**, observed range **21.26–26.03 ms**. This
   is below the 150 ms warm local search target in this synthetic sample.
-- Warm local ranking plus all five on-demand rollup granularities: median **523.58 ms**;
-  observed range **348.93–561.93 ms**. There is no separate ranking budget yet.
+- Warm local ranking plus all five on-demand rollup granularities: median **270.33 ms**;
+  observed range **256.03–302.74 ms**. There is no separate ranking budget yet.
 
 The indexed search and grouped source-verification budgets pass in this generated sample.
 It does not model disk contention, very large individual session files, TUI rendering, or
