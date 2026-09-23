@@ -47,9 +47,9 @@ invariant.
 ## Phase 2 — answer-time recall and user controls
 
 - [ ] 2.1 Wire a read-only continuity retrieval interface into the agent turn path and
-  prompt contract. This requires explicit user authorization for sending relevant,
-  source-verified history from other projects to the configured model provider. The local
-  catalog, CLI, and slash retrieval surfaces do not send episode text to a provider.
+  prompt contract. The user authorized scoped recall on 2026-09-23. The exact excerpt
+  limits and provider payload still need to be recorded before wiring the handoff. The
+  local catalog, CLI, and slash retrieval surfaces do not send episode text to a provider.
 - [x] 2.2 Add inspectable `/memory` status/rebuild/search/timeline/show actions and
   accessible equivalents in line mode. Maintain parity with CLI.
 - [ ] 2.3 Verify automatic answer-time no-hit, ambiguous-time, same-topic multi-project,
@@ -66,7 +66,9 @@ from the same direct user claim in at least two distinct, digest-verified sessio
 remain candidates until an explicit review. Sensitive claims are not copied into inferred
 semantic storage; explicit memory remains a separate user-directed path.
 Session delete/restore now uses a content-free suppression ledger; semantic forget and
-its source-retention choice remain open. Full Phase 3 verification is still required.
+its source-retention choice remain open. The repository gates and cross-platform CI passed
+on 2026-09-23; semantic forget and its retention choice remain the Phase 3 completion
+gaps.
 
 - [x] 3.1 Extend `Memory` records/tool with source references, observed/valid time, scope,
   speech act, sensitivity, confidence, candidate/active/flagged/superseded/rejected/tombstoned
@@ -143,8 +145,11 @@ its source-retention choice remain open. Full Phase 3 verification is still requ
   - [x] Review the session delete/restore tombstone lifecycle: the ledger stores only
     project/session IDs and deletion time, fails closed on corruption, and cannot be
     cleared until the source is live again.
+  - [x] Run `pnpm typecheck`, `pnpm lint`, `pnpm test`, and `pnpm build` on commit
+    `72e2833`; all passed. The follow-up CI run passed on Node 20 and 22 across Linux,
+    macOS, and Windows.
   - [ ] Complete semantic-forget review after the source-retention choice and
-    provider-prompt privacy review after exact handoff authorization.
+    provider-prompt privacy review after the exact excerpt limits and payload are recorded.
 
 ## Phase 5 — Jev decision model (accepted; recall routing and speech-act intake implemented)
 
