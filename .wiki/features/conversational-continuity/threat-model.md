@@ -17,9 +17,11 @@ and source history vs. active semantic memories.
 | Threat | Example | Mitigation |
 |---|---|---|
 | False autobiographical memory | A hypothetical is saved as a plan or preference | Speech-act labels, source context, conservative promotion, inspect/reject controls |
+| Unreviewed candidate reaches the model | Candidate claim text enters an answer prompt as if it were established | The model-facing `Memory.read` blocks candidate, flagged, rejected, and tombstoned records; local review remains the only content display for those states |
 | Context collapse | A summary omits “I was considering” or later reversal | Source refs, adjacent-turn reconstruction, temporal/versioned claims |
 | Cross-project disclosure | Private project history appears in an unrelated task or leaves the machine | Current continuity search/show output is local CLI/slash only; no historical episode text enters provider prompts. Any future handoff requires explicit authorization, scoped retrieval, verified source refs, and prompt-isolation tests |
 | Secondary-provider disclosure | An optional intent model receives user text without the user expecting a second vendor | Jev stays disabled by default and requires separate opt-in; the proposed first slice sends only a redacted current request, no prior history, source IDs, or project paths; provider terms and retention are reviewed before release |
+| Stale semantic handoff | A semantic fact reaches the configured answer model after its source session is unavailable | Managed `Memory.read` verifies each session source line before returning text as a tool result; successful reads remain a provider handoff and are covered in the consent review |
 | Secret propagation | Credential appears in a memory summary or search result | Existing redaction plus summary-specific redaction tests; never copy full transcripts |
 | Stale memory | Old decision is stated as current | Observed/valid time, supersession, freshness ranking, current source precedence |
 | Index poisoning | Model supplies a forged source path or ID | Server-authored identifiers; strict schema; resolve only under known local roots |

@@ -87,6 +87,11 @@ forget source-retention choice is still awaiting the product owner's answer.
     provider. Reverify every inferred source at promotion time, including role, claim,
     observation time, project scope, and sensitive wording; changed evidence leaves the
     record a candidate. Existing explicit/rejected/terminal decisions suppress duplicates.
+  - [x] Verify session-backed semantic source lines before `Memory.read` returns managed
+    memory text; suppress reads when the session or source line is missing or trashed, its
+    timestamp or kind mismatches, or the source message is not user-authored.
+  - [x] Keep candidate, flagged, rejected, and tombstoned semantic content out of the
+    model-facing `Memory.read`; those states remain available through local review.
   - [ ] Implement forget and derived-record suppression after the source-retention choice
     is answered.
 - [ ] 3.3 Integrate user deletion and session delete/restore with continuity tombstones and

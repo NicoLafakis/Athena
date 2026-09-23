@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { memoryTool } from '../../src/tools/memory.js'
 import { MemoryHygieneStore } from '../../src/brain/hygiene.js'
 import { ContinuityStore } from '../../src/continuity/store.js'
-import { SessionStore } from '../../src/harness/sessions.js'
+import { latestUserMessageSourceRef, readSessionLineRecords, SessionStore, stableSessionLineId } from '../../src/harness/sessions.js'
 import { generateSemanticCandidates } from '../../src/continuity/candidates.js'
 import { makeCtx } from '../helpers/tool-ctx.js'
 
@@ -173,6 +173,102 @@ describe('memoryTool', () => {
     ])
   })
 
+  it('refuses to read a semantic memory after its source session is trashed', async () => {
+    const sessionsRoot = join(dir, 'sessions')
+    const sessions = new SessionStore(sessionsRoot, 'C:/projects/memory-source-availability')
+    const session = sessions.create()
+    session.appendMessage({
+      role: 'user',
+      content: 'I decided that the violet lantern memory is linked to its source.',
+    })
+    const sourceRef = latestUserMessageSourceRef(session.file, sessions.projectId, session.id)
+    if (!sourceRef) throw new Error('Expected a persisted user source reference in the fixture')
+    const memory = new MemoryHygieneStore(join(dir, 'memory')).create({
+      description: 'A source-linked decision',
+      content: 'The violet lantern memory is linked to its source.',
+      sourceRefs: [sourceRef],
+      observedAt: sourceRef.timestamp,
+      scope: 'global',
+      speechAct: 'decided',
+      captureMode: 'explicit',
+      confidence: 1,
+      sensitivity: 'ordinary',
+    })
+    const ctx = makeCtx(dir)
+    const path = `semantic/${memory.memoryId}.md`
+
+    const available = await memoryTool.execute({ op: 'read', path }, ctx)
+    expect(available.isError).toBe(false)
+    expect(available.output).toContain('The violet lantern memory is linked to its source.')
+
+    sessions.delete(session.id)
+
+    const unavailable = await memoryTool.execute({ op: 'read', path }, ctx)
+    expect(unavailable.isError).toBe(true)
+    expect(unavailable.output).not.toContain('The violet lantern memory is linked to its source.')
+    expect(unavailable.output).toMatch(/source.*unavailable/i)
+  })
+
+  it('does not return unreviewed candidate text through the model tool', async () => {
+    const sessions = new SessionStore(join(dir, 'sessions'), 'C:/projects/unreviewed-memory')
+    const sourceRefs = []
+    for (const content of [
+      'I prefer source-linked memory candidates.',
+      'I prefer source-linked memory candidates across projects.',
+    ]) {
+      const session = sessions.create()
+      session.appendMessage({ role: 'user', content })
+      const sourceRef = latestUserMessageSourceRef(session.file, sessions.projectId, session.id)
+      if (!sourceRef) throw new Error('Expected a persisted user source reference in the fixture')
+      sourceRefs.push(sourceRef)
+    }
+    const candidate = new MemoryHygieneStore(join(dir, 'memory')).create({
+      description: 'An unreviewed recurring preference',
+      content: 'I prefer source-linked memory candidates across projects.',
+      sourceRefs,
+      supportingEpisodeIds: ['episode-one', 'episode-two'],
+      observedAt: sourceRefs.at(-1)!.timestamp,
+      scope: 'global',
+      speechAct: 'preferred',
+      captureMode: 'inferred',
+      confidence: 1,
+      sensitivity: 'ordinary',
+    })
+
+    const result = await memoryTool.execute({ op: 'read', path: `semantic/${candidate.memoryId}.md` }, makeCtx(dir))
+    expect(candidate.status).toBe('candidate')
+    expect(result.isError).toBe(true)
+    expect(result.output).not.toContain('I prefer source-linked memory candidates across projects.')
+  })
+
+  it('refuses a managed semantic read linked to an assistant-authored message', async () => {
+    const sessions = new SessionStore(join(dir, 'sessions'), 'C:/projects/assistant-memory-source')
+    const session = sessions.create()
+    session.appendMessage({ role: 'assistant', content: 'The assistant proposed this fact.' })
+    const record = readSessionLineRecords(session.file).find((item) => item.line.kind === 'message')!
+    const memory = new MemoryHygieneStore(join(dir, 'memory')).create({
+      description: 'An assistant-authored claim',
+      content: 'The assistant proposed this fact.',
+      sourceRefs: [{
+        kind: 'session-message',
+        projectId: sessions.projectId,
+        sessionId: session.id,
+        recordId: stableSessionLineId(record),
+        timestamp: record.line.ts,
+      }],
+      observedAt: record.line.ts,
+      scope: 'global',
+      speechAct: 'stated',
+      captureMode: 'explicit',
+      confidence: 1,
+      sensitivity: 'ordinary',
+    })
+
+    const result = await memoryTool.execute({ op: 'read', path: `semantic/${memory.memoryId}.md` }, makeCtx(dir))
+    expect(result.isError).toBe(true)
+    expect(result.output).not.toContain('The assistant proposed this fact.')
+  })
+
   it('prevents generic memory writes and deletes from bypassing semantic lifecycle metadata', async () => {
     const ctx = makeCtx(dir, { getCurrentUserSourceRef: () => sourceRef })
     const remembered = await memoryTool.execute(
@@ -189,11 +285,17 @@ describe('memoryTool', () => {
   })
 
   it('renders managed semantic memory without exposing its internal source identifiers', async () => {
-    const ctx = makeCtx(dir, { getCurrentUserSourceRef: () => sourceRef })
+    const sessions = new SessionStore(join(dir, 'sessions'), 'C:/projects/memory-render')
+    const session = sessions.create()
+    session.appendMessage({ role: 'user', content: 'I prefer linked episodes.' })
+    const linkedSource = latestUserMessageSourceRef(session.file, sessions.projectId, session.id)
+    if (!linkedSource) throw new Error('Expected a persisted user source reference in the fixture')
+    const ctx = makeCtx(dir, { getCurrentUserSourceRef: () => linkedSource })
     const created = new MemoryHygieneStore(join(dir, 'memory')).create({
       description: 'A remembered preference',
       content: 'I prefer linked episodes.',
-      sourceRefs: [sourceRef],
+      sourceRefs: [linkedSource],
+      observedAt: linkedSource.timestamp,
       speechAct: 'preferred',
       captureMode: 'explicit',
       confidence: 1,

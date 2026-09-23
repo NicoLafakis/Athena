@@ -94,6 +94,17 @@ history to a model.
   records linked to those episodes and rollups that cover them, even before a rebuild.
   This is a live-availability filter; persistent forget tombstones and the source-retention
   policy remain a separate pending design decision.
+- `Memory.read` for managed semantic records verifies each cited session file, stable line
+  ID, timestamp, source kind, and user-authored message role before returning the memory
+  text as tool output. A trashed or missing session, missing source line, mismatched
+  timestamp or source kind, or non-user message source suppresses the read. This keeps
+  direct tool reads consistent with the ranker's live-source filter. Candidate, flagged,
+  rejected, and tombstoned records return no semantic text through the model-facing tool;
+  local review controls retain those states.
+- A successful `Memory.read` returns semantic content as a tool result in the active
+  model conversation. Prompt assembly does not inject the semantic directory; this
+  read-tool path is an existing, call-triggered provider handoff and must be included in
+  the privacy review. It does not authorize automatic episodic history retrieval.
 
 This preview does not yet expand selected IDs into answer context. A future provider
 handoff must re-verify sources, preserve adjacent conversation context, apply project

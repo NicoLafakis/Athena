@@ -33,16 +33,21 @@ message, and the old statement and its source remain unchanged. Generic free-tex
 and deletes cannot modify files under `memory/semantic/`.
 
 Managed records are not added to `MEMORY.md`, and `loadMemoryIndex` does not load them.
-They are locally inspectable through the `Memory` tool, but automatic answer-time use is
-still gated on the separately documented provider handoff. `athena memory candidates` /
+`Memory.read` returns them through a model tool result when called. It verifies session
+source lines before returning text, rejects candidate/flagged/rejected/tombstoned content,
+and suppresses sources that are missing, trashed, or do not match their cited line ID,
+timestamp, kind, and user role. This is a call-triggered provider handoff; it does not
+auto-inject semantic records or authorize automatic episodic history retrieval.
+`athena memory candidates` /
 `/memory candidates` explicitly generate and list review-only records from repeated,
 direct user preferences, decisions, and promises in at least two digest-verified sessions.
 `athena memory review <id> <promote|reject>` and its slash equivalent provide local
 decisions; inferred promotion rechecks source lines, claims, timestamps, project scope, and
-sensitive wording at decision time. The records stay out of provider prompts. Source-session
-forget/delete integration and citation-verification hooks for legacy free-text files remain
-unfinished. The user has not yet selected the source-retention behavior for a forget action,
-so no semantic forget command is exposed.
+sensitive wording at decision time. Semantic records stay out of automatically assembled
+provider prompts; only the verified `Memory.read` tool path returns permitted record content
+to the active conversation. Source-session forget/delete integration and citation-verification
+hooks for legacy free-text files remain unfinished. The user has not yet selected the
+source-retention behavior for a forget action, so no semantic forget command is exposed.
 
 The [self-reflection journal](self-reflection-journal.md) remains operational evidence.
 Continuity may consume it when implemented, but it is neither a transcript archive nor a

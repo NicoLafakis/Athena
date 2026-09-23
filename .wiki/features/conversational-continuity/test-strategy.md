@@ -19,7 +19,7 @@
 | FR-013 privacy | Security fixtures | Secret-shaped strings in episode and candidate data, path escapes, unsafe model output, no raw transcript copy; broad PII classification remains outside the current redactor |
 | FR-014 / AC-010 budgets | Ranking + performance + prompt integration | Local candidate count/source-ID caps and privacy-safe metrics; no background model calls; prompt handoff remains future work |
 | FR-015 / AC-007 rebuild/failure | Integration | Truncated JSONL, corrupt index, missing project, permission error, atomic-write failure |
-| Live-source presentation | Integration | Move a source session into `.trash` without rebuilding; ranking, linked semantic memory, and rollup text disappear immediately |
+| Live-source presentation | Integration | Move a source session into `.trash` without rebuilding; ranking, linked semantic memory, direct `Memory.read`, and rollup text disappear immediately |
 | Optional Jev routing (proposed) | Evaluation + adapter integration | Compare to local baseline on labeled synthetic queries; verify disabled mode makes zero calls; enforce typed-choice validation, no-history payload, timeout fallback, and no content in logs |
 
 ## Implemented evidence at this checkpoint
@@ -57,6 +57,10 @@
 - The rollup integration test trashes a synthetic source without rebuilding and verifies
   its episode ID, linked semantic memory ID, and derived rollup summary disappear from
   rank/rollup presentations immediately.
+- Memory-tool tests verify the source line and user role before returning managed
+  semantic content, then trash that session and assert `Memory.read` no longer returns it.
+  An unreviewed inferred candidate is also tested to ensure model-facing reads cannot
+  return its claim text.
 - [`calibration.md`](calibration.md) records deterministic synthetic quality measures and
   a 10,000-episode/10,000-session-file local performance sample, including the shared
   search presenter and verified source expansion. These measurements do not claim TUI

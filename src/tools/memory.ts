@@ -5,6 +5,7 @@ import {
   mkdirSync,
   rmSync,
   readdirSync,
+  lstatSync,
   statSync,
 } from 'node:fs'
 import { join, resolve, relative, dirname, sep } from 'node:path'
@@ -14,6 +15,7 @@ import { MemoryHygieneStore } from '../brain/hygiene.js'
 import { SpeechActSchema } from '../continuity/schemas.js'
 import { ContinuityStore } from '../continuity/store.js'
 import { reviewSemanticCandidate } from '../continuity/candidates.js'
+import { listAllProjectSessions, readSessionLineRecords, stableSessionLineId } from '../continuity/session-catalog.js'
 
 const MemoryInput = z.object({
   op: z.enum(['list', 'read', 'write', 'delete', 'remember', 'review', 'supersede']),
@@ -68,10 +70,46 @@ function walk(dir: string): string[] {
   return out
 }
 
+function semanticSourcesAvailable(
+  memory: NonNullable<ReturnType<MemoryHygieneStore['get']>>,
+  sessionsRoot: string,
+): boolean {
+  const sessions = new Map(listAllProjectSessions(sessionsRoot)
+    .map((source) => [`${source.projectId}\0${source.sessionId}`, source]))
+  const checkedSessions = new Map<string, ReturnType<typeof readSessionLineRecords> | null>()
+  for (const sourceRef of memory.sourceRefs) {
+    if (sourceRef.kind !== 'session-message' && sourceRef.kind !== 'session-event') continue
+    if (!sourceRef.projectId || !sourceRef.sessionId) return false
+    const key = `${sourceRef.projectId}\0${sourceRef.sessionId}`
+    const source = sessions.get(key)
+    if (!source) return false
+    if (!checkedSessions.has(key)) {
+      try {
+        const metadata = lstatSync(source.file)
+        checkedSessions.set(key, metadata.isFile() && !metadata.isSymbolicLink()
+          ? readSessionLineRecords(source.file)
+          : null)
+      } catch {
+        checkedSessions.set(key, null)
+      }
+    }
+    const records = checkedSessions.get(key)
+    const record = records?.find((item) => stableSessionLineId(item) === sourceRef.recordId)
+    if (!record || record.line.ts !== sourceRef.timestamp) return false
+    if (sourceRef.kind === 'session-event' && record.line.kind !== 'event') return false
+    if (sourceRef.kind === 'session-message') {
+      if (record.line.kind !== 'message' || typeof record.line.data !== 'object' || record.line.data === null) return false
+      const message = record.line.data as { role?: unknown; content?: unknown }
+      if (message.role !== 'user' || typeof message.content !== 'string' || !message.content.trim()) return false
+    }
+  }
+  return true
+}
+
 export const memoryTool: ToolDefinition<z.infer<typeof MemoryInput>> = {
   name: 'Memory',
   description:
-    'List, read, write, or delete Brain memory files. For current personal facts, use only semantic records marked active and within their valid dates; treat candidates as unconfirmed and superseded records as historical. Use remember only when the user explicitly asks to retain a fact; questions and hypotheticals are not facts. Use review only after the user accepts or rejects a candidate; promotion revalidates every inferred source against the complete local continuity index and its current session lines. Supersede only when the user explicitly corrects an active memory. Source links come from persisted user messages. Writes and deletes keep MEMORY.md in sync.',
+    'List, read, write, or delete Brain memory files. For current personal facts, use only semantic records marked active and within their valid dates; treat candidates as unconfirmed and superseded records as historical. The model-facing read action never returns candidate, flagged, rejected, or tombstoned semantic content; use local review controls for those records. Managed semantic reads verify that each cited session line is still available and user-authored; do not use a memory whose source is unavailable. Use remember only when the user explicitly asks to retain a fact; questions and hypotheticals are not facts. Use review only after the user accepts or rejects a candidate; promotion revalidates every inferred source against the complete local continuity index and its current session lines. Supersede only when the user explicitly corrects an active memory. Source links come from persisted user messages. Writes and deletes keep MEMORY.md in sync.',
   schema: MemoryInput,
   readOnly: false,
   async execute(input, ctx) {
@@ -198,6 +236,15 @@ export const memoryTool: ToolDefinition<z.infer<typeof MemoryInput>> = {
           const memory = new MemoryHygieneStore(memDir).get(memoryId)
           if (!memory || memory.file.toLowerCase() !== abs.toLowerCase()) {
             return { output: `No managed semantic memory at ${rel}`, isError: true }
+          }
+          if (['candidate', 'flagged', 'rejected', 'tombstoned'].includes(memory.status)) {
+            return {
+              output: `Managed semantic memory is ${memory.status}; inspect it through local memory review controls.`,
+              isError: true,
+            }
+          }
+          if (!semanticSourcesAvailable(memory, join(ctx.brainDir, 'sessions'))) {
+            return { output: 'Managed semantic memory source unavailable; inspect its linked source locally before using it.', isError: true }
           }
           return {
             output:
