@@ -1,4 +1,4 @@
-import type { ContinuityEpisode } from './schemas.js'
+import type { ContinuityEpisode, TimeRollup } from './schemas.js'
 import type { ContinuityStore } from './store.js'
 import { loadEpisodeSourceContext, searchEpisodes } from './retrieval.js'
 import { resolveTemporalWindow } from './time.js'
@@ -9,6 +9,70 @@ export function formatContinuityStatus(store: ContinuityStore): string {
   if (status.state === 'corrupt') return 'Continuity index: corrupt. Run `athena memory rebuild` to recover it.'
   const prefix = status.state === 'partial' ? 'partial' : 'ready'
   return `Continuity index: ${prefix} (${status.episodeCount} episode(s), ${status.projectCount} project(s); built ${status.generatedAt}).`
+}
+
+export function formatContinuityRollups(
+  store: ContinuityStore,
+  configuredTimeZone?: string,
+  granularity?: TimeRollup['granularity'],
+): string {
+  let timeZone = configuredTimeZone
+  const inferredTimeZone = timeZone === undefined
+  if (!timeZone) {
+    try {
+      timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+    } catch {
+      return 'Could not determine a timezone for time rollups. Set the global timeZone in ~/.athena/settings.json.'
+    }
+  }
+  const result = store.buildRollups(timeZone, granularity ? [granularity] : undefined)
+  if (result.state === 'missing') return 'Continuity index: not built. Run `athena memory rebuild`.'
+  if (result.state === 'corrupt') return 'Continuity index: corrupt. Run `athena memory rebuild` to recover it.'
+  if (result.state === 'partial') {
+    return 'Continuity index is partial; rebuild the local session catalog before generating historical rollups.'
+  }
+  if (result.rollups.length === 0) return 'No source-linked episodes are available for time rollups.'
+
+  const chosen = granularity
+    ? result.rollups
+        .filter((item) => item.granularity === granularity)
+        .slice(-rollupLimit(granularity))
+    : ['day', 'week', 'month', 'quarter', 'year'].flatMap((kind) => {
+        const latest = result.rollups.filter((item) => item.granularity === kind).at(-1)
+        return latest ? [latest] : []
+      })
+  if (chosen.length === 0) return `No ${granularity} rollups are available in the local index.`
+  const timezoneLabel = inferredTimeZone ? `${timeZone} (OS timezone inferred)` : timeZone
+  return [
+    `Source-linked time rollups (${timezoneLabel}; summaries are bounded episode views):`,
+    ...chosen.map(formatRollup),
+  ].join('\n\n')
+}
+
+function rollupLimit(granularity: TimeRollup['granularity']): number {
+  switch (granularity) {
+    case 'day':
+      return 7
+    case 'week':
+      return 8
+    case 'month':
+      return 12
+    case 'quarter':
+      return 8
+    case 'year':
+      return 5
+  }
+}
+
+function formatRollup(rollup: TimeRollup): string {
+  const visibleIds = rollup.sourceEpisodeIds.slice(0, 5)
+  const remaining = rollup.sourceEpisodeIds.length - visibleIds.length
+  const sourceLine = 'Sources: ' + visibleIds.join(', ') +
+    (remaining > 0 ? ' (+' + remaining + ' more)' : '') +
+    '; inspect with athena memory show <episode-id>.'
+  return rollup.granularity.toUpperCase() + ' [' + rollup.periodStart + ', ' + rollup.periodEnd + ') ' +
+    '(' + rollup.sourceEpisodeIds.length + ' episode(s), ' + rollup.sourceDigest.slice(0, 12) + '):\n' +
+    sourceLine + '\n' + rollup.summary
 }
 
 export function formatContinuitySearch(

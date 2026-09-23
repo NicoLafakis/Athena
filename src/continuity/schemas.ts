@@ -276,7 +276,7 @@ export const TimeRollupSchema = z
     periodEnd: CalendarDateSchema,
     timeZone: TimeZoneSchema,
     summary: z.string().min(1).max(4_000),
-    sourceEpisodeIds: z.array(IdSchema).min(1).max(10_000),
+    sourceEpisodeIds: z.array(IdSchema).min(1).max(100_000),
     sourceDigest: z.string().regex(/^[a-f0-9]{64}$/),
     generator: z.string().min(1).max(128),
     createdAt: UtcInstantSchema,

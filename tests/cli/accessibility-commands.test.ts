@@ -59,7 +59,7 @@ describe('local accessibility commands', () => {
     ])
   })
 
-  it('serves memory timeline, search, status, rebuild, and show through the shared slash handler', () => {
+  it('serves memory timeline, search, status, rebuild, show, and rollup through the shared slash handler', () => {
     temp = mkdtempSync(join(tmpdir(), 'athena-slash-memory-'))
     const paths = resolveBrainPaths({ cwd: temp, homeOverride: temp })
     const session = new SessionStore(paths.sessionsDir, 'C:/project/memory').create()
@@ -99,6 +99,7 @@ describe('local accessibility commands', () => {
     handler(parseSlash('/memory search memory')!)
     handler(parseSlash('/memory timeline today')!)
     handler(parseSlash(`/memory show ${episodeId}`)!)
+    handler(parseSlash('/memory rollup year')!)
 
     const messages = events
       .filter((event): event is Extract<EngineEvent, { type: 'info' }> => event.type === 'info')
@@ -110,6 +111,10 @@ describe('local accessibility commands', () => {
     expect(messages[3]).toContain(episode.sourceRefs[0]!.recordId)
     expect(messages[3]).toContain('Adjacent conversation context:')
     expect(messages[3]).toContain('No choice had been made yet.')
+    expect(messages[4]).toContain('Source-linked time rollups (')
+    expect(messages[4]).toContain(episodeId)
+    expect(messages[4]).toContain('YEAR [')
+    expect(messages[4]).toContain(') (')
     expect(messages[3]).toContain('One further detail about memory context.')
     expect(messages.join('\n')).not.toContain(session.file)
   })

@@ -49,10 +49,14 @@ provider prompts.
 
 ### Phase 4: hierarchical summaries
 
-Add time rollups and calibrate retrieval/promotion against representative long histories.
+Deterministic local day/week/month/quarter/year rollups are implemented as on-demand views
+over the complete episode index. They include all covered episode IDs and a digest of the
+current source set; refresh is automatic because no rollup cache is persisted. Retrieval
+ranking and calibration against representative long histories remain.
 
-**Exit:** every rollup is source-linked, invalidates correctly, meets latency/context
-budgets, and preserves exact details through source expansion.
+**Rollup exit:** source coverage, complete-index gating, timezone boundaries, summary bounds,
+and correction/deletion refresh are covered by unit and integration tests. **Phase exit:**
+ranking, latency/context budgets, and exact-detail source expansion are calibrated.
 
 ## Backfill and migration
 

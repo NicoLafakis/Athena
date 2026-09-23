@@ -18,8 +18,8 @@ invariant.
   episodes, speech-act labels, timezone metadata, temporal windows, and rollup
   invalidation contracts. Add source-local IANA timezone to new session-line metadata
   without rewriting old lines. Malformed, duplicated, stale-digest, and cross-project
-  references are rejected by schemas/source verification. Rollup source-change behavior
-  remains a Phase 4 test because rollups do not exist yet.
+  references are rejected by schemas/source verification. Rollup source-change behavior is
+  covered by Phase 4.1 tests.
 - [x] 0.3 Implement the accepted query-time timezone fallback and calendar-window rules;
   keep CLI spelling aligned with current command conventions. Inferred promotion stays
   candidate-only through the early phases; calibrate thresholds during Phase 4 dogfood.
@@ -76,8 +76,9 @@ choice is still awaiting the product owner's answer.
 
 ## Phase 4 — hierarchical time views and calibration
 
-- [ ] 4.1 Add day/week/month/quarter/year derived rollups with coverage refs, source
-  digest, timezone, and generation version. Rebuild on source correction/deletion.
+- [x] 4.1 Add day/week/month/quarter/year derived rollups with coverage refs, source
+  digest, timezone, and generation version. Rollups are computed on demand from a complete
+  index, with no cache; source correction/deletion is reflected after that session is reindexed.
 - [ ] 4.2 Add retrieval ranking across working, episodic, semantic, and rollup layers;
   log only privacy-safe counts/timing/source IDs.
 - [ ] 4.3 Dogfood across realistic multi-project histories; calibrate candidate promotion,

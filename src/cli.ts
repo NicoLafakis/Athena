@@ -108,6 +108,7 @@ import { configureVmp, getVmpStatus, printVmpReport, startVmpServer } from './ha
 import { ContinuityStore } from './continuity/store.js'
 import {
   formatContinuityEpisode,
+  formatContinuityRollups,
   formatContinuitySearch,
   formatContinuityStatus,
 } from './continuity/presentation.js'
@@ -149,7 +150,7 @@ export type CliCommand =
     }
   | {
       command: 'memory'
-      action: 'rebuild' | 'status' | 'timeline' | 'search' | 'show'
+      action: 'rebuild' | 'status' | 'timeline' | 'search' | 'show' | 'rollup'
       args: string[]
       projectId?: string
     }
@@ -501,11 +502,11 @@ export function parseArgs(argv: string[]): CliCommand {
   }
   if (argv[0] === 'memory') {
     const action = argv[1] ?? 'status'
-    const actions = new Set(['rebuild', 'status', 'timeline', 'search', 'show'])
+    const actions = new Set(['rebuild', 'status', 'timeline', 'search', 'show', 'rollup'])
     if (!actions.has(action)) {
       return {
         command: 'error',
-        message: 'Usage: athena memory <rebuild|status|timeline|search|show> [query|episode-id] [--project <project-id>]',
+        message: 'Usage: athena memory <rebuild|status|timeline|search|show|rollup> [query|episode-id|granularity] [--project <project-id>]',
       }
     }
     const args: string[] = []
@@ -532,6 +533,10 @@ export function parseArgs(argv: string[]): CliCommand {
     }
     if (action === 'search' && args.length === 0) {
       return { command: 'error', message: 'Usage: athena memory search <query> [--project <project-id>]' }
+    }
+    if (action === 'rollup' &&
+      (projectId !== undefined || args.length > 1 || (args.length === 1 && !['day', 'week', 'month', 'quarter', 'year'].includes(args[0]!)))) {
+      return { command: 'error', message: 'Usage: athena memory rollup [day|week|month|quarter|year]' }
     }
     return {
       command: 'memory',
@@ -669,6 +674,7 @@ Usage:
   athena memory rebuild  rebuild the local linked episode index
   athena memory search   find prior conversations by time or topic
   athena memory show     inspect an episode with source-linked messages
+  athena memory rollup   show source-linked day/week/month/quarter/year summaries
   athena plugin list     manage installed plugins (install/update/enable/disable/remove/verify)
   athena learn candidates inspect governed learning candidates, held-out evals, canaries, and rollback
   athena --help          this help
@@ -969,6 +975,12 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         } else if (cmd.action === 'rebuild') {
           const result = memoryStore.rebuild(paths.sessionsDir)
           info(`Indexed ${result.episodeCount} episode(s) from ${result.sessionCount} session(s).`)
+        } else if (cmd.action === 'rollup') {
+          info(formatContinuityRollups(
+            memoryStore,
+            timeZone,
+            cmd.value as 'day' | 'week' | 'month' | 'quarter' | 'year' | undefined,
+          ))
         } else if (cmd.action === 'search' || cmd.action === 'timeline') {
           info(formatContinuitySearch(memoryStore, paths.sessionsDir, {
             action: cmd.action,
@@ -1486,6 +1498,15 @@ async function main(): Promise<void> {
         timeZone = loadSettings(paths, 'anthropic', (warning) => console.error(warning), { projectTrusted: false }).timeZone
       } catch {
         console.error('The configured timezone could not be loaded; memory dates will use the inferred OS timezone.')
+      }
+
+      if (cmd.action === 'rollup') {
+        console.log(formatContinuityRollups(
+          store,
+          timeZone,
+          cmd.args[0] as 'day' | 'week' | 'month' | 'quarter' | 'year' | undefined,
+        ))
+        return
       }
 
       if (cmd.action === 'search' || cmd.action === 'timeline') {

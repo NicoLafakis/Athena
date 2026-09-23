@@ -74,8 +74,8 @@ planned metadata extension; they do not create an independent durable fact store
   request depends on earlier conversation, chronology, a remembered preference, or an
   unresolved conversational commitment. Source-backed results are clearly distinguished
   from the model’s inference.
-- **Direct controls:** `athena memory search`, `athena memory timeline`,
-  `athena memory show`, `athena memory review`, and `athena memory forget`, with
+- **Direct controls:** `athena memory search`, `athena memory timeline`, `athena memory show`,
+  `athena memory rollup [granularity]`, `athena memory review`, and `athena memory forget`, with
   equivalent in-session `/memory` commands and append-only presentation wording.
 - **Common path:** one conversational question; no user-selected project/session when
   the request is unambiguous. Inspect/correct/forget actions require a clear target before

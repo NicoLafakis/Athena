@@ -238,6 +238,12 @@ describe('parseArgs — memory continuity commands', () => {
     expect(parseArgs(['memory', 'show', 'episode-123'])).toEqual({
       command: 'memory', action: 'show', args: ['episode-123'],
     })
+    expect(parseArgs(['memory', 'rollup'])).toEqual({
+      command: 'memory', action: 'rollup', args: [],
+    })
+    expect(parseArgs(['memory', 'rollup', 'quarter'])).toEqual({
+      command: 'memory', action: 'rollup', args: ['quarter'],
+    })
   })
 
   it('rejects invalid memory arguments and missing required values', () => {
@@ -247,6 +253,9 @@ describe('parseArgs — memory continuity commands', () => {
     expect(parseArgs(['memory', 'search', 'recent', '--project'])).toEqual({
       command: 'error', message: '--project requires a project ID',
     })
+    expect(parseArgs(['memory', 'rollup', 'decade'])).toMatchObject({ command: 'error' })
+    expect(parseArgs(['memory', 'rollup', 'day', 'week'])).toMatchObject({ command: 'error' })
+    expect(parseArgs(['memory', 'rollup', '--project', 'alpha-123'])).toMatchObject({ command: 'error' })
   })
 })
 

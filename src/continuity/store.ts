@@ -11,7 +11,9 @@ import {
   type ContinuityIndex,
   type SpeechAct,
   type SourceRef,
+  type TimeRollup,
 } from './schemas.js'
+import { buildTimeRollups } from './rollups.js'
 import {
   canonicalSessionRecords,
   listAllProjectSessions,
@@ -38,6 +40,11 @@ export interface ContinuityStatus {
   episodeCount: number
   projectCount: number
   generatedAt?: string
+}
+
+export interface ContinuityRollupResult {
+  state: 'missing' | 'partial' | 'ready' | 'corrupt'
+  rollups: TimeRollup[]
 }
 
 interface TurnGroup {
@@ -290,6 +297,24 @@ export class ContinuityStore {
 
   listEpisodes(): ContinuityEpisode[] {
     return this.readIndex()?.episodes ?? []
+  }
+
+  buildRollups(
+    timeZone: string,
+    granularities?: TimeRollup['granularity'][],
+  ): ContinuityRollupResult {
+    const indexExists = existsSync(this.indexFile)
+    const index = this.readIndex()
+    if (!index) return { state: indexExists ? 'corrupt' : 'missing', rollups: [] }
+    if (!index.catalogComplete) return { state: 'partial', rollups: [] }
+    return {
+      state: 'ready',
+      rollups: buildTimeRollups(index.episodes, {
+        timeZone,
+        ...(granularities ? { granularities } : {}),
+        ...(this.options.now ? { now: this.options.now() } : {}),
+      }),
+    }
   }
 
   status(): ContinuityStatus {

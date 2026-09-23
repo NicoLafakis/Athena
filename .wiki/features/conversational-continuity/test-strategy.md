@@ -10,7 +10,7 @@
 | FR-002 / AC-001, AC-008 cross-project scope | Integration | Local CLI/slash recall across two projects works; project filters exclude unrelated sources. Prompt isolation remains pending provider-handoff authorization |
 | FR-003 / AC-002 temporal parsing | Unit + property | Relative/absolute windows, DST, timezone fallback, month/quarter/year edges |
 | FR-004 context reconstruction | Integration | Adjacent turns and source roles reconstruct tentative/decision/correction context |
-| FR-005 / FR-010 / AC-004 layers/rollups | Unit + integration | Rollup source coverage; source retrieval for exact detail; invalidation after source changes |
+| FR-005 / FR-010 / AC-004 layers/rollups | Unit + integration | Day/week/month/quarter/year boundaries and timezone behavior; complete-index gate; bounded summaries with full source-ID coverage; source digest changes after correction; rollups empty after deletion; exact detail still resolves through episodes |
 | FR-006 / AC-003 speech acts | Unit | Hypothetical, question, preference, decision, promise, correction, retraction fixtures |
 | FR-007 / AC-005 promotion | Unit + integration | Explicit remember; one-episode inference remains candidate; contradiction blocks promotion |
 | FR-008 conflict lifecycle | Unit | Supersession preserves prior value/date/source; direct correction ranks correctly |
@@ -22,6 +22,9 @@
 
 ## Implemented evidence at this checkpoint
 
+- Rollup tests cover IANA local calendar boundaries, repeated DST hours, bounded on-demand
+  summaries with complete source coverage, deterministic source digests, complete-index gating,
+  and refreshed results after source correction or deletion.
 - Schema and temporal unit tests cover bounded identities, duplicate/cross-scope refs,
   calendar boundaries, DST, and explicit/inferred timezone behavior.
 - Session/catalog tests cover stable legacy IDs, canonical-line deduplication, nested

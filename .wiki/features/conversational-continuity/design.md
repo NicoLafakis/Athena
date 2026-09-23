@@ -102,8 +102,8 @@ should not become a citation dump by default.
 
 The implemented contracts below are strict, versioned Zod schemas in
 `src/continuity/schemas.ts`. Source-linked semantic-memory storage and explicit remember,
-review, and correction paths are implemented foundations; provider handoff and time
-rollups remain later phases.
+review, and correction paths are implemented foundations; deterministic on-demand time
+rollups are also implemented. Provider handoff remains pending explicit authorization.
 
 ```ts
 interface SourceRef {
@@ -173,7 +173,7 @@ interface TimeRollup {
   id: string
   granularity: 'day' | 'week' | 'month' | 'quarter' | 'year'
   periodStart: string
-  periodEnd: string
+  periodEnd: string // exclusive local-calendar boundary
   timeZone: string
   summary: string
   sourceEpisodeIds: string[]
@@ -236,10 +236,15 @@ added without changing session-line identity.
   explicitly partial. Source text is re-read and digest-checked before CLI/slash display.
   Malformed JSONL positions and invalid timestamps are excluded from summary/source text;
   if a damaged line crosses a turn boundary, the valid remainder is marked `uncertain`.
-- `athena memory status|rebuild|timeline|search|show` and `/memory status|rebuild|timeline|search|show`
+- `athena memory status|rebuild|timeline|search|show|rollup` and `/memory status|rebuild|timeline|search|show|rollup`
   use the same bounded time/topic search and source-verification rules. `~/.athena/settings.json`
   may set global `timeZone` to an IANA zone; project settings cannot override it. Without
-  that setting, the OS local IANA zone is used and time resolution is labeled inferred.
+  that setting, the OS local IANA zone is used and time resolution is labeled inferred. Rollups
+  are generated on demand only from a complete catalog; they contain bounded episode-summary
+  text, every covered episode ID, a source digest, the timezone, and generator version. They are
+  not persisted, so index correction/deletion changes the next rollup immediately. Periods
+  use a start-inclusive, end-exclusive local-calendar range. CLI output shows up to five
+  covered episode IDs per rollup and keeps complete coverage in the index.
 - The initial episode boundary is one submitted user turn through its persisted
   `turn-done` event. Its source refs include the initiating user message and the related
   assistant/tool messages and terminal event. A final turn without `turn-done` is an
@@ -248,7 +253,8 @@ added without changing session-line identity.
 - `session-catalog.ts` enumerates project-scoped session directories under the existing
   local `sessionsDir`; the continuity store writes versioned episode/index records below
   the dedicated continuity path with stable source IDs and atomic, idempotent updates.
-  Future rollups remain derived and rebuildable.
+  Time rollups are derived on demand and rebuildable from the current episode index; there is
+  no separate cache to invalidate.
 - Reuse existing local JSONL/Zod/redaction/atomic-write patterns. Add no database or
   external service in the first implementation. Measure index size and recall latency
   before choosing a different backend.
