@@ -2,7 +2,7 @@
 
 - **Tier:** 3 — major / high trust impact
 - **Date:** 2026-09-23
-- **Status:** planning; linked-episode storage choice confirmed
+- **Status:** implementation in progress; local linked-episode catalog and CLI/slash inspection are implemented
 - **Product owner:** Nico
 
 ## What was asked
@@ -99,3 +99,13 @@ spec rather than implemented behavior.
 This package coordinates those systems without treating them as interchangeable:
 sessions are conversation history, run traces and the journal are operational evidence,
 experience is prior task outcome guidance, and user memory is durable personal context.
+
+## Implementation status
+
+The local source-linked index, all-project session discovery, fork lineage resolution,
+timezone-aware date parsing, bounded topic/timeline search, source-verified show actions,
+`athena memory` commands, and `/memory` actions are implemented. The index refreshes after
+persisted turn completion and can be rebuilt explicitly. Automatic transfer of historical
+excerpts into provider prompts is pending explicit authorization because it crosses the
+local-history/provider boundary. Durable semantic-memory actions, deletion suppression,
+hierarchical rollups, and ranking calibration remain in later plan phases.

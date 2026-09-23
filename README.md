@@ -226,6 +226,26 @@ unclaimed until repeated real tasks show a durable measured gain.
 Global `~/.athena/settings.json` is overlaid by trusted project settings. Settings
 select model, effort, permission/sandbox modes, allow/deny rules, additional
 protected paths, hooks, MCP, limits, and extension configuration.
+The optional global `timeZone` field accepts an IANA timezone (for example,
+`"timeZone": "America/New_York"`) for conversational timeline queries; project settings
+cannot override it.
+
+Athena's local conversation catalog can be inspected across projects:
+
+```sh
+athena memory status
+athena memory rebuild
+athena memory timeline last week
+athena memory search "what did we decide" --project <project-id>
+athena memory show <episode-id>
+```
+
+The catalog stores bounded, redacted summaries with links to local session lines. It does
+not copy transcripts. A full archive index requires `athena memory rebuild`; new persisted
+turns update their own session entries. The equivalent `/memory status`, `/memory rebuild`,
+`/memory timeline`, `/memory search`, and `/memory show` controls work in both interactive
+presentations; show includes bounded same-session turns around an episode with their source
+line IDs. Automatic recall inside provider prompts is pending explicit authorization.
 
 Independent of every mode above, a write fence covers operating-system directories
 (`%SystemRoot%`, the Program Files trees, `%ProgramData%`, and the boot/recovery

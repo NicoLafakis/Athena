@@ -100,12 +100,13 @@ should not become a citation dump by default.
 
 ## Data model
 
-Types below are conceptual; implementation must define strict Zod contracts and version
-them.
+The implemented contracts below are strict, versioned Zod schemas in
+`src/continuity/schemas.ts`; semantic memory and time rollup contracts are foundations
+for later phases.
 
 ```ts
 interface SourceRef {
-  kind: 'session-message' | 'run-event' | 'memory-file' | 'experience'
+  kind: 'session-message' | 'session-event' | 'run-event' | 'memory-file' | 'experience'
   projectId: string | null
   sessionId?: string
   recordId: string
@@ -125,8 +126,18 @@ interface ContinuityEpisode {
   participants: Array<'user' | 'assistant' | 'runtime'>
   topics: string[]
   summary: string // bounded, redacted, derived; never sole evidence
+  sourceDigest: string // SHA-256 over the linked session lines, checked before source display
   speechActs: Array<'asked' | 'considered' | 'preferred' | 'decided' | 'promised' | 'corrected' | 'retracted'>
+  completion: 'completed' | 'interrupted' | 'uncertain'
   createdAt: string
+}
+
+interface ContinuityIndex {
+  schemaVersion: 1
+  generatedAt: string
+  catalogComplete: boolean // a full rebuild saw all live session files
+  sessions: Array<{ projectId: string; sessionId: string; sourceDigest: string; canonicalLineCount: number }>
+  episodes: ContinuityEpisode[]
 }
 
 interface SemanticMemoryLink {
@@ -136,6 +147,7 @@ interface SemanticMemoryLink {
   validFrom?: string
   validUntil?: string
   scope: 'global' | 'project'
+  projectId?: string // required for project scope; omitted for global scope
   status: 'candidate' | 'active' | 'flagged' | 'superseded' | 'rejected' | 'tombstoned'
   confidence: number
   speechAct: 'asked' | 'considered' | 'preferred' | 'decided' | 'promised' | 'corrected' | 'retracted'
@@ -171,7 +183,7 @@ unstructured fact store.
 
 | Source | Current identity and scope | Current lifecycle | Continuity treatment |
 |---|---|---|---|
-| Session JSONL (`src/harness/sessions.ts`) | Session filename ID; each appended line gets a UUID and UTC timestamp, though the reader type permits legacy lines without IDs. The project directory is `projectSlug(canonicalProjectPath)`, a local path-derived partition key. | Message/event appends are redacted. Checkpoint and rewind lines copy the reconstructed message array; fork writes an initial checkpoint plus a `session-fork` event. `athena session delete` renames the file into project `.trash`; no user-facing restore command exists. | Canonical conversational source. Index message/event line IDs once; snapshots are reconstruction state, not duplicate episodes. Keep fork/rewind lineage. Skip `.trash`; source deletion adds suppression before derived cleanup. For a legacy line without ID, derive the source key from session ID, one-based physical line number, and SHA-256 of the raw UTF-8 line. |
+| Session JSONL (`src/harness/sessions.ts`) | Session filename ID; each appended line gets a UUID and UTC timestamp. Schema version 3 adds optional top-level IANA timezone metadata; the reader accepts legacy lines without IDs or timezone. The project directory is `projectSlug(canonicalProjectPath)`, a local path-derived partition key. | Message/event appends are redacted. Checkpoint and rewind lines copy the reconstructed message array; a fork writes a checkpoint plus a `session-fork` event with source project/session/line identity. `athena session delete` renames the file into project `.trash`; no user-facing restore command exists. | Canonical conversational source. Index message/event line IDs once; snapshots are reconstruction state, not duplicate episodes. Resolve nested fork ancestry through immutable boundaries. Skip `.trash`; source deletion adds suppression before derived cleanup. For a legacy line without ID, derive the source key from physical line number and SHA-256 of the raw UTF-8 line. |
 | RunTrace (`src/harness/traces.ts`) | `runId` plus `sequence` and hash; traces are partitioned by a `projectId` derived from `cwd`. | Hash-chained JSONL append; writer closes with a final event. No user-facing deletion flow was found in the current CLI. | Operational evidence only. Link a trace event when useful to a conversation episode; do not use trace text as user-confirmed personal memory. |
 | User memory files (`src/tools/memory.ts`) | Relative file path is the only current identity; `MEMORY.md` is an index, not a record ID. | Tool supports list/read/write/delete; writes overwrite, deletes physically remove the file, and the index is updated. `loadMemoryIndex` injects the memory and learned indexes into prompts today. | Extend this store with validated IDs, source/validity metadata, and lifecycle rules. Keep continuity candidates out of ordinary injected context. User-memory deletion and source-session deletion remain distinct operations. |
 | Experience (`src/experience/`) | Schema record ID, `projectScope`, creation time, and `evidenceRefs`. The evidence-ref strings are not a typed session-message contract. | JSONL snapshots keyed by record ID; append is idempotent for identical records and guidance has explicit review transitions. | Existing project-scoped task-outcome guidance; optionally rank for “similar work,” but do not treat it as conversation history or semantic personal memory. |
@@ -195,6 +207,23 @@ added without changing session-line identity.
   new episodes. A rewind changes the active conversational branch but does not rewrite
   what was said on the earlier branch; historical recall may find it with its branch and
   rewind context clearly labeled.
+- `src/continuity/session-catalog.ts` enumerates direct regular session files across valid
+  project partitions, skips trash/locks/temp/hidden entries, excludes checkpoint and rewind
+  snapshots from canonical source lines, and resolves nested fork lineage. If a legacy or
+  missing boundary cannot be verified, it returns an incomplete lineage rather than
+  inventing inherited context.
+- `~/.athena/continuity/index.json` is a versioned local catalog. It stores a bounded,
+  deterministic redacted summary, normalized topics/speech acts, session/project IDs,
+  linked line IDs, source digest, and source-time metadata. It stores no absolute paths and
+  no full transcript archive. A full rebuild marks catalog coverage complete; live
+  `turn-done` events update only the owning session's entries and leave an unbuilt archive
+  explicitly partial. Source text is re-read and digest-checked before CLI/slash display.
+  Malformed JSONL positions and invalid timestamps are excluded from summary/source text;
+  if a damaged line crosses a turn boundary, the valid remainder is marked `uncertain`.
+- `athena memory status|rebuild|timeline|search|show` and `/memory status|rebuild|timeline|search|show`
+  use the same bounded time/topic search and source-verification rules. `~/.athena/settings.json`
+  may set global `timeZone` to an IANA zone; project settings cannot override it. Without
+  that setting, the OS local IANA zone is used and time resolution is labeled inferred.
 - The initial episode boundary is one submitted user turn through its persisted
   `turn-done` event. Its source refs include the initiating user message and the related
   assistant/tool messages and terminal event. A final turn without `turn-done` is an
@@ -208,9 +237,9 @@ added without changing session-line identity.
 - Reuse existing local JSONL/Zod/redaction/atomic-write patterns. Add no database or
   external service in the first implementation. Measure index size and recall latency
   before choosing a different backend.
-- Incremental indexing follows append/close/update signals where available; explicit
-  rebuild and startup freshness checks recover missed updates. Optional indexing failure
-  never blocks boot.
+- Live indexing follows the session's `turn-done` signal and atomically replaces that
+  session's derived entries; explicit rebuild scans all live sessions. Startup does not
+  scan the archive. Optional indexing failure never blocks boot or the completed turn.
 
 ## Memory capture and promotion
 
@@ -230,27 +259,32 @@ added without changing session-line identity.
 
 Episode records are built deterministically from persisted message/event metadata and
 bounded redacted excerpts; no separate provider call runs during capture or indexing.
-When a user asks for a weekly/monthly/yearly recap, the ordinary answer turn synthesizes
-from retrieved episode sources. Persistent rollups are optional caches and may be
-materialized only from that user-requested synthesis or an explicit summarize action;
-they never trigger hidden background provider calls.
+Once answer-time source handoff is authorized and implemented, a weekly/monthly/yearly
+recap can synthesize from retrieved episode sources. Persistent rollups are optional
+caches and may be materialized only from that user-requested synthesis or an explicit
+summarize action; they never trigger hidden background provider calls.
 
 ## Interfaces
 
-The implementation may extend the existing `Memory` tool and `/memory` command family.
-Required operations are search/recall, timeline by time range, show source/context,
+The local implementation extends the `/memory` command family and adds the `athena memory`
+CLI. Available operations are status, rebuild, search, timeline by time range, and show
+source/context. Remaining operations are
 explicit remember, correct/supersede, review candidates, and forget. Automatic recall
 uses the same read path as explicit recall. Mutations use one store/service, validate
 targets, emit audit events, and are available through both interactive and noninteractive
-CLI paths. Do not silently add continuity to every project prompt.
+CLI paths. Do not silently add continuity to every project prompt. Automatic answer-time
+source handoff to the configured model provider remains pending explicit user authorization;
+until then, session-derived content stays in local CLI/slash results.
 
 ## Failure behavior
 
-Missing/corrupt derived index -> warn once with `athena memory rebuild`, fall back to
-source scan or no-hit, keep normal startup. Missing source -> mark source unavailable,
+Missing/corrupt derived index -> warn once with `athena memory rebuild`, return no
+unvalidated records, and keep normal startup. Missing source -> mark source unavailable,
 invalidate dependent rollups, and never promote the summary as a fact. Unknown timezone ->
 use the documented fallback and label it. Failed atomic update -> preserve existing
-index. Malformed source line -> skip that line and continue with valid neighbors.
+index. Malformed source lines and invalid timestamps -> skip damaged records, keep valid
+neighbors linked, mark an affected episode uncertain, and verify the surviving source refs
+before showing any text.
 
 ## Alternatives considered
 

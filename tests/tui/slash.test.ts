@@ -16,6 +16,13 @@ describe('parseSlash', () => {
     ['/tui bogus', { kind: 'error', value: 'Usage: /tui <fullscreen|classic>' }],
     ['/tui', { kind: 'error', value: 'Usage: /tui <fullscreen|classic>' }],
     ['/memory', { kind: 'memory' }],
+    ['/memory status', { kind: 'memory', action: 'status' }],
+    ['/memory timeline last week', { kind: 'memory', action: 'timeline', value: 'last week' }],
+    ['/memory search what did we decide --project alpha-123', {
+      kind: 'memory', action: 'search', value: 'what did we decide', projectId: 'alpha-123',
+    }],
+    ['/memory show episode-123', { kind: 'memory', action: 'show', value: 'episode-123' }],
+    ['/memory search', { kind: 'error', value: 'Usage: /memory search <query>' }],
     ['/skills', { kind: 'skills' }],
     ['/agents', { kind: 'agents' }],
     ['/status', { kind: 'status' }],

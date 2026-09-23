@@ -14,39 +14,48 @@ invariant.
   delete/restore hooks. Current behavior, the path-derived local project partition
   limitation, and the legacy-line identity fallback are recorded in the design's source
   lifecycle table. The index stores no absolute path in a record.
-- [ ] 0.2 Add versioned Zod contracts and property/test fixtures for source references,
+- [x] 0.2 Add versioned Zod contracts and unit/integration fixtures for source references,
   episodes, speech-act labels, timezone metadata, temporal windows, and rollup
-  invalidation. Add source-local IANA timezone to new session-line metadata without
-  rewriting old lines. Done when malformed, duplicated, stale, and cross-project
-  references fail safely.
-- [ ] 0.3 Implement the accepted query-time timezone fallback and calendar-window rules;
+  invalidation contracts. Add source-local IANA timezone to new session-line metadata
+  without rewriting old lines. Malformed, duplicated, stale-digest, and cross-project
+  references are rejected by schemas/source verification. Rollup source-change behavior
+  remains a Phase 4 test because rollups do not exist yet.
+- [x] 0.3 Implement the accepted query-time timezone fallback and calendar-window rules;
   keep CLI spelling aligned with current command conventions. Inferred promotion stays
   candidate-only through the early phases; calibrate thresholds during Phase 4 dogfood.
+  The global `timeZone` setting is validated and project settings cannot override it.
 
 ## Phase 1 — cross-project local episode catalog
 
-- [ ] 1.1 Add a safe all-project session enumerator on the existing session root; preserve
+- [x] 1.1 Add a safe all-project session enumerator on the existing session root; preserve
   project-specific session APIs. Skip trash/locks/temp files, dedupe checkpoint copies,
-  and resolve inherited fork context through source lineage.
-- [ ] 1.2 Add `ContinuityStore` and an idempotent indexer keyed by source line ID, with
+  and resolve inherited fork context through immutable source-line boundaries, including
+  nested forks. Checkpoint and rewind snapshots are excluded from canonical episodes.
+- [x] 1.2 Add `ContinuityStore` and an idempotent indexer keyed by source line ID, with
   atomic writes, schema version, bounded summaries, topic/date/scope metadata, and
-  rebuild support. No full transcript duplication.
-- [ ] 1.3 Add timezone-aware date parsing/window utilities and deterministic timeline
-  search over all projects, with exact-date, today, week, month, quarter, and year cases.
-- [ ] 1.4 Add `athena memory rebuild`/`status` and noninteractive timeline/search/show
-  commands. Corrupt index warns and rebuilds; startup remains nonfatal.
-- [ ] 1.5 Add integration tests proving the same episode can be found from another project
-  and opens the correct adjacent source messages.
+  rebuild support. New session turns update only their owning session's index entries;
+  explicit rebuild scans the local archive. The index contains no full transcript copy.
+- [x] 1.3 Add timezone-aware date parsing/window utilities and deterministic timeline
+  search over all projects, including exact date, today/yesterday, ISO week, weekday,
+  month, quarter, year, rolling days, and explicit timezone cases.
+- [x] 1.4 Add `athena memory rebuild`/`status` and noninteractive timeline/search/show
+  commands. Corrupt index warns, returns no unvalidated records, and explicit rebuild
+  replaces it; optional indexing does not block startup or completed turns.
+- [x] 1.5 Add integration tests proving an episode is searchable from another project
+  and its message text resolves to the expected source session and adjacent turns.
 
 ## Phase 2 — answer-time recall and user controls
 
 - [ ] 2.1 Wire a read-only continuity retrieval interface into the agent turn path and
-  prompt contract. Require source-backed retrieval for historical conversational claims;
-  keep results bounded and out of unrelated turns.
-- [ ] 2.2 Add inspectable `/memory` actions for recall/timeline/show and accessible
-  equivalents in line mode. Maintain parity with CLI.
-- [ ] 2.3 Verify no-hit, ambiguous-time, same-topic multi-project, stale source, and source
-  retrieval failures produce honest, useful answers without claiming unsupported recall.
+  prompt contract. This requires explicit user authorization for sending relevant,
+  source-verified history from other projects to the configured model provider. The local
+  catalog, CLI, and slash retrieval surfaces do not send episode text to a provider.
+- [x] 2.2 Add inspectable `/memory` status/rebuild/search/timeline/show actions and
+  accessible equivalents in line mode. Maintain parity with CLI.
+- [ ] 2.3 Verify automatic answer-time no-hit, ambiguous-time, same-topic multi-project,
+  stale source, and source retrieval behavior after the prompt handoff is authorized.
+  Local CLI/slash no-hit, ambiguous-time, stale-source, and source-read failures are
+  covered independently.
 
 ## Phase 3 — durable semantic memory and lifecycle
 

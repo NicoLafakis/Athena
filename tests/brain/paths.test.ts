@@ -30,6 +30,7 @@ describe('resolveBrainPaths', () => {
     expect(paths.pluginsDir).toBe(join(brain, 'plugins'))
     expect(paths.hooksDir).toBe(join(brain, 'hooks'))
     expect(paths.sessionsDir).toBe(join(brain, 'sessions'))
+    expect(paths.continuityDir).toBe(join(brain, 'continuity'))
     expect(paths.journalDir).toBe(join(brain, 'journal'))
     expect(paths.watchesFile).toBe(join(brain, 'watches.json'))
   })

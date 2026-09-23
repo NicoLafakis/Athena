@@ -1,0 +1,90 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { SessionStore } from '../../src/harness/sessions.js'
+import { ContinuityStore } from '../../src/continuity/store.js'
+
+let root: string
+let sessionsRoot: string
+
+beforeEach(() => {
+  root = mkdtempSync(join(tmpdir(), 'athena-continuity-index-'))
+  sessionsRoot = join(root, 'sessions')
+})
+
+afterEach(() => rmSync(root, { recursive: true, force: true }))
+
+describe('ContinuityStore', () => {
+  it('builds bounded linked episodes from canonical user turns without copying checkpoint snapshots', () => {
+    const session = new SessionStore(sessionsRoot, 'C:/projects/alpha').create()
+    session.appendMessage({ role: 'user', content: 'I decided to keep the local memory index. sk-ant-api03-supersecretvalue123' })
+    session.appendMessage({ role: 'assistant', content: 'We will keep it source-linked.' })
+    session.appendEvent({ type: 'turn-done' })
+    session.checkpoint([{ role: 'user', content: 'copied checkpoint content that must not be indexed' }])
+    session.appendMessage({ role: 'user', content: 'What should we build next?' })
+    session.appendMessage({ role: 'assistant', content: 'A deterministic local catalog.' })
+    session.appendEvent({ type: 'turn-done' })
+
+    const store = new ContinuityStore(join(root, 'continuity'), { now: () => new Date('2026-09-23T15:00:00.000Z') })
+    const result = store.rebuild(sessionsRoot)
+    const episodes = store.listEpisodes()
+
+    expect(result).toMatchObject({ sessionCount: 1, episodeCount: 2, warnings: [] })
+    expect(episodes).toHaveLength(2)
+    expect(episodes[0]).toMatchObject({
+      projectId: expect.stringMatching(/^alpha-/),
+      sessionId: session.id,
+      participants: ['user', 'assistant', 'runtime'],
+      speechActs: ['decided'],
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    })
+    expect(episodes[0]!.summary).toContain('I decided to keep the local memory index.')
+    expect(episodes[0]!.summary).not.toContain('supersecretvalue123')
+    expect(episodes[0]!.summary).not.toContain('copied checkpoint content')
+    expect(episodes[0]!.sourceRefs).toHaveLength(3)
+    expect(episodes[0]!.sourceDigest).toMatch(/^[a-f0-9]{64}$/)
+    expect(episodes[1]!.speechActs).toContain('asked')
+  })
+
+  it('rebuilds idempotently with deterministic episode IDs and source links', () => {
+    const session = new SessionStore(sessionsRoot, 'C:/projects/beta').create()
+    session.appendMessage({ role: 'user', content: 'We decided to keep a source link.' })
+    session.appendEvent({ type: 'turn-done' })
+    const store = new ContinuityStore(join(root, 'continuity'))
+    store.rebuild(sessionsRoot)
+    const first = store.listEpisodes()
+    store.rebuild(sessionsRoot)
+    const second = store.listEpisodes()
+
+    expect(second).toEqual(first)
+  })
+
+  it('warns on a corrupt index, provides no unvalidated records, and can rebuild it', () => {
+    const warnings: string[] = []
+    const store = new ContinuityStore(join(root, 'continuity'), { onWarn: (message) => warnings.push(message) })
+    mkdirSync(join(root, 'continuity'), { recursive: true })
+    writeFileSync(join(root, 'continuity', 'index.json'), '{invalid', 'utf8')
+    expect(store.listEpisodes()).toEqual([])
+    expect(warnings).toHaveLength(1)
+
+    const session = new SessionStore(sessionsRoot, 'C:/projects/recovery').create()
+    session.appendMessage({ role: 'user', content: 'Rebuild should recover this session.' })
+    store.rebuild(sessionsRoot)
+    expect(store.listEpisodes()).toHaveLength(1)
+    expect(JSON.parse(readFileSync(join(root, 'continuity', 'index.json'), 'utf8')).schemaVersion).toBe(1)
+  })
+
+  it('isolates an interrupted turn when the next user prompt begins', () => {
+    const session = new SessionStore(sessionsRoot, 'C:/projects/interrupted').create()
+    session.appendMessage({ role: 'user', content: 'The first request was interrupted.' })
+    session.appendMessage({ role: 'assistant', content: 'Partial answer.' })
+    session.appendMessage({ role: 'user', content: 'A separate request after restart?' })
+    session.appendEvent({ type: 'turn-done' })
+    const store = new ContinuityStore(join(root, 'continuity'))
+    store.rebuild(sessionsRoot)
+    expect(store.listEpisodes()).toHaveLength(2)
+    expect(store.listEpisodes()[0]!.summary).toContain('Partial answer.')
+    expect(store.listEpisodes()[1]!.summary).not.toContain('first request')
+  })
+})

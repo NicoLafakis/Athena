@@ -123,6 +123,36 @@ describe('loadSettings', () => {
     expect(s.allow).toEqual(['Read(**)', 'Bash(git:*)'])
   })
 
+  it('loads the global IANA timezone for continuity and ignores project timezone overrides', () => {
+    mkdirSync(join(home, '.athena'), { recursive: true })
+    writeFileSync(join(home, '.athena', 'settings.json'), JSON.stringify({ timeZone: 'Europe/Paris' }))
+    mkdirSync(join(project, '.athena'), { recursive: true })
+    writeFileSync(join(project, '.athena', 'settings.json'), JSON.stringify({ timeZone: 'America/Los_Angeles' }))
+    const warnings: string[] = []
+    const settings = loadSettings(
+      resolveBrainPaths({ cwd: project, homeOverride: home }),
+      'anthropic',
+      (warning) => warnings.push(warning),
+    )
+
+    expect(settings.timeZone).toBe('Europe/Paris')
+    expect(warnings).toContain('Project settings cannot override the global user timezone; ignoring project timeZone.')
+  })
+
+  it('drops an invalid optional global timezone and reports the OS fallback', () => {
+    mkdirSync(join(home, '.athena'), { recursive: true })
+    writeFileSync(join(home, '.athena', 'settings.json'), JSON.stringify({ timeZone: 'Mars/Olympus_Mons' }))
+    const warnings: string[] = []
+    const settings = loadSettings(
+      resolveBrainPaths({ cwd: project, homeOverride: home }),
+      'anthropic',
+      (warning) => warnings.push(warning),
+    )
+
+    expect(settings.timeZone).toBeUndefined()
+    expect(warnings[0]).toContain('OS local timezone will be inferred')
+  })
+
   it('protectedPaths defaults to empty and concatenates global-first', () => {
     expect(SettingsSchema.parse({}).protectedPaths).toEqual([])
     mkdirSync(join(home, '.athena'), { recursive: true })

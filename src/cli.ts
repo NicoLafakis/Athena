@@ -105,6 +105,12 @@ import {
 } from './harness/diagnostics.js'
 import { stalenessBootWarnings } from './harness/staleness.js'
 import { configureVmp, getVmpStatus, printVmpReport, startVmpServer } from './harness/vmp.js'
+import { ContinuityStore } from './continuity/store.js'
+import {
+  formatContinuityEpisode,
+  formatContinuitySearch,
+  formatContinuityStatus,
+} from './continuity/presentation.js'
 export type AccessibilityPresentation = 'standard' | 'screen-reader'
 export type VoiceModel = 'gpt-realtime-2.1-mini' | 'gpt-realtime-2.1'
 
@@ -140,6 +146,12 @@ export type CliCommand =
       command: 'session'
       action: 'list' | 'checkpoints' | 'rewind' | 'fork' | 'rename' | 'search' | 'delete'
       args: string[]
+    }
+  | {
+      command: 'memory'
+      action: 'rebuild' | 'status' | 'timeline' | 'search' | 'show'
+      args: string[]
+      projectId?: string
     }
   | {
       command: 'plugin'
@@ -487,6 +499,47 @@ export function parseArgs(argv: string[]): CliCommand {
       args: argv.slice(2),
     }
   }
+  if (argv[0] === 'memory') {
+    const action = argv[1] ?? 'status'
+    const actions = new Set(['rebuild', 'status', 'timeline', 'search', 'show'])
+    if (!actions.has(action)) {
+      return {
+        command: 'error',
+        message: 'Usage: athena memory <rebuild|status|timeline|search|show> [query|episode-id] [--project <project-id>]',
+      }
+    }
+    const args: string[] = []
+    let projectId: string | undefined
+    const rest = argv.slice(2)
+    for (let index = 0; index < rest.length; index++) {
+      const arg = rest[index]!
+      if (arg === '--project') {
+        const value = rest[index + 1]
+        if (!value || value.startsWith('--')) return { command: 'error', message: '--project requires a project ID' }
+        projectId = value
+        index++
+      } else if (arg.startsWith('--')) {
+        return { command: 'error', message: `Unknown memory argument: ${arg}` }
+      } else {
+        args.push(arg)
+      }
+    }
+    if (['rebuild', 'status'].includes(action) && args.length > 0) {
+      return { command: 'error', message: `Usage: athena memory ${action}` }
+    }
+    if (action === 'show' && args.length !== 1) {
+      return { command: 'error', message: 'Usage: athena memory show <episode-id>' }
+    }
+    if (action === 'search' && args.length === 0) {
+      return { command: 'error', message: 'Usage: athena memory search <query> [--project <project-id>]' }
+    }
+    return {
+      command: 'memory',
+      action: action as Extract<CliCommand, { command: 'memory' }>['action'],
+      args,
+      ...(projectId ? { projectId } : {}),
+    }
+  }
   if (argv[0] === 'trust') {
     const known = new Set(['--revoke', '--hooks', '--mcp', '--all'])
     const unknown = argv.slice(1).find((arg) => !known.has(arg))
@@ -612,6 +665,10 @@ Usage:
   athena trust --mcp     separately approve the current project MCP definitions
   athena trust --revoke  revoke all trust for this project
   athena session list    manage durable sessions, checkpoints, rewind, and forks
+  athena memory          inspect cross-project conversation continuity
+  athena memory rebuild  rebuild the local linked episode index
+  athena memory search   find prior conversations by time or topic
+  athena memory show     inspect an episode with source-linked messages
   athena plugin list     manage installed plugins (install/update/enable/disable/remove/verify)
   athena learn candidates inspect governed learning candidates, held-out evals, canaries, and rollback
   athena --help          this help
@@ -728,6 +785,8 @@ interface SlashDeps {
   permissionDetails?: (id: string) => string | null
   commands?: ReadonlyMap<string, { description: string; argumentHint: string | null }>
   vmpRecorder?: TelemetryRecorder
+  continuityStore?: ContinuityStore
+  timeZone?: string
 }
 
 export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
@@ -746,6 +805,8 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
     permissionDetails,
     commands,
     vmpRecorder,
+    continuityStore,
+    timeZone,
   } = deps
   const info = (message: string) => bus.emit({ type: 'info', message })
   return (cmd) => {
@@ -897,9 +958,29 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
           }
         })()
         break
-      case 'memory':
-        info(loadMemoryIndex(paths) ?? '(no memory index)')
+      case 'memory': {
+        if (!cmd.action) {
+          info(loadMemoryIndex(paths) ?? '(no memory index)')
+          break
+        }
+        const memoryStore = continuityStore ?? new ContinuityStore(paths.continuityDir, { onWarn: info })
+        if (cmd.action === 'status') {
+          info(formatContinuityStatus(memoryStore))
+        } else if (cmd.action === 'rebuild') {
+          const result = memoryStore.rebuild(paths.sessionsDir)
+          info(`Indexed ${result.episodeCount} episode(s) from ${result.sessionCount} session(s).`)
+        } else if (cmd.action === 'search' || cmd.action === 'timeline') {
+          info(formatContinuitySearch(memoryStore, paths.sessionsDir, {
+            action: cmd.action,
+            query: cmd.value ?? '',
+            ...(cmd.projectId ? { projectId: cmd.projectId } : {}),
+            ...(timeZone ? { timeZone } : {}),
+          }))
+        } else {
+          info(formatContinuityEpisode(memoryStore, paths.sessionsDir, cmd.value ?? ''))
+        }
         break
+      }
       case 'skills': {
         const skills = loadSkillsIndexWithPlugins(paths)
         info(
@@ -1380,6 +1461,44 @@ async function main(): Promise<void> {
           )
           break
       }
+    } catch (error) {
+      console.error((error as Error).message)
+      process.exitCode = CLI_EXIT.usage
+    }
+    return
+  }
+  if (cmd.command === 'memory') {
+    const store = new ContinuityStore(paths.continuityDir, { onWarn: (warning) => console.error(warning) })
+    try {
+      if (cmd.action === 'rebuild') {
+        const result = store.rebuild(paths.sessionsDir)
+        console.log(`Indexed ${result.episodeCount} episode(s) from ${result.sessionCount} session(s).`)
+        for (const warning of result.warnings) console.error(warning)
+        return
+      }
+      if (cmd.action === 'status') {
+        console.log(formatContinuityStatus(store))
+        return
+      }
+
+      let timeZone: string | undefined
+      try {
+        timeZone = loadSettings(paths, 'anthropic', (warning) => console.error(warning), { projectTrusted: false }).timeZone
+      } catch {
+        console.error('The configured timezone could not be loaded; memory dates will use the inferred OS timezone.')
+      }
+
+      if (cmd.action === 'search' || cmd.action === 'timeline') {
+        console.log(formatContinuitySearch(store, paths.sessionsDir, {
+          action: cmd.action,
+          query: cmd.args.join(' '),
+          ...(cmd.projectId ? { projectId: cmd.projectId } : {}),
+          ...(timeZone ? { timeZone } : {}),
+        }))
+        return
+      }
+
+      console.log(formatContinuityEpisode(store, paths.sessionsDir, cmd.args[0]!))
     } catch (error) {
       console.error((error as Error).message)
       process.exitCode = CLI_EXIT.usage
@@ -2127,6 +2246,8 @@ async function main(): Promise<void> {
       permissionDetails: (id) => permissionDetails.get(id) ?? null,
       commands,
       vmpRecorder,
+      continuityStore: controller.continuityStore,
+      ...(settings.timeZone ? { timeZone: settings.timeZone } : {}),
     })
     const unsubscribeScreen = bus.on((event) => {
       if (event.type === 'info') {
@@ -2245,6 +2366,8 @@ async function main(): Promise<void> {
         permissionDetails: (id) => permissionDetails.get(id) ?? null,
         commands,
         vmpRecorder,
+        continuityStore: controller.continuityStore,
+        ...(settings.timeZone ? { timeZone: settings.timeZone } : {}),
       }),
     }),
   )

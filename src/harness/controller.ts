@@ -50,6 +50,7 @@ import {
 } from '../tools/index.js'
 import { makeSkillTool } from '../tools/skill.js'
 import { makeAgentTool } from '../tools/agent.js'
+import { ContinuityStore } from '../continuity/store.js'
 
 function gitBranch(cwd: string): string | null {
   try {
@@ -141,6 +142,7 @@ interface HarnessSessionControllerParts {
   client: ClientHolder
   gate: PermissionEngine
   hooks: HookRunner
+  continuityStore: ContinuityStore
 }
 
 export interface HarnessTurnResult {
@@ -173,6 +175,7 @@ export class HarnessSessionController {
   public readonly client: ClientHolder
   public readonly gate: PermissionEngine
   public readonly hooks: HookRunner
+  public readonly continuityStore: ContinuityStore
 
   private sessionEnded = false
   private isRunning = false
@@ -196,6 +199,7 @@ export class HarnessSessionController {
     this.client = parts.client
     this.gate = parts.gate
     this.hooks = parts.hooks
+    this.continuityStore = parts.continuityStore
   }
 
   public static async create(
@@ -300,6 +304,10 @@ export class HarnessSessionController {
     interaction.attach(bus)
 
     const store = sessionStore ?? new SessionStore(paths.sessionsDir, cwd)
+    // The linked local catalog is optional and is not read into provider prompts here.
+    const continuityStore = new ContinuityStore(paths.continuityDir, {
+      onWarn: (warning) => console.error(warning),
+    })
 
     const registry = new ToolRegistry()
     for (const t of [
@@ -411,6 +419,17 @@ export class HarnessSessionController {
         } catch {
           /* journaling is best-effort */
         }
+      }
+    })
+    bus.on((event) => {
+      if (event.type !== 'turn-done' || !journal) return
+      try {
+        const result = continuityStore.indexSession(paths.sessionsDir, store.projectId, session.id)
+        if (result.state === 'corrupt') {
+          console.error('Continuity local index was corrupt; this turn remains in its source session. Run `athena memory rebuild`.')
+        }
+      } catch {
+        console.error('Continuity local index could not update this session; normal conversation completed. Run `athena memory rebuild`.')
       }
     })
 
@@ -537,6 +556,7 @@ export class HarnessSessionController {
       client: clientHolder,
       gate,
       hooks,
+      continuityStore,
     })
   }
 

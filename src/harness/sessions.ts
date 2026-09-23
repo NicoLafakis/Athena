@@ -18,7 +18,7 @@ import { redactSessionValue } from './redaction.js'
 
 export { redactSessionValue } from './redaction.js'
 
-const SESSION_SCHEMA_VERSION = 2
+const SESSION_SCHEMA_VERSION = 3
 const STALE_LOCK_MS = 30_000
 
 export function projectSlug(projectPath: string): string {
@@ -28,12 +28,45 @@ export function projectSlug(projectPath: string): string {
   return `${readable}-${hash}`
 }
 
-interface SessionLine {
+export interface SessionLine {
   version?: number
   kind: string
   id?: string
   ts: string
+  timeZone?: string
   data: unknown
+}
+
+export interface SessionLineRecord {
+  lineNumber: number
+  rawLine: string
+  line: SessionLine
+}
+
+export interface SessionLineReadResult {
+  records: SessionLineRecord[]
+  malformedLineNumbers: number[]
+}
+
+function isSessionLine(value: unknown): value is SessionLine {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const line = value as Record<string, unknown>
+  return (
+    typeof line.kind === 'string' &&
+    line.kind.length > 0 &&
+    typeof line.ts === 'string' &&
+    Object.hasOwn(line, 'data') &&
+    (line.version === undefined || typeof line.version === 'number') &&
+    (line.id === undefined || typeof line.id === 'string') &&
+    (line.timeZone === undefined || typeof line.timeZone === 'string')
+  )
+}
+
+/** Stable identity for a persisted line, including sessions written before IDs existed. */
+export function stableSessionLineId(record: SessionLineRecord): string {
+  if (typeof record.line.id === 'string' && record.line.id.length > 0) return record.line.id
+  const digest = createHash('sha256').update(record.rawLine, 'utf8').digest('hex')
+  return `legacy:${record.lineNumber}:${digest}`
 }
 
 interface CheckpointData {
@@ -61,17 +94,39 @@ export interface SessionInfo {
   title: string
 }
 
-function parseFile(file: string): SessionLine[] {
-  const lines: SessionLine[] = []
-  for (const raw of readFileSync(file, 'utf8').split('\n')) {
+export function parseSessionLineRecords(content: string): SessionLineReadResult {
+  const records: SessionLineRecord[] = []
+  const malformedLineNumbers: number[] = []
+  const rawLines = content.split('\n')
+  for (let index = 0; index < rawLines.length; index++) {
+    const raw = rawLines[index]!
     if (!raw.trim()) continue
     try {
-      lines.push(JSON.parse(raw) as SessionLine)
+      const value: unknown = JSON.parse(raw)
+      if (!isSessionLine(value)) {
+        malformedLineNumbers.push(index + 1)
+        continue
+      }
+      records.push({ lineNumber: index + 1, rawLine: raw, line: value })
     } catch {
-      // A torn final append is ignored; earlier immutable records remain valid.
+      // The session reader preserves valid neighbors and reports gaps to callers that
+      // need to avoid claiming a complete continuity episode across malformed lines.
+      malformedLineNumbers.push(index + 1)
     }
   }
-  return lines
+  return { records, malformedLineNumbers }
+}
+
+export function readSessionLineRecordsDetailed(file: string): SessionLineReadResult {
+  return parseSessionLineRecords(readFileSync(file, 'utf8'))
+}
+
+export function readSessionLineRecords(file: string): SessionLineRecord[] {
+  return readSessionLineRecordsDetailed(file).records
+}
+
+function parseFile(file: string): SessionLine[] {
+  return readSessionLineRecords(file).map((record) => record.line)
 }
 
 function messagesAt(lines: SessionLine[], checkpointId?: string): MessageParam[] {
@@ -134,6 +189,7 @@ export class Session {
       kind,
       id: randomUUID(),
       ts: new Date().toISOString(),
+      timeZone: sourceTimeZone(),
       data: redactSessionValue(data),
     }
     withFileLock(this.file, () => appendFileSync(this.file, JSON.stringify(line) + '\n', 'utf8'))
@@ -188,11 +244,24 @@ export class Session {
   }
 }
 
+function sourceTimeZone(): string | undefined {
+  try {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+    if (!timeZone) return undefined
+    new Intl.DateTimeFormat('en-US', { timeZone }).format(0)
+    return timeZone
+  } catch {
+    return undefined
+  }
+}
+
 export class SessionStore {
   private readonly dir: string
+  readonly projectId: string
 
   constructor(sessionsRoot: string, projectPath: string) {
-    this.dir = join(sessionsRoot, projectSlug(projectPath))
+    this.projectId = projectSlug(projectPath)
+    this.dir = join(sessionsRoot, this.projectId)
   }
 
   create(): Session {
@@ -268,10 +337,24 @@ export class SessionStore {
   fork(id: string, checkpointId?: string): Session {
     const sourceFile = this.fileFor(id)
     const lines = parseFile(sourceFile)
+    const sourceRecords = readSessionLineRecords(sourceFile)
     const messages = checkpointId ? messagesAt(lines, checkpointId) : messagesAt(lines)
+    const boundary = checkpointId
+      ? sourceRecords.find(
+          ({ line }) =>
+            line.kind === 'checkpoint' &&
+            (line.data as CheckpointData).checkpointId === checkpointId,
+        )
+      : sourceRecords.at(-1)
     const fork = this.create()
     fork.checkpoint(messages, `forked from ${id}${checkpointId ? ` at ${checkpointId}` : ''}`)
-    fork.appendEvent({ type: 'session-fork', sourceSessionId: id, checkpointId: checkpointId ?? null })
+    fork.appendEvent({
+      type: 'session-fork',
+      sourceProjectId: this.projectId,
+      sourceSessionId: id,
+      sourceLineId: boundary ? stableSessionLineId(boundary) : null,
+      checkpointId: checkpointId ?? null,
+    })
     return fork
   }
 

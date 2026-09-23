@@ -18,7 +18,7 @@ and source history vs. active semantic memories.
 |---|---|---|
 | False autobiographical memory | A hypothetical is saved as a plan or preference | Speech-act labels, source context, conservative promotion, inspect/reject controls |
 | Context collapse | A summary omits “I was considering” or later reversal | Source refs, adjacent-turn reconstruction, temporal/versioned claims |
-| Cross-project disclosure | Private project history appears in an unrelated task | No broad prompt injection; scoped retrieval; retrieve across projects only when relevant to user request |
+| Cross-project disclosure | Private project history appears in an unrelated task or leaves the machine | Current continuity search/show output is local CLI/slash only; no historical episode text enters provider prompts. Any future handoff requires explicit authorization, scoped retrieval, verified source refs, and prompt-isolation tests |
 | Secret propagation | Credential appears in a memory summary or search result | Existing redaction plus summary-specific redaction tests; never copy full transcripts |
 | Stale memory | Old decision is stated as current | Observed/valid time, supersession, freshness ranking, current source precedence |
 | Index poisoning | Model supplies a forged source path or ID | Server-authored identifiers; strict schema; resolve only under known local roots |
@@ -32,6 +32,10 @@ and source history vs. active semantic memories.
 
 - Continuity is local and advisory; it cannot authorize a tool, override current runtime
   truth, or silently transmit historical content.
+- A linked episode stores bounded derived summary/metadata and source IDs, not a copied
+  transcript. Source text is reloaded from the local session and digest-checked before it
+  is shown. At this implementation checkpoint, even verified source text is not sent to
+  the configured model provider.
 - Every semantic fact and rollup points to source episode(s); no unlinked personal claim
   is eligible for durable retrieval.
 - No inferred sensitive trait is promoted. Sensitive material stays source-only unless
@@ -44,8 +48,9 @@ and source history vs. active semantic memories.
 
 - Red-team ambiguous and contradictory conversations, quoted prompt injection, fake
   timestamps/source IDs, and instructions embedded in retrieved content.
-- Inspect all prompt paths to ensure historical content is clearly delimited as untrusted
-  context and cannot set system instructions.
+- Before adding any provider handoff, inspect every prompt path and ensure authorized
+  historical content is bounded, source-verified, clearly delimited as untrusted context,
+  and cannot set system instructions.
 - Verify secret/redaction behavior across summaries, time rollups, CLI output, prompt
   context, logs, and deletion tombstones.
 - Test cross-project and restore/delete behavior with two independent project stores.

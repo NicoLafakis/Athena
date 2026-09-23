@@ -64,6 +64,8 @@ describe('HarnessSessionController', () => {
     expect(result.status).toBe('completed')
     expect(result.output).toBe('Hello from Athena harness!')
     expect(result.sessionId).toBe(controller.session.id)
+    expect(controller.continuityStore.status().state).toBe('partial')
+    expect(controller.continuityStore.listEpisodes()[0]!.summary).toContain('Hello Athena')
 
     await controller.close()
   })
@@ -93,7 +95,28 @@ describe('HarnessSessionController', () => {
     const res2 = await controller.submitTurn('Turn 2')
     expect(res2.output).toBe('Response 2')
     expect(res2.sessionId).toBe(initialSessionId)
+    expect(controller.continuityStore.listEpisodes()).toHaveLength(2)
 
+    await controller.close()
+  })
+
+  it('does not persist continuity data for sessions explicitly marked non-persistent', async () => {
+    const client = new MockAnthropicClient([
+      { blocks: [textBlock('ephemeral response')], stopReason: 'end_turn' },
+    ])
+    const controller = await HarnessSessionController.create({
+      paths,
+      effectivePaths: paths,
+      cwd: root,
+      provider: 'anthropic',
+      client,
+      settings: defaultSettings,
+      projectTrust: { trusted: true, allowProjectHooks: true, allowProjectMcp: true },
+      persistSession: false,
+    })
+
+    await controller.submitTurn('Do not store this conversation.')
+    expect(controller.continuityStore.status().state).toBe('missing')
     await controller.close()
   })
 

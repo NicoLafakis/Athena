@@ -7,7 +7,7 @@
 | Requirement | Level | Required evidence |
 |---|---|---|
 | FR-001 / AC-009 source identity | Unit + integration | Canonical messages indexed once; checkpoint copies excluded; fork lineage and rewind branches resolve |
-| FR-002 / AC-001, AC-008 cross-project scope | Integration | Two project directories; global recall works; unrelated prompt receives no detail |
+| FR-002 / AC-001, AC-008 cross-project scope | Integration | Local CLI/slash recall across two projects works; project filters exclude unrelated sources. Prompt isolation remains pending provider-handoff authorization |
 | FR-003 / AC-002 temporal parsing | Unit + property | Relative/absolute windows, DST, timezone fallback, month/quarter/year edges |
 | FR-004 context reconstruction | Integration | Adjacent turns and source roles reconstruct tentative/decision/correction context |
 | FR-005 / FR-010 / AC-004 layers/rollups | Unit + integration | Rollup source coverage; source retrieval for exact detail; invalidation after source changes |
@@ -20,10 +20,26 @@
 | FR-014 / AC-010 budgets | Performance + prompt integration | Result count/characters capped; no background model calls; prompt has only relevant context |
 | FR-015 / AC-007 rebuild/failure | Integration | Truncated JSONL, corrupt index, missing project, permission error, atomic-write failure |
 
+## Implemented evidence at this checkpoint
+
+- Schema and temporal unit tests cover bounded identities, duplicate/cross-scope refs,
+  calendar boundaries, DST, and explicit/inferred timezone behavior.
+- Session/catalog tests cover stable legacy IDs, canonical-line deduplication, nested
+  fork boundaries, missing parents, and cycle detection.
+- Store/retrieval tests cover idempotent rebuild, interrupted turns, incremental updates
+  to one session, cross-project search, source-digest validation, and malformed JSONL/time
+  records. Source text is shown only after every linked line verifies.
+- CLI/slash/controller tests cover local status, rebuild, timeline, search, show, and
+  indexing after persisted turns. A non-persisted session does not create an index entry.
+- No answer-time provider handoff is implemented. Requirements that depend on retrieved
+  history entering a model prompt remain future integration tests and are not claimed as
+  covered by these local retrieval tests.
+
 ## Critical end-to-end scenarios
 
-1. Write messages in projects A and B on multiple dates; ask from B what happened in A
-   “earlier today”; inspect exact source context.
+1. Write messages in projects A and B on multiple dates; from B, use local memory
+   timeline/search for project A’s “earlier today” episode and inspect exact source
+   context. After provider handoff is authorized, add the automatic-answer variant.
 2. Fork a session and rewind another; verify inherited checkpoint messages are linked once
    to their original source and branch-only conversation remains historically attributable.
 3. Record a tentative idea, a later decision, then a correction. Query current and
@@ -48,5 +64,7 @@
   ambiguous utterance, no resurrected forgotten item, no unsupported recollection.
 - Ensure every acceptance criterion maps to a test and that tests cover interactive and
   noninteractive paths.
+- Do not treat local CLI/slash source display as evidence that provider prompt transfer,
+  automatic relevance routing, or prompt-isolation behavior is implemented.
 - Live dogfood is required for subjective recall usefulness, but it supplements rather
   than replaces deterministic correctness and privacy tests.

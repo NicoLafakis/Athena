@@ -225,6 +225,31 @@ describe('parseArgs — auth and --provider', () => {
   })
 })
 
+describe('parseArgs — memory continuity commands', () => {
+  it('parses status, rebuild, timeline, search, and show actions', () => {
+    expect(parseArgs(['memory'])).toEqual({ command: 'memory', action: 'status', args: [] })
+    expect(parseArgs(['memory', 'rebuild'])).toEqual({ command: 'memory', action: 'rebuild', args: [] })
+    expect(parseArgs(['memory', 'timeline', 'last', 'week'])).toEqual({
+      command: 'memory', action: 'timeline', args: ['last', 'week'],
+    })
+    expect(parseArgs(['memory', 'search', 'what', 'did', 'we', 'decide', '--project', 'alpha-123'])).toEqual({
+      command: 'memory', action: 'search', args: ['what', 'did', 'we', 'decide'], projectId: 'alpha-123',
+    })
+    expect(parseArgs(['memory', 'show', 'episode-123'])).toEqual({
+      command: 'memory', action: 'show', args: ['episode-123'],
+    })
+  })
+
+  it('rejects invalid memory arguments and missing required values', () => {
+    expect(parseArgs(['memory', 'search'])).toMatchObject({ command: 'error' })
+    expect(parseArgs(['memory', 'show'])).toMatchObject({ command: 'error' })
+    expect(parseArgs(['memory', 'rebuild', '--unexpected'])).toMatchObject({ command: 'error' })
+    expect(parseArgs(['memory', 'search', 'recent', '--project'])).toEqual({
+      command: 'error', message: '--project requires a project ID',
+    })
+  })
+})
+
 describe('parseArgs — voice', () => {
   it('parses microphone, keyboard, probe, auth, and quality model paths', () => {
     expect(parseArgs(['voice'])).toEqual({

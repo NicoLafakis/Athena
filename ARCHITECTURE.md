@@ -16,7 +16,8 @@ permission gate, resource policy, protected-paths fence, hooks, sessions, tracin
 semantic interaction state, the agent orchestrator, the context manager, and the engine.
 Every path builds it — `athena exec`, the append-only screen-reader loop, the Ink TUI, and
 `athena voice` — so a session is assembled in one place and its guarantees are configured
-in one place. Presentation-specific wiring stays with the caller: the Ink
+in one place. Persisted `turn-done` events also refresh that session's local continuity
+entries; the handler does not send historical excerpts to a model provider. Presentation-specific wiring stays with the caller: the Ink
 `PermissionBridge`, the screen-reader approver, slash-command handling, the `--continue`
 and `--resume` selection callback, and the teardown order each surface needs.
 
@@ -65,10 +66,13 @@ and local slash-command handler.
 - `src/tools/` — built-in tool definitions and the registry used by the main engine and
   delegated agents.
 - `src/brain/` — paths, settings, credentials and vaults, models, plugins, and local brain
-  loading. Accessibility preferences are global/user-controlled and are not overridden
-  by project settings. Cross-project conversational continuity is not yet implemented;
-  its source-linked, local-first design and phased plan are in
-  [`.wiki/features/conversational-continuity/00-overview.md`](.wiki/features/conversational-continuity/00-overview.md).
+  loading. Accessibility preferences and the optional IANA `timeZone` setting are
+  global/user-controlled and are not overridden by project settings. The continuity path
+  is under `~/.athena/continuity/`.
+- `src/continuity/` — versioned source schemas, safe all-project session discovery,
+  nested fork-lineage resolution, local episode indexing/rebuild, timezone-aware date
+  windows, deterministic search, and source-digest validation for CLI/slash inspection.
+  Automatic answer-time transfer to model prompts remains pending explicit authorization.
 - `src/experience/` — deterministic capture, compilation, storage, and retrieval of
   bounded experiential guidance.
 - `src/voice/` — provider-neutral optional voice contracts and routing over semantic

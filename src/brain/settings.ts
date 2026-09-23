@@ -193,6 +193,15 @@ function modelSchema(provider: ProviderId) {
     .default(PROVIDERS[provider].defaultModel)
 }
 
+function isIanaTimeZone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value }).format(0)
+    return !/^[+-]\d{2}(?::?\d{2})?$/.test(value)
+  } catch {
+    return false
+  }
+}
+
 export const AccessibilitySettingsSchema = z.object({
   presentation: z.enum(['standard', 'screen-reader']).default('standard'),
   verbosity: z.enum(['concise', 'balanced', 'detailed']).default('balanced'),
@@ -211,6 +220,7 @@ export type VmpConnectorSettings = z.infer<typeof VmpConnectorSchema>
 
 const baseShape = {
   effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('high'),
+  timeZone: z.string().max(128).refine(isIanaTimeZone, 'Expected a supported IANA timezone').optional(),
   maxOutputTokens: z.number().int().positive().optional(),
   permissionMode: z.enum(['normal', 'acceptEdits', 'plan', 'trusted']).default('normal'),
   sandboxMode: z.enum(['read-only', 'workspace-write', 'unrestricted']).default('workspace-write'),
@@ -281,6 +291,14 @@ export function loadSettings(
   const project = projectTrusted && paths.projectBrainDir
     ? readJsonIfExists(join(paths.projectBrainDir, 'settings.json'))
     : {}
+  if (global['timeZone'] !== undefined && (typeof global['timeZone'] !== 'string' || !isIanaTimeZone(global['timeZone']))) {
+    onWarn?.(`Global timezone in ${paths.settingsFile} is invalid; OS local timezone will be inferred for continuity queries.`)
+    delete global['timeZone']
+  }
+  if (Object.prototype.hasOwnProperty.call(project, 'timeZone')) {
+    onWarn?.('Project settings cannot override the global user timezone; ignoring project timeZone.')
+    delete project['timeZone']
+  }
   const globalAccessibility = AccessibilitySettingsSchema.safeParse(global['accessibility'] ?? {})
   if (globalAccessibility.success) {
     global['accessibility'] = globalAccessibility.data

@@ -18,7 +18,12 @@ export type SlashCommand =
   | { kind: 'clear' }
   | { kind: 'resume' }
   | { kind: 'compact' }
-  | { kind: 'memory' }
+  | {
+      kind: 'memory'
+      action?: 'status' | 'rebuild' | 'timeline' | 'search' | 'show'
+      value?: string
+      projectId?: string
+    }
   | { kind: 'skills' }
   | { kind: 'agents' }
   | { kind: 'status' }
@@ -62,6 +67,43 @@ export function parseSlash(
   if (!input.startsWith('/')) return null
   const [cmd = '', ...rest] = input.slice(1).trim().split(/\s+/)
   const arg = rest.join(' ')
+  if (cmd === 'memory') {
+    if (rest.length === 0) return { kind: 'memory' }
+    const action = rest[0]
+    if (!['status', 'rebuild', 'timeline', 'search', 'show'].includes(action!)) {
+      return { kind: 'error', value: 'Usage: /memory [status|rebuild|timeline [range]|search <query>|show <episode-id>]' }
+    }
+    const valueParts: string[] = []
+    let projectId: string | undefined
+    for (let index = 1; index < rest.length; index++) {
+      if (rest[index] === '--project') {
+        const next = rest[index + 1]
+        if (!next || next.startsWith('--')) return { kind: 'error', value: '/memory --project requires a project ID' }
+        projectId = next
+        index++
+      } else if (rest[index]!.startsWith('--')) {
+        return { kind: 'error', value: `Unknown /memory argument: ${rest[index]}` }
+      } else {
+        valueParts.push(rest[index]!)
+      }
+    }
+    const value = valueParts.join(' ')
+    if ((action === 'status' || action === 'rebuild') && value) {
+      return { kind: 'error', value: `Usage: /memory ${action}` }
+    }
+    if ((action === 'search' || action === 'show') && !value) {
+      return { kind: 'error', value: `Usage: /memory ${action} <${action === 'search' ? 'query' : 'episode-id'}>` }
+    }
+    if (action === 'show' && valueParts.length !== 1) {
+      return { kind: 'error', value: 'Usage: /memory show <episode-id>' }
+    }
+    return {
+      kind: 'memory',
+      action: action as Extract<SlashCommand, { kind: 'memory' }>['action'],
+      ...(value ? { value } : {}),
+      ...(projectId ? { projectId } : {}),
+    }
+  }
   if (BARE.has(cmd)) return { kind: cmd } as SlashCommand
   if (cmd === 'model')
     return arg
