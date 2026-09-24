@@ -111,8 +111,8 @@ before proposing any of these. Current bindings:
 
 ## 6. Pre-push and merge gates
 
-Do not push an Athena code commit until all four local gates have passed on that
-exact commit:
+Do not commit or push Athena code until all four local gates have passed on the exact
+staged tree that will be committed:
 
 ```sh
 pnpm typecheck
@@ -128,14 +128,16 @@ Use this sequence for each code change:
 2. Stage only intended paths; never use `git add -A` or `git add .` (a project-local
    `.athena/` brain directory or a stray credential file is exactly what blanket staging
    can sweep in). Review the staged diff.
-3. Create the local commit, then run the four gates above sequentially from the clean
-   committed tree. Record each result. If any gate fails, do not push; fix the cause,
-   make a new commit, and rerun all four gates on the new `HEAD`.
-4. After the gates pass, make no file or index edits. Any change creates a new candidate
-   commit; commit it and restart the four gates from the beginning.
+3. Confirm the worktree has no unstaged tracked edits with `git diff --exit-code`, then
+   record the staged tree ID with `git write-tree`. Run the four gates above sequentially
+   and record each result. If any gate fails, do not commit or push; fix the cause, stage
+   the corrected tree, and rerun all four gates.
+4. After the gates pass, make no file or index edits. Commit the checked tree, then verify
+   `git rev-parse HEAD^{tree}` matches the tree ID recorded before the gates. If they do
+   not match, stop and rerun all four gates on the corrected candidate before committing.
 5. Before pushing, fetch the intended remote and confirm `git status --short --branch` is
-   clean, `HEAD` is the commit that passed the gates, and the target branch is current
-   and non-divergent. Push only that commit.
+   clean, `HEAD` contains the checked tree, and the target branch is current and
+   non-divergent. Push only that commit.
 6. For changes intended for `main`, push a topic branch and open a pull request. Wait
    for all six CI matrix jobs to pass before merging. CI runs the same four gates on
    Node 20 and 22 across Linux, Windows, and macOS; local checks on one machine cannot
