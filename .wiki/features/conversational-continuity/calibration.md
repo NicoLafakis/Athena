@@ -194,6 +194,11 @@ rendering, or long-lived project distributions. Synthetic performance and the sm
 size ratio do not replace representative-history correction-rate and usefulness dogfood;
 Phase 4.3 remains open.
 
+On 2026-09-24, the product owner deferred representative live-history evaluation until
+enough conversation history exists. The implementation plan is otherwise complete. This
+deferral does not turn the limited spot-check or synthetic measurements into a claim of
+real-world recall precision; resume Phase 4.3 when the archive is representative.
+
 ## Policy resulting from the review
 
 Repeated inferred sensitive claims stay in their source sessions and are not copied into

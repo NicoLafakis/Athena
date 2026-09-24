@@ -7,6 +7,12 @@ Implement the phases in order. Keep all new continuity state optional at boot an
 rebuildable. Phase 0 is the first implementation task; no phase may bypass the source-link
 invariant.
 
+Implementation status (2026-09-24): all planned build work is complete. The only open
+checklist entries are Phase 4.3's representative live-history evaluation and its child
+task. The product owner deferred that evaluation until Athena has accumulated enough
+conversation history. Keep those entries open as a later quality gate; synthetic results
+and the limited local archive do not establish real-world recall precision.
+
 ## Phase 0 — source and identity audit
 
 - [x] 0.1 Trace session message, checkpoint, trace, memory, experience, and journal source
