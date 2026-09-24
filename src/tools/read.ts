@@ -1,5 +1,6 @@
 import { createReadStream, existsSync } from 'node:fs'
 import { createInterface } from 'node:readline'
+import { finished } from 'node:stream/promises'
 import { z } from 'zod'
 import type { ToolDefinition } from '../engine/types.js'
 import { recordKnownFile, resolveToolPath } from './files.js'
@@ -34,8 +35,13 @@ export const readTool: ToolDefinition<z.infer<typeof ReadInput>> = {
     let scannedBytes = 0
     let hasMore = false
     let scanTruncated = false
+    let streamClosed: Promise<unknown> = Promise.resolve()
     try {
       const stream = createReadStream(abs, { encoding: 'utf8', signal: ctx.abortSignal })
+      streamClosed = finished(stream, { cleanup: true }).then(
+        () => undefined,
+        (error: unknown) => error,
+      )
       stream.on('data', (chunk: string | Buffer) => {
         scannedBytes += Buffer.byteLength(chunk)
       })
@@ -60,7 +66,10 @@ export const readTool: ToolDefinition<z.infer<typeof ReadInput>> = {
             : line,
         )
       }
+      const streamError = await streamClosed
+      if (!scanTruncated && streamError) throw streamError
     } catch (err) {
+      await streamClosed
       return { output: `Cannot read ${abs}: ${(err as Error).message}`, isError: true }
     }
     const numbered = lines
