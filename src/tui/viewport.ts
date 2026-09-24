@@ -211,14 +211,13 @@ export function truncateTextToRows(text: string, columns: number, maxRows: numbe
   return `${cells.slice(0, lo).join('')}…`
 }
 
-/** Scroll position for the fullscreen transcript. The window's bottom edge rests `clip`
- *  rows above the bottom of `entries[index]`; `null` (handled by callers) means pinned
- *  to the live tail. Anchoring to an entry index — not a row-offset-from-the-bottom —
- *  is deliberate: appending new entries at the tail cannot move a scrolled-up window
- *  (no "yank to bottom"), and per-render cost stays proportional to the viewport. */
+/** Scroll position for the fullscreen transcript. The window's first visible row is
+ *  `offset` rows down from the start of `entries[index]`; null means pinned to the live
+ *  tail. This top-relative anchor stays put when a streaming tail entry grows below the
+ *  viewport. */
 export interface ScrollAnchor {
   index: number
-  clip: number
+  offset: number
 }
 
 export interface TranscriptWindow<T> {
@@ -229,16 +228,12 @@ export interface TranscriptWindow<T> {
   clipLastRows: number
 }
 
-/** Row-granular window slicing. Packs entries backward from the anchor's bottom edge:
- *  the anchor entry contributes its last `rows - clip` rows (fewer when it alone
- *  overflows the budget — its middle is then reachable by paging, which is exactly the
- *  regression entry-granular slicing had); whole entries above are added while they
- *  fit; and the first entry is clipped from the top when it only partially fits.
- *  `canClip` marks which entries may be sliced mid-body (text kinds); a non-clippable
- *  entry (a bordered ToolCard) that doesn't fit whole is simply left out of the window.
- *  Measurement goes through the caller's `rows` estimator — the SAME one Transcript
- *  renders with — so a page step and the window it produces can never disagree about
- *  how tall anything is. */
+/** Row-granular window slicing. A non-null anchor identifies the first visible row, so
+ *  later rows streaming into the same entry cannot move the viewport. With no anchor we
+ *  pack backward from the live tail. `canClip` marks entries that may be sliced mid-body;
+ *  a bordered ToolCard stays whole. Measurement goes through the caller's `rows`
+ *  estimator — the SAME one Transcript renders with — so a page step and its window
+ *  cannot disagree about entry height. */
 export function sliceToAnchor<T>(
   entries: readonly T[],
   rows: (entry: T) => number,
@@ -248,46 +243,69 @@ export function sliceToAnchor<T>(
 ): TranscriptWindow<T> {
   if (entries.length === 0) return { items: [], clipFirstRows: 0, clipLastRows: 0 }
   const rowsOf = (entry: T): number => Math.max(1, rows(entry))
-  const index = Math.min(Math.max(Math.trunc(anchor?.index ?? entries.length - 1), 0), entries.length - 1)
-  const anchorRows = rowsOf(entries[index] as T)
-  const clip = Math.min(Math.max(Math.trunc(anchor?.clip ?? 0), 0), anchorRows - 1)
   const budget = Math.max(Math.trunc(maxRows), 1)
-  const visibleAnchorRows = anchorRows - clip
-  const take = Math.min(visibleAnchorRows, budget)
+  if (anchor !== null) {
+    const index = Math.min(Math.max(Math.trunc(anchor.index), 0), entries.length - 1)
+    let offset = Math.max(Math.trunc(anchor.offset), 0)
+    let remaining = budget
+    let clipFirst = 0
+    const items: T[] = []
+    let clipLast = 0
+    for (let i = index; i < entries.length && remaining > 0; i++) {
+      const entry = entries[i] as T
+      const height = rowsOf(entry)
+      if (offset >= height) {
+        offset -= height
+        continue
+      }
+      const available = height - offset
+      if (!canClip(entry) && (offset > 0 || available > remaining)) break
+      const take = Math.min(available, remaining)
+      if (take <= 0) break
+      if (items.length === 0) clipFirst = offset
+      items.push(entry)
+      remaining -= take
+      clipLast = available - take
+      if (clipLast > 0) break
+      offset = 0
+    }
+    return { items, clipFirstRows: clipFirst, clipLastRows: clipLast }
+  }
+
+  const index = entries.length - 1
+  const anchorRows = rowsOf(entries[index] as T)
+  const take = Math.min(anchorRows, budget)
   let start = index
-  let clipFirst = anchorRows - clip - take
+  let clipFirst = anchorRows - take
   let remaining = budget - take
   for (let i = index - 1; i >= 0 && remaining > 0; i--) {
     const entry = entries[i] as T
-    const r = rowsOf(entry)
-    if (r <= remaining) {
+    const height = rowsOf(entry)
+    if (height <= remaining) {
       start = i
-      remaining -= r
+      remaining -= height
       continue
     }
     if (canClip(entry)) {
       start = i
-      clipFirst = r - remaining
+      clipFirst = height - remaining
     }
     break
   }
-  return { items: entries.slice(start, index + 1), clipFirstRows: clipFirst, clipLastRows: clip }
+  return { items: entries.slice(start, index + 1), clipFirstRows: clipFirst, clipLastRows: 0 }
 }
 
-/** Moves the scroll anchor by `deltaRows` ROWS (negative up, positive down), walking
- *  through the interiors of tall entries. `maxRows` (the viewport budget) is what makes
- *  the top clamp correct: the window's bottom edge may never rise above `min(totalRows,
- *  maxRows)`, so paging up stops with the first content row at the window's top instead
- *  of overshooting into an under-filled frame. Returns null when the move reaches the
- *  live tail (the caller resumes follow-the-tail), when everything already fits, or
- *  when there is no history. Positions are converted through absolute row offsets, so
- *  an anchor and the window it produces can never drift apart. */
+/** Moves the first-visible-row anchor by `deltaRows` (negative up, positive down).
+ *  Paging up clamps to the transcript start; paging down to the live viewport returns
+ *  null and resumes follow-the-tail. The anchor is top-relative within an entry, so
+ *  appending lines to that entry does not shift the reader. */
 export function shiftAnchor<T>(
   entries: readonly T[],
   rows: (entry: T) => number,
   anchor: ScrollAnchor | null,
   deltaRows: number,
   maxRows: number,
+  canClip: (entry: T) => boolean = () => true,
 ): ScrollAnchor | null {
   if (entries.length === 0) return null
   const rowsOf = (i: number): number => Math.max(1, rows(entries[i] as T))
@@ -296,19 +314,39 @@ export function shiftAnchor<T>(
   let position: number
   if (anchor) {
     const index = Math.min(Math.max(Math.trunc(anchor.index), 0), entries.length - 1)
-    const clip = Math.min(Math.max(Math.trunc(anchor.clip), 0), rowsOf(index) - 1)
-    position = rowsOf(index) - clip
+    const offset = Math.min(Math.max(Math.trunc(anchor.offset), 0), rowsOf(index) - 1)
+    position = offset
     for (let i = 0; i < index; i++) position += rowsOf(i)
+    position = Math.min(position, Math.max(0, total - Math.max(Math.trunc(maxRows), 1)))
   } else {
-    position = total
+    position = Math.max(0, total - Math.max(Math.trunc(maxRows), 1))
   }
-  const minPosition = Math.min(Math.max(Math.trunc(maxRows), 1), total)
-  const next = Math.min(Math.max(position + Math.trunc(deltaRows), minPosition), total)
-  if (next >= total) return null
+  const tailPosition = Math.max(0, total - Math.max(Math.trunc(maxRows), 1))
+  let next = Math.min(Math.max(position + Math.trunc(deltaRows), 0), tailPosition)
+  if (anchor && next >= tailPosition) return null
+  if (next <= 0 && tailPosition === 0) return null
   let acc = 0
   for (let i = 0; i < entries.length; i++) {
     const r = rowsOf(i)
-    if (next <= acc + r) return { index: i, clip: acc + r - next }
+    if (next < acc + r) {
+      const offset = next - acc
+      if (!canClip(entries[i] as T) && (offset > 0 || r > Math.max(Math.trunc(maxRows), 1))) {
+        if (deltaRows > 0) {
+          const after = acc + r
+          if (after >= tailPosition) return null
+          acc = after
+          next = after
+          continue
+        }
+        for (let previous = i - 1; previous >= 0; previous--) {
+          const previousEntry = entries[previous] as T
+          if (canClip(previousEntry)) return { index: previous, offset: rowsOf(previous) - 1 }
+          if (rowsOf(previous) <= Math.max(Math.trunc(maxRows), 1)) return { index: previous, offset: 0 }
+        }
+        return null
+      }
+      return { index: i, offset }
+    }
     acc += r
   }
   return null

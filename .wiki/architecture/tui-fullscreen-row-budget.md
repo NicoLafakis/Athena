@@ -210,37 +210,16 @@ test specifically renders at a constrained `rows`/`columns` (see
 
 ## Transcript scrolling
 
-Transcript scroll position is tracked as `scrollAnchor` — `{ index, clip }`: the
-window's bottom edge rests `clip` rows above the bottom of `entries[index]` (`null` =
-following the live tail). An entry-index anchor, not a row offset from the bottom,
-because appending new entries at the tail can never move an index that points behind
-it — a row-offset anchor would need to be re-derived on every new message just to stay
-pointed at the same logical spot. `sliceToAnchor`/`shiftAnchor` in `viewport.ts` do the
-math in absolute row offsets; `estimateEntryRows` (the same estimator `Transcript`
-renders with) is what a page step measures against, so a page step and the window it
-produces can never disagree about how tall an entry is.
+Transcript scroll position is tracked as `scrollAnchor` — `{ index, offset }`: the first visible row is `offset` rows down from the start of `entries[index]` (`null` = following the live tail). A top-relative anchor keeps the visible content stable when a streaming entry grows below it. `sliceToAnchor`/`shiftAnchor` in `viewport.ts` do the math in absolute row offsets; `estimateEntryRows` is shared with `Transcript`, so page movement and rendering use the same row heights.
 
-The window is ROW-granular: the anchor entry can be clipped from the bottom and the
-first visible entry from the top (text kinds via `wrapToRows`, the exact wrap math the
-estimator uses; tool cards stay whole — a bordered component is never sliced mid-body).
-Entry-granular slicing made any entry taller than the screen show only its tail and be
-skipped entirely by paging — the middle was unreachable. `shiftAnchor` clamps at the
-top with the first content row at the window's top (`min(totalRows, maxRows)` in
-absolute-offset space), and returns `null` when a downward move reaches the live tail
-so follow resumes. A PageUp when the whole history already fits is a no-op.
+The window is row-granular: text entries can be clipped at row boundaries using `wrapToRows`; bordered tool cards stay whole. `shiftAnchor` clamps at the transcript start and returns `null` when a downward move reaches the live tail, resuming follow mode. A PageUp when the whole history already fits is a no-op.
 
-Thinking blocks render as their own transcript entry kind (`thinking`): dim italic,
-`· `-prefixed, tail-capped at 8 measured rows by `thinkingDisplayText` — the estimator
-measures that exact display string, prefix and cap included, never the raw text.
+Thinking blocks render as their own transcript entry kind (`thinking`): dim italic, `· `-prefixed, tail-capped at 8 measured rows by `thinkingDisplayText` — the estimator uses the same display text.
 
-Scrolling is fullscreen-only — classic mode keeps native terminal scrollback and is left
-alone. (Caveat: Ink repaints classic mode with `clearTerminal`, which includes the
-scrollback-erasing `3J`, on every frame once output reaches one screen — classic
-scrollback is fragile by upstream design, not by ours.) See
-`.wiki/reference/tui-keybindings.md` for the PageUp/PageDown/Ctrl+PageUp/
+Scrolling is fullscreen-only — classic mode retains its separate terminal rendering path.
+See `.wiki/reference/tui-keybindings.md` for the PageUp/PageDown/Ctrl+PageUp/
 Ctrl+PageDown bindings and `.wiki/reference/tui-platform-limits.md` for why Home/End
 aren't bound.
-
 ## Source map
 
 - `src/tui/App.tsx` — the budget itself (see the large file-header comment there, which

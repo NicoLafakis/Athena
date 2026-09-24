@@ -31,21 +31,25 @@ function statusLineParts(props: StatusLineProps): {
     left: `${props.cwd}${props.gitBranch ? ` · ⎇ ${props.gitBranch}` : ''} · ${props.model} · ${props.effort} · `,
     mode: props.mode,
     right: ` · ctx ${Math.round(props.contextPct)}%`,
-    scroll: scrollNoticeText(props.scrolledBelow ?? 0),
+    scroll: scrollNoticeText(props.scrolledBelow ?? 0, props.scrolled ?? false),
   }
 }
 
-/** `scrolledBelow` is how many transcript entries sit BELOW the scrolled-up viewport
- *  (0 = following the live tail, so no notice at all). Deliberately lives on the pinned
- *  status footer rather than as an extra line at the transcript's edge: App.tsx already
+/** `scrolledBelow` is how many transcript entries sit BELOW the scrolled-up viewport;
+ *  `scrolled` remains true when the anchor is inside the newest entry. The notice
+ *  deliberately lives on the pinned status footer rather than as an extra line at the
+ *  transcript's edge: App.tsx already
  *  measures this line's real wrapped height into its fullscreen row budget, so the notice
  *  can never become an unbudgeted row that overflows the frame. Same "… N more" phrasing
  *  as SlashMenuPopup/DiffPreview/TodoPanel's truncation notices. */
-export function scrollNoticeText(scrolledBelow: number): string {
-  return scrolledBelow > 0 ? ` · ↑ scrolled, … ${scrolledBelow} more below (PgDn)` : ''
+export function scrollNoticeText(scrolledBelow: number, scrolled = scrolledBelow > 0): string {
+  if (!scrolled) return ''
+  return scrolledBelow > 0
+    ? ` · ↑ scrolled, … ${scrolledBelow} more below (PgDn)`
+    : ' · ↑ scrolled (PgDn)'
 }
 
-export type StatusLineProps = AppStatus & { busy: boolean; scrolledBelow?: number }
+export type StatusLineProps = AppStatus & { busy: boolean; scrolledBelow?: number; scrolled?: boolean }
 
 /** Plain-text (no ANSI/Ink markup) render of the whole status line — see
  *  statusLineParts above for why this is a single source of truth shared with the

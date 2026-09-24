@@ -1,33 +1,29 @@
-# 0001. Use terminal-owned scrollback for conversation history
+# 0001. Keep fullscreen transcript paging as the default
 
-**Status:** proposed
+**Status:** accepted
 **Date:** 2026-09-24
 
 > [Objective overview](../00-overview.md) · [Technical design](../design.md)
 
 ## Context
 
-The standard Athena TUI enters an alternate screen and implements its own paged transcript. The user reports that PageUp/PageDown does not work and prefers the behavior of a normal CLI. Existing classic mode nominally restores native scrollback, but Ink can erase that history during redraw. A reader-only fix to the current key mapping would retain the mismatch with ordinary terminal scrolling.
-
-Conversation content already has a canonical session record. Search should not create a competing transcript archive or leak local conversation content to an external service.
-
+Athena intentionally enters fullscreen alternate-screen mode by default, like other terminal coding agents. The fullscreen transcript has app-managed paging and fixed chrome with a strict row budget. The defect addressed here is unstable reading position when a visible streaming entry grows beneath the viewport anchor. Session records remain canonical, and planned search must not create a competing archive or leak local content externally.
 ## Decision
 
-Make append-only terminal output with terminal-owned scrollback the standard conversation-reading behavior. Keep fullscreen alternate-screen mode as an explicit opt-in if retained. Search the existing active-session records and return transient labeled excerpts; any acceleration data is derived and rebuildable.
+Keep fullscreen mode as the default. Track the first visible transcript row with a top-relative `{ index, offset }` anchor. PageUp/PageDown move through the bounded fullscreen transcript; Ctrl+PageUp/Ctrl+PageDown jump to the beginning and live tail. Growth below the anchor preserves the visible row. Paging back to the live tail resumes follow mode.
 
-The exact Ink/terminal implementation must be selected after a prototype demonstrates that repeated streaming updates do not erase scrollback or steal the viewport in real terminals.
-
+Active-session search remains a separate planned capability over existing session records. It must stay local and report only content that Athena stores.
 ## Alternatives considered
 
-- **Fix custom paging in fullscreen:** insufficient because it still requires Athena to intercept terminal keys and does not match normal CLI scrollback.
-- **Use current classic redraw path:** rejected until proven, because existing architecture notes document scrollback erasure.
+- **Leave the existing bottom-relative anchor:** rejected because a growing entry changes its bottom and shifts the user's view.
+- **Switch the default to classic mode:** rejected because fullscreen is the intended default and would change the product interaction contract.
 - **Use the screen-reader presentation unchanged:** rejected because it has different prompt and semantic-announcement behavior; its append-only property is a reference, not a complete UI choice.
 - **Persist a duplicate transcript index:** rejected because it adds privacy and deletion consistency risk.
 
 ## Consequences
 
-- Normal terminal keys control historical scrolling and are not reserved by Athena.
-- Rendering must distinguish finalized transcript rows from the live mutable tail and prompt.
-- A real-terminal verification step is required; snapshot tests alone cannot prove native scrollback behavior.
-- The fullscreen mode and its row-budget invariants can remain available but are no longer required for reliable reading.
+- PageUp/PageDown and Ctrl+PageUp/Ctrl+PageDown control fullscreen transcript history.
+- The transcript pager anchors to the first visible row; output below it can continue streaming.
+- A TTY integration regression must prove that a visible streaming entry can grow without moving the reader or pinned chrome.
+- Fullscreen remains the default reading mode; its row-budget invariants remain mandatory.
 - Search results are only as complete as content stored in the existing session record. Provider-omitted reasoning remains unavailable.

@@ -4,27 +4,25 @@
 
 ## Problem & goal
 
-The fullscreen transcript has app-managed paging, but PageUp/PageDown is not working for the user. Classic mode claims native terminal scrollback, yet its redraw behavior can erase that history. As a result, a user cannot reliably browse or search the conversation that Athena is actively producing.
-
-Done means normal terminal scrollback is the reliable default reader, streaming does not steal the user's scroll position, and the active session can be searched locally across the requested content kinds.
-
+The fullscreen transcript has app-managed paging and must keep a stable reading position while a streamed entry grows. Fullscreen remains the default interactive mode. The complete transcript remains available in session records, and active-session search is separate planned work.
 ## User stories
 
-- As an Athena user, I want conversation output to remain in ordinary terminal scrollback so I can use the same scrolling behavior as other CLI tools.
+- As an Athena user, I want fullscreen transcript paging to let me review the conversation while the assistant is streaming.
 - As an Athena user, I want new output to continue arriving without moving me away from older content I am reading.
 - As an Athena user, I want to search the active conversation, including replies, user text, stored thinking, and tool activity, so I can find the relevant earlier detail.
 - As an Athena user, I want search results labeled by kind and shown with enough surrounding text to recognize the match.
 
 ## Acceptance criteria
 
-### Normal terminal reading
+### Fullscreen transcript reading
 
-- **Given** an interactive terminal and a conversation producing more output than fits on screen, **when** output is emitted, **then** it remains in terminal-native scrollback and can be traversed with that terminal's normal scroll controls.
-- **Given** the user has scrolled above the live end, **when** another assistant, tool, or status entry is emitted, **then** the user's current reading position is preserved and the new content remains available at the live end.
-- **Given** the user returns to the live end, **when** new output arrives, **then** reading follows the stream normally.
-- **Given** a non-interactive or redirected output stream, **when** Athena runs, **then** output remains line-oriented and does not emit cursor-control sequences intended for an interactive terminal.
-- **Given** fullscreen mode is selected, **when** the user chooses to use it, **then** its behavior is explicit and reliable; standard history access does not depend on custom key handling in that mode.
-
+- **Given** an interactive TTY in the default fullscreen mode and a transcript longer than its viewport, **when** PageUp is pressed, **then** the transcript moves toward earlier rows while fullscreen chrome stays pinned.
+- **Given** the reader has paged away from the live tail, **when** a visible streaming entry grows below its first visible row, **then** that row remains fixed and the new tail does not yank the viewport.
+- **Given** the reader pages down to the live tail, **when** new output arrives, **then** follow mode resumes.
+- **Given** the user presses Ctrl+PageUp or Ctrl+PageDown, **then** the viewport jumps to the transcript beginning or live tail respectively.
+- **Given** a fullscreen render at any terminal size, **then** pinned chrome fits its measured row budget and every-frame content-signature checks remain in force.
+- **Given** a text entry or a bordered tool card is partially within the viewport, **then** text may be clipped at measured row boundaries but tool cards remain whole.
+- **Given** output is redirected, **then** existing non-interactive behavior remains free of fullscreen control sequences.
 ### Search
 
 - **Given** an active session with stored messages and tool activity, **when** the user searches for literal text, **then** Athena returns matching excerpts in chronological order with a role/activity label and enough context to identify each occurrence.
@@ -43,6 +41,6 @@ Done means normal terminal scrollback is the reliable default reader, streaming 
 
 ## Open questions
 
-- Search interaction: slash command with next/previous result, or a small interactive search prompt. Technical design should select the option that fits existing command and terminal-input behavior while keeping native scrollback controls available.
+- Search interaction: slash command with next/previous result, or a small interactive search prompt. The design should fit existing command and input behavior while allowing the user to continue paging the fullscreen transcript.
 - Whether tool request inputs and full tool outputs should both be in the first search corpus or whether very large outputs need an explicit per-kind inclusion option.
-- The final default between append-only normal mode and a live TUI that uses an append-only transcript region; resolve by real-terminal prototype and usability verification before implementation is considered complete.
+- Whether any additional terminal-specific interaction is needed beyond the existing fullscreen PageUp/PageDown bindings; verify on supported terminals without changing the fullscreen default.

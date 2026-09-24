@@ -25,4 +25,4 @@ Session content and tool output are untrusted display data. Escape terminal cont
 
 ## Residual risk
 
-Terminal-native scrollback retention is controlled by the user's terminal configuration and may be bounded. Session records and active-session search remain the complete local record; UI copy must not promise infinite terminal scrollback.
+Fullscreen viewport clipping changes only rendered rows; session records and active-session search remain the complete local record.

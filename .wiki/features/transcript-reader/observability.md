@@ -10,11 +10,11 @@ Use concise local errors for unreadable session records, unsupported interactive
 
 ## Verification signals
 
-- A long streamed session leaves earlier finalized output in native scrollback.
+- Paging moves through transcript history without moving fullscreen chrome; a growing entry keeps the first visible row fixed.
 - Search returns the expected fixture count by content kind and preserves chronological order.
 - Redirected output emits no cursor-control sequences.
 - Searches do not call a provider and do not mutate stored messages.
 
 ## Support procedure
 
-Reproduce in the exact terminal and shell, note whether output is interactive or redirected, inspect terminal scrollback configuration, and compare the active session's stored records with search results. Use existing session inspection/recovery procedures; do not ask users to upload private transcripts for routine diagnosis.
+Reproduce in the exact terminal and shell, note whether output is interactive or redirected, inspect the active row budget and scroll anchor, and compare against the viewport and App scrolling tests. Use existing session inspection/recovery procedures; do not ask users to upload private transcripts for routine diagnosis.

@@ -2,11 +2,11 @@
 
 **Tier:** 3 — changes the user-facing CLI interaction contract
 **Date:** 2026-09-24
-**Status:** planning
+**Status:** scrolling implemented; active-session search remains planned
 
 ## What was asked
 
-Keep the conversation stream available on screen so Nico can scroll and search through the full history: user messages, assistant replies, provider-supplied thinking, and tool activity. Scrolling should behave like a normal CLI terminal, not rely on Athena's currently unreliable PageUp/PageDown handling.
+Keep Athena's fullscreen TUI as the default and make its transcript pager reliable while output streams. Users can browse user messages, assistant replies, provider-supplied thinking, and tool activity without the viewport jumping away from their current row. Active-session local search remains a separate planned capability.
 
 ## What it really serves
 
@@ -21,23 +21,23 @@ Athena is a terminal coding agent, and its conversation is both the live working
 - **Next wants:** jump between search results, distinguish message kinds, and reopen a result in its original session context.
 - **Breaks at scale / edges:** long-running sessions, large tool outputs, terminal resize, provider-dependent thinking blocks, alternate terminals that bind paging keys, and output arriving while the user is reading older content.
 - **Unlocks:** local evidence lookup in prior work and later source-linked conversation continuity, without making every session part of one unbounded rendered component.
-- **Doors kept open:** terminal-owned scrollback for reading, the existing session records as canonical content, a rebuildable local search path, and the current fullscreen interface as an optional mode.
-- **Doors shut:** relying on custom PageUp/PageDown interception as the only way to read history, copying raw transcripts into another archive, and sending search queries or transcript content to a remote service.
+- **Doors kept open:** fullscreen paging with a stable first-visible-row anchor, the existing session records as canonical content, and a rebuildable local search path.
+- **Doors shut:** discarding transcript history when virtualizing its rendered viewport, copying raw transcripts into another archive, and sending search queries or transcript content to a remote service.
 
 ## Scope line
 
 ### Building
 
-- Make the standard conversation-reading experience append to ordinary terminal scrollback so terminal-native scrolling works while a turn is active and after it completes.
-- Keep the live tail visible by default; when the user scrolls away, later output must not force the viewport back to the tail.
+- Keep fullscreen alternate-screen mode as the default and make its app-managed PageUp/PageDown transcript pager stable while a turn is active and after it completes.
+- Keep the live tail visible by default; when the user pages away, later output must not move the first visible row back to the tail.
 - Add local, case-insensitive search of the active session's stored conversation content, with result snippets and a way to move through matches.
 - Cover user text, assistant text, stored provider-supplied thinking, and tool activity/output; label result kinds so they are distinguishable.
-- Keep fullscreen as an explicit optional presentation if it remains useful; it must not be required for reliable history access.
+- Keep the fixed fullscreen chrome within its measured row budget and preserve the existing every-frame content-signature checks.
 - Preserve existing session persistence, redaction, permission behavior, and CLI command handling.
 
 ### Surfacing for Nico's call
 
-- Whether search should also query every prior session in this first release. The initial package targets the active session; cross-session search belongs with the separate conversational-continuity plan unless the user expands scope.
+- Whether search should also query every prior session in its first release. The initial package targets the active session; cross-session search belongs with the separate conversational-continuity plan unless the user expands scope.
 
 ### Dropping
 

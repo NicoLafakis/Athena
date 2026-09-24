@@ -87,6 +87,8 @@ in Windows Terminal and always work.
 
 New messages never yank a scrolled-up view back down to the tail — auto-follow only
 applies while the scroll anchor is at its default (`null`, "following the live tail").
+If a streaming message itself grows under the current viewport, its first visible row
+stays fixed while later rows append below it.
 
 ## Global
 

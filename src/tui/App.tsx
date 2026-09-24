@@ -337,14 +337,10 @@ export function App({
   // Second-level value picker for a bare pickable command (/model /provider /effort
   // /mode /tui) — see detectBarePickableCommand/handleSubmit below. null = not showing.
   const [argPicker, setArgPicker] = useState<ArgPickerState | null>(null)
-  // Transcript scroll position, as the EXCLUSIVE entry index the render window ends at.
-  // null = following the live tail (the default, and exactly the pre-scrolling behavior:
-  // new messages keep the view pinned to the bottom). A number means the user has scrolled
-  // up, and new messages must NOT yank the view back down — which an entry-index anchor
-  // gives for free, since appending at the tail can't move an index that points behind it
-  // (see viewport.ts's sliceToAnchor/shiftAnchor for why the anchor is an index rather
-  // than a row offset measured from the bottom). Fullscreen-only: classic mode has native
-  // scrollback and never virtualizes.
+  // Transcript scroll position, as the first visible row's entry index and row offset.
+  // null = following the live tail (the default). A top-relative anchor keeps the visible
+  // row steady when a currently streamed entry grows below it. Fullscreen only: classic
+  // mode never virtualizes its transcript.
   const [scrollAnchor, setScrollAnchor] = useState<ScrollAnchor | null>(null)
   const { exit } = useApp()
 
@@ -544,18 +540,19 @@ export function App({
       ? null
       : {
           index: Math.min(Math.max(Math.trunc(scrollAnchor.index), 0), entries.length - 1),
-          clip: Math.max(0, Math.trunc(scrollAnchor.clip)),
+          offset: Math.max(0, Math.trunc(scrollAnchor.offset)),
         }
   // How many entries sit below the viewport — drives StatusLine's "… N more below" notice.
   // Computed BEFORE statusLineRows on purpose: the notice is part of the status line's
   // text, so its own wrapped height has to be inside that measurement or it becomes an
   // unbudgeted row in a column whose only overflow-protected sibling is the Transcript.
   const scrolledBelow = anchor === null ? 0 : entries.length - 1 - anchor.index
+  const isScrolled = anchor !== null
 
   // StatusLine is a fixed footer, but its content (cwd/branch/model/mode/ctx%) is
   // arbitrary-length text with NO border/padding stealing width, so it's measured against
   // the full terminal width — see the file-header comment on why this can't just be "1".
-  const statusLineRows = wrappedRowCount(statusLineText({ ...status, busy, scrolledBelow }), columns)
+  const statusLineRows = wrappedRowCount(statusLineText({ ...status, busy, scrolledBelow, scrolled: isScrolled }), columns)
 
   // Banner is ambient branding, so it steps aside on a terminal too short to fit it
   // alongside the pinned input row, the status line and the Transcript floor — the same
@@ -846,10 +843,12 @@ export function App({
       if (prev === null) return null
       if (entries.length === 0) return null
       const index = Math.min(Math.max(Math.trunc(prev.index), 0), entries.length - 1)
-      const maxClip = Math.max(1, estimateEntryRows(entries[index]!, columns)) - 1
-      const clip = Math.min(Math.max(Math.trunc(prev.clip), 0), maxClip)
-      if (index === entries.length - 1 && clip === 0) return null
-      return index === prev.index && clip === prev.clip ? prev : { index, clip }
+      const offset = Math.min(
+        Math.max(Math.trunc(prev.offset), 0),
+        Math.max(1, estimateEntryRows(entries[index]!, columns)) - 1,
+      )
+      if (index === entries.length - 1 && offset === 0) return null
+      return index === prev.index && offset === prev.offset ? prev : { index, offset }
     })
   }, [entries.length, rows, columns])
 
@@ -882,8 +881,8 @@ export function App({
           // Ctrl+PageUp asks for the top: an arbitrarily large upward step, which
           // shiftAnchor clamps at the first content row reaching the window's top.
           key.ctrl
-            ? shiftAnchor(entries, entryRowsOf, null, -Number.MAX_SAFE_INTEGER, pageRows)
-            : shiftAnchor(entries, entryRowsOf, prev, -pageRows, pageRows),
+            ? shiftAnchor(entries, entryRowsOf, null, -Number.MAX_SAFE_INTEGER, pageRows, (entry) => entry.kind !== 'tool')
+            : shiftAnchor(entries, entryRowsOf, prev, -pageRows, pageRows, (entry) => entry.kind !== 'tool'),
         )
         return
       }
@@ -896,7 +895,7 @@ export function App({
           if (prev === null) return null
           // Paging down to the live tail resumes following it (shiftAnchor returns
           // null), rather than freezing on an anchor later messages would move past.
-          return shiftAnchor(entries, entryRowsOf, prev, pageRows, pageRows)
+          return shiftAnchor(entries, entryRowsOf, prev, pageRows, pageRows, (entry) => entry.kind !== 'tool')
         })
       }
     },
@@ -963,7 +962,7 @@ export function App({
           there, so every budget in between is computed from the height this very frame
           commits to rather than the previous frame's. */}
       {input.element}
-      <StatusLine {...status} busy={busy} scrolledBelow={scrolledBelow} />
+      <StatusLine {...status} busy={busy} scrolledBelow={scrolledBelow} scrolled={isScrolled} />
     </Box>
   )
 }

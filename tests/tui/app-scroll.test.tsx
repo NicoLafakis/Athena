@@ -264,6 +264,32 @@ describe('fullscreen transcript scrolling', () => {
     expect(frame.split('\n').length).toBeLessThanOrEqual(20)
   })
 
+  it('keeps the first visible row fixed while the visible streaming entry grows below it', async () => {
+    const props = makeProps()
+    const { stdout, stdin } = renderOnTty(<App {...props} />, 20, 80)
+    await delay(10)
+    props.bus.emit({
+      type: 'assistant-text',
+      delta: Array.from({ length: 40 }, (_, i) => `stream-line-${i + 1}`).join('\n'),
+    })
+    await delay(20)
+
+    stdin.write(PAGE_UP)
+    await delay(20)
+    const before = lastFrame(stdout)
+    const visible = before.match(/stream-line-\d+/g) ?? []
+    expect(visible.length).toBeGreaterThan(0)
+    expect(before).toContain('scrolled')
+
+    props.bus.emit({ type: 'assistant-text', delta: '\nstream-line-41\nstream-line-42' })
+    await delay(20)
+
+    const after = lastFrame(stdout)
+    expect(after.match(/stream-line-\d+/g)?.[0]).toBe(visible[0])
+    expect(after).not.toContain('stream-line-41')
+    expect(after).toContain('C:/proj')
+  })
+
   it('/clear resets a stale scroll anchor instead of leaving it pointing at gone entries', async () => {
     const props = makeProps()
     const { stdout, stdin } = renderOnTty(<App {...props} />, 20, 80)
