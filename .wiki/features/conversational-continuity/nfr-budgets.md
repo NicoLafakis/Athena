@@ -49,13 +49,18 @@ sample; representative live-history performance remains unmeasured.
   only the current request after shared secret redaction (maximum 12,000 characters) and
   fixed route and speech-act choice labels; do not send hook context, history, episode
   text, summaries, memory text, source IDs, or project paths.
-- The outer decision deadline is one second, with SDK retries disabled. The added wait is
+- The outer decision deadline is two seconds, with a 1.9-second SDK attempt timeout and
+  retries disabled. The added wait is
   bounded; timeout, rate limit, invalid output, or provider error continues the answer
   turn without a route hint.
 - Measure Jev route precision/recall, no-recall false positives, speech-act precision,
   confidence-gated persisted-label precision, calibration, latency, token volume, and
-  estimated cost on the labeled synthetic corpora. Both live comparison runners are
-  implemented; results remain pending a configured key.
+  estimated cost on labeled synthetic corpora. The 2026-09-23 recall run was 47/49 exact
+  overall and 41/42 exact at confidence >= 0.85, with 0/4 actionable no-history false
+  positives. Speech-act results were 72/72 on the calibration set and 18/18 on a separate
+  phrasing holdout, with 37/37 and 9/9 high-confidence persisted labels correct and zero
+  fallbacks on either final run. These are synthetic results, not representative user-history
+  quality.
 - There is no duplicate raw transcript store. Jev is a paid provider path only when the
   user configures its key; disable it with global `jev.enabled: false`.
 - Logs and local traces contain no query strings, user content, route labels, facts, or

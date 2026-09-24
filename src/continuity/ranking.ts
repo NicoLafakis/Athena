@@ -88,6 +88,17 @@ const STOP_WORDS = new Set([
   'give', 'me', 'please', 'about',
 ])
 
+// These words help identify the requested memory operation, but do not identify
+// which historical subject is relevant. Intent still uses the original query.
+const INTENT_ONLY_WORDS = new Set([
+  'decision', 'decisions', 'decide', 'decided', 'agreement', 'agreements', 'agree', 'agreed',
+  'promise', 'promises', 'promised', 'commitment', 'commitments', 'committed', 'choice', 'choices',
+  'choose', 'chose', 'preference', 'preferences', 'prefer', 'preferred', 'fact', 'facts',
+  'model', 'models', 'plan', 'plans', 'history', 'historical', 'previous', 'prior', 'similar',
+  'work', 'works', 'task', 'tasks', 'project', 'projects', 'repo', 'repository', 'codebase',
+  'conversation', 'conversations', 'discussion', 'discussions',
+])
+
 const LAYER_ORDER: Record<RecallLayer, number> = {
   working: 0,
   semantic: 1,
@@ -101,6 +112,10 @@ const MAX_METRIC_SOURCE_IDS = 64
 function terms(text: string): string[] {
   return (text.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? [])
     .filter((term) => !STOP_WORDS.has(term) && !/^\d+$/.test(term))
+}
+
+function topicTerms(text: string): string[] {
+  return terms(text).filter((term) => !INTENT_ONLY_WORDS.has(term))
 }
 
 function matchesTerm(query: string, source: string): boolean {
@@ -237,7 +252,9 @@ function candidateScore(
   now = Date.now(),
 ): { score: number; reasons: string[] } {
   const textScore = lexicalScore(query, queryTerms, fields)
-  if (queryTerms.length > 0 && textScore === 0 && !window) return { score: Number.NEGATIVE_INFINITY, reasons: [] }
+  if (!window && (queryTerms.length === 0 || textScore === 0)) {
+    return { score: Number.NEGATIVE_INFINITY, reasons: [] }
+  }
   const reasons: string[] = []
   if (textScore > 0) reasons.push('topic or phrase match')
   if (window) reasons.push('inside requested time range')
@@ -274,7 +291,8 @@ export function rankContinuityLayers(options: RankContinuityLayersOptions): Reca
   const now = options.now ?? new Date()
   const nowMs = now.getTime()
   const query = options.query.trim()
-  const queryTerms = [...new Set(terms(query))]
+  const queryTerms = [...new Set(topicTerms(query))]
+  const topicQuery = queryTerms.join(' ')
   const window = options.window ? TemporalWindowSchema.parse(options.window) : undefined
   const intent = inferIntent(query, window)
   const limit = Math.max(1, Math.min(options.limit ?? 5, 8))
@@ -286,7 +304,7 @@ export function rankContinuityLayers(options: RankContinuityLayersOptions): Reca
     if (!isAllowedProject(input.projectId, options.projectId) || !isInWindow(input.observedAt, window)) continue
     const working = WorkingRecallStateSchema.parse(input)
     const ranking = candidateScore(
-      'working', query, queryTerms, [working.content, ...(working.topics ?? [])], working.observedAt,
+      'working', topicQuery, queryTerms, [working.content, ...(working.topics ?? [])], working.observedAt,
       working.projectId, 0, [], intent, window, options.currentProjectId, nowMs,
     )
     if (Number.isFinite(ranking.score)) {
@@ -304,7 +322,7 @@ export function rankContinuityLayers(options: RankContinuityLayersOptions): Reca
   for (const episode of episodes) {
     if (!isAllowedProject(episode.projectId, options.projectId) || !isInWindow(episode.observedAt, window)) continue
     const ranking = candidateScore(
-      'episodic', query, queryTerms, [episode.summary, ...episode.topics], episode.observedAt,
+      'episodic', topicQuery, queryTerms, [episode.summary, ...episode.topics], episode.observedAt,
       episode.projectId, 0, episode.speechActs, intent, window, options.currentProjectId, nowMs,
     )
     if (Number.isFinite(ranking.score)) {
@@ -338,7 +356,7 @@ export function rankContinuityLayers(options: RankContinuityLayersOptions): Reca
     }
     const sourceAuthority = memory.captureMode === 'explicit' ? 2 : 1 + Math.min(1, memory.supportingEpisodeIds.length / 4)
     const ranking = candidateScore(
-      'semantic', query, queryTerms, [memory.description, content], memory.observedAt,
+      'semantic', topicQuery, queryTerms, [memory.description, content], memory.observedAt,
       memory.scope === 'project' ? memory.projectId! : null, sourceAuthority, [memory.speechAct],
       intent, window, options.currentProjectId, nowMs,
     )
@@ -371,7 +389,7 @@ export function rankContinuityLayers(options: RankContinuityLayersOptions): Reca
     const projectIds = [...new Set(validEpisodes.map((episode) => episode.projectId).filter((id): id is string => id !== null))]
     const projectId = projectIds.length === 1 ? projectIds[0]! : null
     const ranking = candidateScore(
-      'rollup', query, queryTerms, [rollup.summary], rollup.createdAt,
+      'rollup', topicQuery, queryTerms, [rollup.summary], rollup.createdAt,
       projectId, 0, [], intent, window, options.currentProjectId, nowMs,
     )
     if (Number.isFinite(ranking.score)) {

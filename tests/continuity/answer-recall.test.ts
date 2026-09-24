@@ -336,6 +336,25 @@ describe('prepareAnswerTimeRecall', () => {
     if (result.status === 'clarify') expect(result.promptContext).toContain('name a topic or time period')
   })
 
+  it('does not let generic recall-intent words act as historical topics', () => {
+    addConversation(
+      'C:/projects/generic-model',
+      'We decided the model for this session is Sonnet.',
+      'The model choice is final.',
+    )
+
+    const topiclessDecision = prepare('What did we decide?', 'historical-decision')
+    expect(topiclessDecision.status).toBe('clarify')
+    if (topiclessDecision.status === 'clarify') {
+      expect(topiclessDecision.promptContext).toContain('name a topic or time period')
+    }
+
+    const unrelatedModel = prepare('What was the Jev decision model decision?', 'historical-decision')
+    expect(unrelatedModel.status).toBe('no-match')
+    expect(JSON.stringify(unrelatedModel)).not.toContain('Sonnet')
+    expect(JSON.stringify(unrelatedModel)).not.toContain('model choice is final')
+  })
+
   it('does not send stale source text after a persisted line changes', () => {
     const previous = addConversation(
       'C:/projects/stale-recall',

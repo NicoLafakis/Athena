@@ -1,8 +1,9 @@
 # ADR 0003: Use Jev for Athena's recall routing and speech-act intake
 
-- **Status:** Accepted; pinned recall routing and source-linked speech-act intake are
-  integrated into the harness. Live quality and cost evaluation remains pending because no
-  TypeSafe credential was configured.
+- **Status:** Accepted and implemented; pinned recall routing and source-linked speech-act
+  intake are integrated into the harness. Live Jev evaluations have been run on synthetic
+  corpora; representative live-history dogfood remains open. Results are in
+  [the calibration snapshot](../calibration.md).
 - **Date:** 2026-09-23
 - **Context:** Athena needs to recognize implicit continuity intent and select the
   appropriate local memory path without confusing a conversation model with the memory
@@ -39,15 +40,16 @@ request. That payload is capped at five episodes/4,000 characters; semantic text
 summaries, tool blocks, source IDs, paths, and hook context are excluded.
 
 The adapter pins model `jev-1.13.0` through TypeSafe JavaScript SDK `0.6.0`, disables SDK
-request logging and retries, and enforces a one-second outer deadline with a 900 ms
-per-attempt SDK timeout. Requests longer than 12,000 characters are skipped. Invalid or
+request logging and retries, and enforces a two-second outer deadline with a 1.9-second
+per-attempt SDK timeout. SDK timeouts are normalized to timeout fallbacks. Requests longer
+than 12,000 characters are skipped. Invalid or
 unknown choices, malformed probabilities, timeouts, missing credentials, rate limits, and
 provider errors fall through to the ordinary answer path. A route hint is transient and is
-not saved in session messages. TypeSafe confidence and probabilities are retained for
-evaluation but there is no calibrated confidence threshold yet; current route use follows
-the explicit product decision and must be reviewed against the synthetic live evaluation.
-`Noul` returns a yes probability without a separate confidence field; do not treat it as an
-ordered score.
+not saved in session messages. Recall actions require confidence `>= 0.85`; synthetic
+evaluation is reported both before and after this gate. The threshold is an operational
+policy evaluated on a small synthetic set, not a statistically calibrated guarantee for
+real conversations. `Noul` returns a yes probability without a separate confidence field;
+do not treat it as an ordered score.
 
 The product owner explicitly approved memory intake on 2026-09-23. Speech-act
 classification is persisted only after Athena writes the current user message. Athena
@@ -61,9 +63,10 @@ same normalized user text appears in two or more independent sessions. Candidate
 still applies redaction, sensitivity, completeness, and source-integrity checks. Promotion
 rechecks the exact source lines. `corrected` and `retracted` labels are kept with their
 episode context to help retrieval, but they do not automatically supersede, promote, or
-delete semantic memory. A balanced 36-case synthetic corpus and live evaluator cover the
-typed speech-act labels. Live precision remains unmeasured until `TYPESAFE_API_KEY` is
-configured.
+delete semantic memory. The final live synthetic evaluation returned 72/72 exact labels
+on the calibration corpus and 18/18 on a separate phrasing holdout. At the 0.85
+persistence threshold, 37/37 and 9/9 persisted-label decisions were correct respectively.
+These small synthetic sets do not establish real-user precision.
 
 Never give Jev authority to decide project trust, permission, tool execution, source
 retention, forgetting, deletion, credential handling, or user-confirmed facts. The
@@ -78,7 +81,9 @@ distribution; `Noul` returns a yes probability. These outputs fit bounded routin
 classification, while Athena still needs its current generative model to compose natural
 language responses and use tools. A request can ask several independent typed questions
 over the same state in one call; Athena uses this capability for route and speech-act
-classification without sending more than the current redacted user request.
+classification without sending more than the current redacted user request. A typed
+response constrains the output shape; it does not guarantee that the selected category is
+semantically correct, so local source verification and confidence gates remain necessary.
 
 As checked on 2026-09-23, the model page lists Jev 1.13 (`jev-1.13.0`) at $0.042 per
 million input tokens, output tokens free, with a 64k total context limit and 32k limit for
@@ -107,12 +112,17 @@ agreement before materially changing the payload scope or provider configuration
 2. Run `pnpm exec tsx bench/jev-recall-evaluation.ts` with `TYPESAFE_API_KEY` to compare
    Jev against the 49-case synthetic corpus. It measures route precision/recall, coverage,
    no-recall false positives, multiclass Brier score, latency, input/output tokens, and
-   estimated cost. This live run was not possible during integration because the key was
-   absent; no live Jev quality result is claimed.
+   estimated cost. The 2026-09-23 run used only the synthetic corpus: 47/49 exact routes
+   (95.9%); after the 0.85 action threshold, 41/42 actionable routes were exact (97.6%),
+   with 0/4 actionable no-recall false positives. See the calibration snapshot for the
+   full metrics and limits.
 3. Run `pnpm exec tsx bench/jev-speech-act-evaluation.ts` with `TYPESAFE_API_KEY` to
-   measure all nine speech-act labels, high-confidence persisted-label precision, coverage,
-   macro F1, calibration, latency, and token counts against the 36-case synthetic corpus.
-   This live run has not occurred; no quality result is claimed.
+   measure all nine speech-act labels, high-confidence persisted-label precision, confidence
+   frontiers, fallback reasons, coverage, macro F1, calibration, latency, and token counts
+   against the 72-case calibration set and separate 18-case holdout. The 2026-09-23 runs
+   returned 72/72 and 18/18 exact labels with no fallback; high-confidence persisted-label
+   decisions were 37/37 and 9/9 correct. No historical user text was sent in either
+   evaluation.
 4. Tests fake the SDK HTTP boundary. They verify no call while disabled or without a key,
    exact allowed payload fields, redaction, model pinning, strict response validation,
    token-only telemetry, timeout/rate-limit fallback, and ephemeral system-prompt use.
@@ -130,10 +140,13 @@ agreement before materially changing the payload scope or provider configuration
 | Ask the generative model to classify recall intent | Can produce free-form behavior and couples routing to answer-model/tool-selection latency; retain it as the conversational answer path. |
 | Use Jev to generate memory summaries or answers | Does not fit Jev's typed decision output and would not preserve Athena's source-context contract. |
 | Let Jev promote memory, delete data, or bypass local policy | Rejected; these decisions require source verification and explicit user control. |
-| Use Jev for bounded route and speech-act decisions in one call | Selected and implemented with local source authority and review-only candidates; live evaluation remains pending. |
+| Use Jev for bounded route and speech-act decisions in one call | Selected and implemented with local source authority and review-only candidates; synthetic live evaluations are documented in the calibration snapshot. |
 
 ## Official research sources
 
+- [TypeSafe announcement: System One models and Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev)
+- [TypeSafe OpenAPI specification](https://api.typesafe.ai/openapi.json)
+- [TypeSafe API reference](https://api.typesafe.ai/docs)
 - [System One](https://docs.typesafe.ai/concepts/system-one)
 - [Primitives (Choice, Score, Noul)](https://docs.typesafe.ai/primitives)
 - [Confidence](https://docs.typesafe.ai/confidence)

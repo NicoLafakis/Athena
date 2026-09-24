@@ -5,8 +5,9 @@
 
 ## Scope
 
-This calibration uses generated sessions and episode records only. No personal session
-archive was opened. The repeatable gold fixtures live in
+The synthetic calibration below uses generated sessions and episode records only. A
+separate, limited local-history spot-check is summarized below without transcript text or
+source identifiers. The repeatable gold fixtures live in
 [`tests/continuity/calibration.test.ts`](../../../tests/continuity/calibration.test.ts).
 Run the synthetic performance sample with `pnpm exec tsx bench/continuity-calibration.ts`.
 
@@ -45,34 +46,78 @@ it is not the Jev model and does not measure answer-time relevance quality.
 The proxy always assigns an existing ranker intent, so it cannot abstain on `none`; all
 seven ordinary, ambiguous, or quoted-text examples receive a recall label. This result
 establishes the local comparison point and demonstrates why the Jev route includes a valid
-`none` answer. Jev's selected route now adds a temporary instruction to the answer call,
-but it does not load historical source text. The deterministic baseline's full confusion
-matrix and fixture are preserved by
+`none` answer. Jev's route is only an intent hint. Athena uses it to select a local,
+source-verifying retrieval path; for an explicit current history request, only bounded,
+redacted, source-verified excerpts are sent to the configured answer model. Jev receives
+no historical text. The deterministic baseline's full confusion matrix and fixture are preserved by
 [`jev-recall-intent-baseline.test.ts`](../../../tests/continuity/jev-recall-intent-baseline.test.ts).
 
-The pinned-model live evaluator is ready:
+The pinned-model live evaluator is:
 `pnpm exec tsx bench/jev-recall-evaluation.ts`. It uses the same 49 synthetic requests and
 reports coverage, route precision/recall, no-recall false positives, multiclass Brier
 score, median latency, input/output tokens, and estimated input cost. It requires
-`TYPESAFE_API_KEY`, sends no personal history, and produces aggregate output only. The key
-was not configured during this implementation, so no Jev prediction, quality, latency, or
-spend result is claimed. TypeSafe's input price was checked at $0.042 per million tokens
-on 2026-09-23; the evaluator labels cost as an estimate at that price.
+`TYPESAFE_API_KEY`, sends no personal history, and produces aggregate output only. The
+2026-09-23 live run returned all 49 decisions:
+
+| Measure | Result |
+|---|---:|
+| Exact route accuracy | **47/49 (95.9%)** |
+| No-recall false positives, without confidence gating | **1/7 (14.3%)** |
+| Actionable decisions at Athena's 0.85 threshold | **42/49 (85.7%)** |
+| Exact actionable decisions | **41/42 (97.6%)** |
+| Actionable no-recall false positives | **0/4 (0%)** |
+| Macro F1 / multiclass Brier score | **95.9% / 0.0123** |
+| Median latency | **239.5 ms** |
+| Input / output tokens | **46,132 / 8,451** |
+| Estimated input cost | **$0.00194** |
+
+The remaining raw no-recall error fell below the production action threshold. These
+results cover only seven synthetic no-recall cases; they do not establish real-history
+false-positive rates. TypeSafe's input price was checked at $0.042 per million tokens on
+2026-09-23; cost is an estimate at that price.
 
 ## Jev speech-act intake
 
-The balanced
+The balanced calibration
 [`jev-speech-act.v1.json`](../../../tests/fixtures/continuity/jev-speech-act.v1.json)
-fixture contains 36 synthetic current-request examples, four for each typed Jev label:
+contains 72 synthetic current-request examples, eight for each typed Jev label. A separate
+18-case
+[`jev-speech-act-holdout.v1.json`](../../../tests/fixtures/continuity/jev-speech-act-holdout.v1.json)
+set uses different phrasing, with two cases per label:
 `none`, `asked`, `stated`, `considered`, `preferred`, `decided`, `promised`, `corrected`,
-and `retracted`. The live evaluator is
-`pnpm exec tsx bench/jev-speech-act-evaluation.ts`; it reports coverage, per-label
-precision/recall/F1, macro F1, Brier score, high-confidence persisted-label precision,
-latency, and token counts. It requires `TYPESAFE_API_KEY` and sends synthetic text only.
+and `retracted`. Run both sets with `pnpm exec tsx bench/jev-speech-act-evaluation.ts`.
+The evaluator reports coverage, per-label precision/recall/F1, macro F1, Brier score,
+high-confidence persistence precision, exact-label confidence frontiers, fallback reasons,
+misclassified synthetic IDs, latency, and token counts. It requires `TYPESAFE_API_KEY`
+and sends synthetic text only. The outer decision budget is now two seconds, with a
+1.9-second SDK attempt timeout and SDK retries disabled.
 
-The TypeSafe key was not configured during implementation, so live speech-act precision
-and calibration have not been measured. The checked-in corpus validates the evaluator and
-harness behavior; it is not evidence of live-model quality or a sample of real user language.
+The final 2026-09-23 runs returned:
+
+| Corpus | Exact decisions | Fallbacks | Persisted labels at 0.85 | All-label precision at 0.85 | Median latency | Input / output tokens |
+|---|---:|---:|---:|---:|---:|---:|
+| Calibration, 72 cases | **72/72 (100%)** | **0** | **37/37 (100%)**, 51.4% corpus coverage | **66/66 (100%)**, 91.7% coverage | 189.2 ms | 75,576 / 12,384 |
+| Holdout, 18 cases | **18/18 (100%)** | **0** | **9/9 (100%)**, 50.0% corpus coverage | **17/17 (100%)**, 94.4% coverage | 191.0 ms | 18,905 / 3,102 |
+
+For calibration, every decision at the 0.90, 0.95, and 0.98 confidence cutoffs was also
+exact: 64/64 (88.9% coverage), 58/58 (80.6%), and 50/50 (69.4%) respectively. Holdout
+results were 14/14 (77.8%), 13/13 (72.2%), and 11/11 (61.1%). The first expanded run
+under the earlier one-second budget returned 60 decisions and 12 provider-error fallbacks;
+the adapter now identifies TypeSafe timeout errors correctly and uses the two-second budget.
+These sets are synthetic and deliberately small (eight calibration examples and two holdout
+examples per label); they show a clear improvement on the known boundary errors but do not
+establish 98–100% accuracy on real-user language.
+
+## Limited local-history spot-check
+
+A read-only search over the available local archive found no exact `Jev` topic match.
+The initial ranking preview still selected unrelated episodes because the generic word
+“model” counted as topical evidence. The shared ranker now removes recall/intent-only
+terms before subject matching and returns no candidate without a matching subject or
+bounded time window. Regression tests cover both an intent-only decision query and a
+specific but absent model name. The local archive was too small to establish representative
+multi-project usefulness, correction rates, or index-size ratio; those Phase 4.3 checks
+remain open.
 
 ## Quality results
 

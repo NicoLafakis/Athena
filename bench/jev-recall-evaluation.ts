@@ -2,6 +2,7 @@ import { performance } from 'node:perf_hooks'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createJevRecallRouter, JEV_MODEL, RECALL_ROUTES, type RecallIntentRouter, type RecallRoute, type RecallRouteDecision } from '../src/decision/jev.js'
+import { ANSWER_RECALL_MIN_CONFIDENCE } from '../src/continuity/answer-recall.js'
 import type { DecisionResult } from '../src/decision/client.js'
 import { loadRecallCorpus, type RecallCorpus } from './jev-recall-intent-baseline.js'
 
@@ -18,9 +19,17 @@ export interface RecallEvaluationReport {
   correct: number
   accuracy: number
   coverage: number
+  actionConfidenceThreshold: number
+  actionableDecisions: number
+  actionableCorrect: number
+  actionableAccuracy: number
+  actionableCoverage: number
   noRecallFalsePositives: number
   noRecallDecided: number
   noRecallFalsePositiveRate: number
+  actionableNoRecallFalsePositives: number
+  actionableNoRecallDecided: number
+  actionableNoRecallFalsePositiveRate: number
   confusion: Record<RecallRoute, Record<RecallRoute, number>>
   perRoute: Record<RecallRoute, { precision: number; recall: number; f1: number; support: number }>
   macroF1: number
@@ -61,6 +70,10 @@ export async function evaluateJevRecallCorpus(
   let inputTokens = 0
   let outputTokens = 0
   let brierTotal = 0
+  let actionableDecisions = 0
+  let actionableCorrect = 0
+  let actionableNoRecallFalsePositives = 0
+  let actionableNoRecallDecided = 0
 
   for (const item of corpus.cases) {
     const started = performance.now()
@@ -82,6 +95,14 @@ export async function evaluateJevRecallCorpus(
     const predicted = result.value.route
     confusion[item.intent][predicted] += 1
     if (predicted === item.intent) correct += 1
+    if (result.value.confidence >= ANSWER_RECALL_MIN_CONFIDENCE) {
+      actionableDecisions += 1
+      if (predicted === item.intent) actionableCorrect += 1
+      if (item.intent === 'none') {
+        actionableNoRecallDecided += 1
+        if (predicted !== 'none') actionableNoRecallFalsePositives += 1
+      }
+    }
     brierTotal += labels.reduce((sum, route) => {
       const observed = item.intent === route ? 1 : 0
       return sum + (result.value.probabilities[route] - observed) ** 2
@@ -109,9 +130,19 @@ export async function evaluateJevRecallCorpus(
     correct,
     accuracy: completed === 0 ? 0 : correct / completed,
     coverage: corpus.cases.length === 0 ? 0 : completed / corpus.cases.length,
+    actionConfidenceThreshold: ANSWER_RECALL_MIN_CONFIDENCE,
+    actionableDecisions,
+    actionableCorrect,
+    actionableAccuracy: actionableDecisions === 0 ? 0 : actionableCorrect / actionableDecisions,
+    actionableCoverage: corpus.cases.length === 0 ? 0 : actionableDecisions / corpus.cases.length,
     noRecallFalsePositives,
     noRecallDecided,
     noRecallFalsePositiveRate: noRecallDecided === 0 ? 0 : noRecallFalsePositives / noRecallDecided,
+    actionableNoRecallFalsePositives,
+    actionableNoRecallDecided,
+    actionableNoRecallFalsePositiveRate: actionableNoRecallDecided === 0
+      ? 0
+      : actionableNoRecallFalsePositives / actionableNoRecallDecided,
     confusion,
     perRoute,
     macroF1: labels.reduce((sum, route) => sum + perRoute[route].f1, 0) / labels.length,
@@ -136,6 +167,8 @@ export function formatJevRecallEvaluation(report: RecallEvaluationReport): strin
     `| ${actual} | ${labels.map((predicted) => report.confusion[actual][predicted]).join(' | ')} |`,
   )
   return [
+    `Actionable at confidence >= ${report.actionConfidenceThreshold}: ${report.actionableDecisions}/${report.total} (${formatPercent(report.actionableCoverage)}); accuracy ${formatPercent(report.actionableAccuracy)} (${report.actionableCorrect}/${report.actionableDecisions})`,
+    `Actionable no-recall false positives: ${report.actionableNoRecallFalsePositives}/${report.actionableNoRecallDecided} (${formatPercent(report.actionableNoRecallFalsePositiveRate)})`,
     `Model: ${JEV_MODEL}`,
     `Cases: ${report.total}; decisions: ${report.completed}; fallbacks: ${report.fallbackCount}; coverage: ${formatPercent(report.coverage)}`,
     `Accuracy on decisions: ${formatPercent(report.accuracy)} (${report.correct}/${report.completed})`,

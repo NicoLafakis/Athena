@@ -9,9 +9,13 @@ import {
   type RecallIntentRouter,
   type RecallRouteDecision,
 } from '../src/decision/jev.js'
-import type { DecisionResult } from '../src/decision/client.js'
+import type { DecisionFallbackReason, DecisionResult } from '../src/decision/client.js'
 import { JEV_SPEECH_ACT_PERSISTENCE_CONFIDENCE } from '../src/continuity/schemas.js'
-import { loadJevSpeechActCorpus, type JevSpeechActCorpus } from './jev-speech-act-corpus.js'
+import {
+  loadJevSpeechActCorpus,
+  loadJevSpeechActHoldoutCorpus,
+  type JevSpeechActCorpus,
+} from './jev-speech-act-corpus.js'
 
 const PERSISTED_ACTS: ReadonlySet<JevMemorySpeechAct> = new Set([
   'preferred', 'decided', 'promised', 'corrected', 'retracted',
@@ -25,7 +29,10 @@ export interface JevSpeechActEvaluationReport {
   accuracy: number
   coverage: number
   confusion: Record<JevMemorySpeechAct, Record<JevMemorySpeechAct, number>>
+  errors: Array<{ id: string; expected: JevMemorySpeechAct; predicted: JevMemorySpeechAct; confidence: number }>
+  fallbackReasons: Partial<Record<DecisionFallbackReason, number>>
   perAct: Record<JevMemorySpeechAct, { precision: number; recall: number; f1: number; support: number }>
+  confidenceFrontier: Record<'0.85' | '0.9' | '0.95' | '0.98', { selected: number; correct: number; precision: number; coverage: number }>
   persistedEligible: number
   persistedCorrect: number
   persistedActPrecision: number
@@ -60,6 +67,10 @@ export async function evaluateJevSpeechActCorpus(
     Object.fromEntries(labels.map((predicted) => [predicted, 0])),
   ])) as Record<JevMemorySpeechAct, Record<JevMemorySpeechAct, number>>
   const latencies: number[] = []
+  const errors: JevSpeechActEvaluationReport['errors'] = []
+  const fallbackReasons: Partial<Record<DecisionFallbackReason, number>> = {}
+  const thresholds = [0.85, 0.9, 0.95, 0.98] as const
+  const frontier = Object.fromEntries(thresholds.map((threshold) => [String(threshold), { selected: 0, correct: 0 }])) as Record<'0.85' | '0.9' | '0.95' | '0.98', { selected: number; correct: number }>
   let completed = 0
   let correct = 0
   let fallbackCount = 0
@@ -82,13 +93,25 @@ export async function evaluateJevSpeechActCorpus(
     outputTokens += result.usage?.outputTokens ?? 0
     if (!isDecision(result)) {
       fallbackCount++
+      fallbackReasons[result.reason] = (fallbackReasons[result.reason] ?? 0) + 1
       continue
     }
 
     completed++
     const predicted = result.value.speechAct.act
     confusion[item.speechAct][predicted]++
-    if (predicted === item.speechAct) correct++
+    if (predicted === item.speechAct) {
+      correct++
+    } else {
+      errors.push({ id: item.id, expected: item.speechAct, predicted, confidence: result.value.speechAct.confidence })
+    }
+    for (const threshold of thresholds) {
+      if (result.value.speechAct.confidence >= threshold) {
+        const entry = frontier[String(threshold) as keyof typeof frontier]
+        entry.selected++
+        if (predicted === item.speechAct) entry.correct++
+      }
+    }
     if (result.value.speechAct.confidence >= JEV_SPEECH_ACT_PERSISTENCE_CONFIDENCE && PERSISTED_ACTS.has(predicted)) {
       persistedEligible++
       if (predicted === item.speechAct) persistedCorrect++
@@ -108,6 +131,16 @@ export async function evaluateJevSpeechActCorpus(
     const f1 = precision + recall === 0 ? 0 : (2 * precision * recall) / (precision + recall)
     return [act, { precision, recall, f1, support }]
   })) as JevSpeechActEvaluationReport['perAct']
+  const confidenceFrontier = Object.fromEntries(thresholds.map((threshold) => {
+    const key = String(threshold) as keyof typeof frontier
+    const { selected, correct: thresholdCorrect } = frontier[key]
+    return [key, {
+      selected,
+      correct: thresholdCorrect,
+      precision: selected === 0 ? 0 : thresholdCorrect / selected,
+      coverage: corpus.cases.length === 0 ? 0 : selected / corpus.cases.length,
+    }]
+  })) as JevSpeechActEvaluationReport['confidenceFrontier']
 
   return {
     total: corpus.cases.length,
@@ -117,7 +150,10 @@ export async function evaluateJevSpeechActCorpus(
     accuracy: completed === 0 ? 0 : correct / completed,
     coverage: corpus.cases.length === 0 ? 0 : completed / corpus.cases.length,
     confusion,
+    errors,
+    fallbackReasons,
     perAct,
+    confidenceFrontier,
     persistedEligible,
     persistedCorrect,
     persistedActPrecision: persistedEligible === 0 ? 0 : persistedCorrect / persistedEligible,
@@ -148,6 +184,10 @@ export function formatJevSpeechActEvaluation(report: JevSpeechActEvaluationRepor
     `Cases: ${report.total}; decisions: ${report.completed}; fallbacks: ${report.fallbackCount}; coverage: ${percent(report.coverage)}`,
     `Accuracy: ${percent(report.accuracy)} (${report.correct}/${report.completed}); macro F1: ${percent(report.macroF1)}; Brier score: ${report.multiclassBrierScore.toFixed(4)}`,
     `High-confidence persisted-label precision: ${percent(report.persistedActPrecision)} (${report.persistedCorrect}/${report.persistedEligible}); coverage: ${percent(report.persistedActCoverage)}`,
+    ...Object.entries(report.confidenceFrontier).map(([threshold, metric]) =>
+      `All-label confidence >= ${threshold}: exact precision ${percent(metric.precision)} (${metric.correct}/${metric.selected}); coverage: ${percent(metric.coverage)}`),
+    `Fallbacks by reason: ${JSON.stringify(report.fallbackReasons)}`,
+    `Misclassified synthetic IDs: ${report.errors.length === 0 ? 'none' : report.errors.map(({ id, expected, predicted, confidence }) => `${id}(${expected}->${predicted},${confidence.toFixed(2)})`).join(', ')}`,
     `Median latency: ${report.medianLatencyMs.toFixed(1)} ms; input tokens: ${report.inputTokens}; output tokens: ${report.outputTokens}`,
     '',
     '| Speech act | Support | Precision | Recall | F1 |',
@@ -170,8 +210,15 @@ async function main(): Promise<void> {
     return
   }
   const router = createJevRecallRouter({ apiKey })
-  const report = await evaluateJevSpeechActCorpus(loadJevSpeechActCorpus(), router)
-  console.log(formatJevSpeechActEvaluation(report))
+  for (const [name, corpus] of [
+    ['Calibration', loadJevSpeechActCorpus()],
+    ['Holdout', loadJevSpeechActHoldoutCorpus()],
+  ] as const) {
+    const report = await evaluateJevSpeechActCorpus(corpus, router)
+    console.log(`${name} corpus`)
+    console.log(formatJevSpeechActEvaluation(report))
+    console.log('')
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

@@ -14,7 +14,15 @@ const CorpusSchema = z.object({
 
 export type JevSpeechActCorpus = z.infer<typeof CorpusSchema>
 
-export function loadJevSpeechActCorpus(): JevSpeechActCorpus {
-  const path = fileURLToPath(new URL('../tests/fixtures/continuity/jev-speech-act.v1.json', import.meta.url))
+function loadCorpus(filename: string): JevSpeechActCorpus {
+  const path = fileURLToPath(new URL(`../tests/fixtures/continuity/${filename}`, import.meta.url))
   return CorpusSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
+}
+
+export function loadJevSpeechActCorpus(): JevSpeechActCorpus {
+  return loadCorpus('jev-speech-act.v1.json')
+}
+
+export function loadJevSpeechActHoldoutCorpus(): JevSpeechActCorpus {
+  return loadCorpus('jev-speech-act-holdout.v1.json')
 }

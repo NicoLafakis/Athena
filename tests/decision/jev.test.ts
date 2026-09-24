@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Fetch } from '@typesafe-ai/sdk'
+import { APITimeoutError, TypeSafeClient, type Fetch } from '@typesafe-ai/sdk'
 import {
   createJevRecallRouter,
   JEV_MODEL,
@@ -73,6 +73,9 @@ describe('Jev recall router', () => {
         },
       },
     })
+    const speechActQuestion = JSON.stringify((body.questions as Record<string, unknown>)?.speech_act)
+    expect(speechActQuestion).toContain('generic new-work commands')
+    expect(speechActQuestion).toContain('earlier conversation')
     expect(JSON.stringify(body)).not.toContain('typesafe-test-key')
     expect(JSON.stringify(body)).not.toContain('previous session')
     expect(usageEvents[0]).toMatchObject({ inputTokens: 17, outputTokens: 0 })
@@ -102,6 +105,20 @@ describe('Jev recall router', () => {
     const router = createJevRecallRouter({ apiKey: 'typesafe-test-key', fetch })
 
     await expect(router.classify('hello')).resolves.toEqual({ status: 'fallback', reason: 'rate-limited' })
+  })
+
+  it('classifies a TypeSafe SDK timeout as a timeout fallback', async () => {
+    const systemOne = vi.spyOn(TypeSafeClient.prototype, 'systemOne')
+      .mockRejectedValue(new APITimeoutError(1) as never)
+    const router = createJevRecallRouter({ apiKey: 'typesafe-test-key', fetch: vi.fn<Fetch>() })
+
+    try {
+      const result = await router.classify('hello')
+      expect(systemOne).toHaveBeenCalledOnce()
+      expect(result).toEqual({ status: 'fallback', reason: 'timeout' })
+    } finally {
+      systemOne.mockRestore()
+    }
   })
 
   it('does not send oversized requests to TypeSafe', async () => {

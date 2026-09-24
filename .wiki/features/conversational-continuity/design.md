@@ -125,6 +125,9 @@ temporal expressions ask for clarification; misses and corrupt indexes attach no
 text. Each excerpt is JSON-quoted on one line and angle-bracket delimiters are neutralized
 so historical text cannot forge a speaker line or close the evidence envelope. It is not
 written to session messages, hook context, Jev input, logs, or persistent memory.
+Recall-intent terms such as “decision,” “preference,” and “model” are not topic evidence
+on their own; if removing those cues leaves neither a searchable subject nor a bounded
+time range, Athena asks for clarification instead of ranking unrelated episodes.
 
 Semantic records and rollup summaries are navigation/ranking metadata only: neither body
 is sent through automatic recall. Only ordinary, active, in-validity semantic records
@@ -160,13 +163,17 @@ trigger it. Below the threshold, only a clear deterministic explicit-recall phra
 trigger the local fallback. The route stays an intent hint: it cannot certify a source,
 change scope, or override local source/tombstone checks. Route guidance and any retrieved
 context are transient system-prompt additions and never enter persisted session messages.
-Live route quality remains unmeasured until the TypeSafe key is available.
+The 49-case synthetic live run scored 47/49 exact overall; at the production 0.85
+confidence threshold, 41/42 actionable decisions were exact and none of the four
+high-confidence no-history cases triggered recall. These small synthetic results do not
+replace representative live-history dogfood.
 
 Global `jev.enabled` defaults to `true`; a project cannot override the user's setting.
 The network path requires `TYPESAFE_API_KEY`. Without the key, the adapter makes no call
 and the engine falls back to ordinary prompt handling. A user may disable the route with
 `jev.enabled: false`. The TypeSafe JavaScript SDK is pinned at `0.6.0`, model `jev-1.13.0`;
-SDK logging and retries are disabled, and the decision deadline is one second. Content-free
+SDK logging and retries are disabled, with a 1.9-second per-attempt timeout and two-second
+outer decision deadline. Content-free
 outcome, elapsed-time, and token-count telemetry is written to the local run trace.
 Jev never receives retrieved history. The user separately authorized scoped,
 source-verified excerpts to the configured answer model for a current request that asks
@@ -193,9 +200,11 @@ source-digest verification, and explicit user review. Promotion repeats source c
 Correction and retraction labels stay attached to episode context for retrieval and never
 automatically overwrite or remove existing memory. Jev cannot promote memory, alter source
 history, or bypass scope, sensitivity, review, or permission gates. It is not the memory
-store or the authority for what actually happened. The synthetic speech-act corpus and
-live evaluator are documented in [ADR 0003](adr/0003-jev-decision-model.md); live model
-quality remains unmeasured until a TypeSafe key is available.
+store or the authority for what actually happened. The final synthetic evaluation scored
+72/72 exact on calibration and 18/18 exact on a separate phrasing holdout, with 37/37 and
+9/9 high-confidence persisted labels correct respectively. These small synthetic sets do
+not establish equivalent accuracy on real-user language. See
+[ADR 0003](adr/0003-jev-decision-model.md) for complete results and limits.
 
 ### Answer-time retrieval routing (implemented)
 

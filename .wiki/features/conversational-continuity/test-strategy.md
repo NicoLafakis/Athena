@@ -8,6 +8,7 @@
 |---|---|---|
 | FR-001 / AC-009 source identity | Unit + integration | Canonical messages indexed once; checkpoint copies excluded; fork lineage and rewind branches resolve |
 | FR-002 / AC-001, AC-008, AC-012 cross-project scope | Integration | Local CLI/slash recall and automatic answer-time retrieval across projects; named-project filter excludes unrelated sources and ambiguous/unknown names clarify |
+| FR-014 topical precision | Unit + integration | Recall-intent cues alone do not rank or retrieve episodes; generic intent/model terms cannot satisfy a subject match, and an unbounded topic-free request clarifies |
 | FR-003 / AC-002 temporal parsing | Unit + property | Relative/absolute windows, DST, timezone fallback, month/quarter/year edges |
 | FR-004 context reconstruction | Integration | Adjacent turns and source roles reconstruct tentative/decision/correction context |
 | FR-005 / FR-010 / AC-004 layers/rollups | Unit + integration | Day/week/month/quarter/year boundaries and timezone behavior; complete-index gate; bounded summaries with full source-ID coverage; source digest changes after correction; rollups empty after deletion; exact detail still resolves through episodes |
@@ -20,8 +21,8 @@
 | FR-014 / AC-010 budgets | Ranking + performance + prompt integration | Local candidate caps and privacy-safe metrics; automatic handoff is request-triggered, capped at five episodes/4,000 characters, and absent from Jev, hooks, persisted messages, and logs |
 | FR-015 / AC-007 rebuild/failure | Integration | Truncated JSONL, corrupt index, missing project, permission error, atomic-write failure |
 | Live-source presentation | Integration | Move a source session into `.trash` without rebuilding; ranking, linked semantic memory, direct `Memory.read`, and rollup text disappear immediately |
-| Jev recall routing (accepted and integrated) | Decision unit + fake SDK transport + engine integration + synthetic live evaluation | Verify disabled/missing-key zero calls, exact secret-redacted request fields, fixed model and labels, strict output shape, usage-only telemetry, timeout/rate-limit/oversized-input fallback, and transient prompt guidance. Run the 49-case synthetic live comparison when a TypeSafe key is available. |
-| Jev speech-act intake (accepted and integrated) | Fake SDK transport + engine/controller integration + source-index/retrieval/candidate tests + synthetic live evaluation | Verify one current-request call returns both typed decisions; only high-confidence labels are stored after the user line is written; the stored event is content-free and digest-linked; edited sources invalidate labels; indirect preference/decision/commitment candidates remain review-only and require independent sessions; corrections/retractions are contextual labels only. Run the balanced 36-case live comparison when a TypeSafe key is available. |
+| Jev recall routing (accepted and integrated) | Decision unit + fake SDK transport + engine integration + synthetic live evaluation | Verify disabled/missing-key zero calls, exact secret-redacted request fields, fixed model and labels, strict output shape, usage-only telemetry, timeout/rate-limit/oversized-input fallback, and transient prompt guidance. The 49-case synthetic live comparison was run; 0/4 actionable no-history cases caused recall at the production threshold. |
+| Jev speech-act intake (accepted and integrated) | Fake SDK transport + engine/controller integration + source-index/retrieval/candidate tests + synthetic live evaluation | Verify one current-request call returns both typed decisions; only high-confidence labels are stored after the user line is written; the stored event is content-free and digest-linked; edited sources invalidate labels; indirect preference/decision/commitment candidates remain review-only and require independent sessions; corrections/retractions are contextual labels only. The 72-case synthetic calibration set and 18-case phrasing holdout both scored 100% exact with zero fallbacks; persistence precision was 37/37 and 9/9. |
 
 ## Implemented evidence at this checkpoint
 
@@ -80,19 +81,23 @@
   A separate
   `bench/jev-recall-evaluation.ts` sends only those synthetic request strings to the
   pinned Jev model and reports route quality, coverage, no-recall false positives, Brier
-  score, latency, token volume, and estimated cost. It has not been run because
-  `TYPESAFE_API_KEY` was unavailable; no live quality result is claimed.
+  score, latency, token volume, and estimated cost. The 2026-09-23 run scored 47/49
+  exact overall; at the production 0.85 threshold, 41/42 actionable decisions were
+  exact and 0/4 actionable no-history cases triggered recall.
 - The optional `DecisionClient` seam is separate from streaming `ModelClient`. Fake-
   transport tests cover typed response validation, disabled/unavailable fallback, timeout
   abort, rate-limit fallback, content-free outcome/latency/token telemetry, and isolation
   from telemetry sink failures. The TypeSafe adapter test uses an injected fake HTTP fetch
   to verify the exact request body and output mapping. Engine tests verify route guidance
   exists only in the active answer call and is absent from persisted messages.
-- Jev speech-act tests cover all nine typed labels in the balanced synthetic fixture,
-  confidence-gated persistence precision metrics, exact current-message source digests,
+- Jev speech-act tests cover all nine typed labels in the 72-case calibration fixture and
+  separate 18-case holdout, confidence-gated persistence and all-label confidence frontiers,
+  fallback reasons and misclassified synthetic IDs, exact current-message source digests,
   retrieval/index propagation, repeated indirect claim candidates, and correction/retraction
-  labels that do not create inferred memory. The live evaluator sends synthetic text only
-  and has not been run because `TYPESAFE_API_KEY` is unavailable.
+  labels that do not create inferred memory. The live evaluator sends synthetic text only;
+  the 2026-09-23 runs scored 72/72 and 18/18 exact, with 37/37 and 9/9 high-confidence
+  persisted labels correct. These results do not measure real-user language or history
+  quality.
 - [`calibration.md`](calibration.md) records deterministic synthetic quality measures and
   a 10,000-episode/10,000-session-file local performance sample, including the shared
   search presenter and verified source expansion. These measurements do not claim TUI

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { JEV_MEMORY_SPEECH_ACTS, type RecallIntentRouter, type RecallRoute, type RecallRouteDecision } from '../../src/decision/jev.js'
 import {
   evaluateJevRecallCorpus,
+  formatJevRecallEvaluation,
   type RecallEvaluationCorpus,
 } from '../../bench/jev-recall-evaluation.js'
 
@@ -47,7 +48,7 @@ describe('Jev recall evaluation', () => {
         status: 'decision',
         value: {
           route,
-          confidence: 0.9,
+          confidence: text === 'What did we decide last week?' ? 0.9 : 0.84,
           probabilities: probabilities(route),
           speechAct: { act: 'none', confidence: 1, probabilities: speechActProbabilities },
         },
@@ -66,6 +67,12 @@ describe('Jev recall evaluation', () => {
       correct: 1,
       accuracy: 0.5,
       coverage: 2 / 3,
+      actionConfidenceThreshold: 0.85,
+      actionableDecisions: 1,
+      actionableCorrect: 0,
+      actionableCoverage: 1 / 3,
+      actionableNoRecallFalsePositives: 1,
+      actionableNoRecallDecided: 1,
       noRecallFalsePositives: 1,
       noRecallDecided: 1,
       inputTokens: 26,
@@ -74,5 +81,6 @@ describe('Jev recall evaluation', () => {
     expect(report.estimatedInputCostUsd).toBeCloseTo(0.000001092, 15)
     expect(report.medianLatencyMs).toBeGreaterThanOrEqual(0)
     expect(report.multiclassBrierScore).toBeGreaterThanOrEqual(0)
+    expect(formatJevRecallEvaluation(report)).toContain('Actionable no-recall false positives: 1/1 (100.0%)')
   })
 })

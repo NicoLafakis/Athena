@@ -166,7 +166,7 @@ instruction. Corrupt optional data reports the artifact and `athena memory rebui
 ## 15. Performance and cost
 
 Indexing and local recall search make no provider call. Jev may make one synchronous,
-one-second-bounded call per user turn when a TypeSafe key is configured; its input and
+two-second-bounded call per user turn when a TypeSafe key is configured; its input and
 cost are measured by the synthetic evaluator and token trace. Jev receives no historical
 context. The answer provider may receive the bounded source excerpts described in FR-013
 for a current history request; this is the ordinary user-request call, never an automatic
@@ -185,7 +185,8 @@ and no memory identity depends on color, position, or animation.
 3. Long-term memory provenance, explicit promotion, corrections, and forgetting.
 4. Day/week/month/quarter/year rollups and calibration from dogfood.
 5. Jev recall routing and source-linked speech-act intake, accepted and integrated; live
-   synthetic quality evaluation remains pending a TypeSafe credential.
+   synthetic live evaluations are recorded in the calibration snapshot; representative
+   live-history quality review remains open.
 
 Every phase is local-first and reversible. The derived index is rebuilt rather than
 backfilled destructively. See [rollout](rollout.md).

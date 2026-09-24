@@ -135,7 +135,9 @@ rollup summaries, tool blocks, paths, IDs, and hook context are excluded.
 
 Only a small, deterministic, relevance-ranked set of episodes/facts enters an active
 model context. A retrieval miss is normal. Corrupt optional continuity data warns and
-degrades to no memory without preventing startup or ordinary work.
+degrades to no memory without preventing startup or ordinary work. Recall-intent words
+alone (for example, “decision,” “preference,” or “model”) do not qualify as topic evidence;
+when no searchable subject or bounded time range remains, ask for clarification.
 
 ### FR-015 — Rebuildability
 
@@ -177,7 +179,7 @@ does not make optional continuity a boot precondition.
 - **AC-009:** Every returned episode or promoted memory includes machine-readable source
   references that resolve to the expected original message/trace.
 - **AC-010:** Indexing and local search add no provider call. When the Jev setting and key
-  are present, the current turn may make one synchronous decision call with a one-second
+  are present, the current turn may make one synchronous decision call with a two-second
   deadline and the bounded payload in FR-013; failures fall through to local explicit
   recall routing or the ordinary turn. On a historical-recall request only, the configured
   answer provider may receive up to five episodes/4,000 characters of redacted,

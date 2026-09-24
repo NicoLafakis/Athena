@@ -101,6 +101,24 @@ describe('rankContinuityLayers', () => {
     expect(ranking.candidates).toEqual([])
   })
 
+  it('requires a topical match instead of ranking unrelated episodes by recall intent words', () => {
+    const unrelated = episode(
+      'episode-unrelated-model',
+      'project-a',
+      '2026-09-10T12:00:00.000Z',
+      'We decided the model for this session is Sonnet.',
+    )
+
+    expect(rankContinuityLayers({
+      query: 'What did we decide?',
+      episodes: [unrelated],
+    }).candidates).toEqual([])
+    expect(rankContinuityLayers({
+      query: 'What was the Jev decision model decision?',
+      episodes: [unrelated],
+    }).candidates).toEqual([])
+  })
+
   it('uses explicit time windows as hard filters and favors a matching rollup for recap intent', () => {
     const inWindow = episode('episode-sept', 'project-a', '2026-09-15T12:00:00.000Z', 'The user chose a weekly continuity review.')
     const outside = episode('episode-aug', 'project-a', '2026-08-15T12:00:00.000Z', 'The user chose monthly project planning.')

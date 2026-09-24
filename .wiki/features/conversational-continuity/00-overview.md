@@ -2,7 +2,7 @@
 
 - **Tier:** 3 — major / high trust impact
 - **Date:** 2026-09-23
-- **Status:** implementation in progress; local linked-episode catalog, CLI/slash inspection, source-verified semantic candidate generation/review/forget, on-demand time rollups, explainable local ranking previews, persistent session delete/restore tombstones, Jev recall routing, source-linked Jev speech-act intake, and scoped answer-time history retrieval are implemented; live-history dogfood and live Jev quality evaluation remain open
+- **Status:** implementation in progress; local linked-episode catalog, CLI/slash inspection, source-verified semantic candidate generation/review/forget, on-demand time rollups, explainable local ranking previews, persistent session delete/restore tombstones, Jev recall routing, source-linked Jev speech-act intake, and scoped answer-time history retrieval are implemented; synthetic live Jev evaluations are recorded, while representative live-history dogfood remains open
 - **Product owner:** Nico
 
 ## What was asked
@@ -139,5 +139,6 @@ separate user-directed path. Existing explicit or terminal decisions suppress du
 Session deletion persists a content-free tombstone that suppresses episodes and derived
 rollups across reads and rebuilds; `athena session restore <id>` explicitly restores the
 canonical source and reindexes it. Semantic-memory forget preserves that source for explicit
-historical recall. Synthetic quality and latency calibration is documented; representative
-live-history dogfood and live Jev quality remain open.
+historical recall. Synthetic quality and latency calibration, including live Jev routing
+and speech-act evaluations, is documented; representative live-history dogfood remains
+open.

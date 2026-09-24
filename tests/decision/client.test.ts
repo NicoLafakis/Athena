@@ -95,6 +95,15 @@ describe('OptionalDecisionClient', () => {
     expect(result).toEqual({ status: 'fallback', reason: 'rate-limited' })
   })
 
+  it('classifies a provider transport timeout as a timeout fallback', async () => {
+    const transport: DecisionTransport = {
+      evaluate: vi.fn(async () => { throw new DecisionTransportError('request timed out', 'timeout') }),
+    }
+    const result = await client({ transport }).evaluate(request)
+
+    expect(result).toEqual({ status: 'fallback', reason: 'timeout' })
+  })
+
   it('records content-free telemetry even when the provider fails', async () => {
     const events: DecisionTelemetryEvent[] = []
     const transport: DecisionTransport = {

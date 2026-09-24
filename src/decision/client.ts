@@ -61,7 +61,7 @@ export interface DecisionClient {
 }
 
 export class DecisionTransportError extends Error {
-  constructor(message: string, readonly kind: 'rate-limited' | 'provider-error') {
+  constructor(message: string, readonly kind: 'rate-limited' | 'timeout' | 'provider-error') {
     super(message)
     this.name = 'DecisionTransportError'
   }
@@ -84,6 +84,10 @@ function isRateLimit(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false
   const details = error as { status?: unknown; code?: unknown }
   return details.status === 429 || details.code === 'rate_limit_exceeded'
+}
+
+function isTransportTimeout(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'kind' in error && error.kind === 'timeout'
 }
 
 /** Optional structured decision boundary, deliberately separate from ModelClient. */
@@ -161,6 +165,9 @@ export class OptionalDecisionClient implements DecisionClient {
       }
       if (isRateLimit(error)) {
         return this.finish({ status: 'fallback', reason: 'rate-limited' }, 'rate-limited', startedAt)
+      }
+      if (isTransportTimeout(error)) {
+        return this.finish({ status: 'fallback', reason: 'timeout' }, 'timeout', startedAt)
       }
       return this.finish({ status: 'fallback', reason: 'provider-error' }, 'provider-error', startedAt)
     } finally {

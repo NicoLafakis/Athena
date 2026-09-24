@@ -140,8 +140,15 @@ full test suite pass on this implementation state; cross-platform CI is pending 
     across 10 samples; see the checked-in benchmark script and report.
   - [x] Measure grouped source expansion and the shared CLI/slash search presenter against
     a synthetic 10,000-file session catalog; see [calibration snapshot](calibration.md).
+  - [x] Run a bounded read-only spot-check against the available local archive. A query
+    with a specific model name had no direct source match, but the initial ranking preview
+    selected unrelated episodes because “model” counted as topical evidence. Ranking now
+    strips generic recall/intent cues before subject matching; regression coverage requires
+    a subject match or bounded time window. No session text or IDs are recorded in the
+    calibration snapshot.
   - [ ] Dogfood representative live histories and review usefulness, correction rates, and
-    index-size ratio before tuning recall beyond the exact repeated-claim policy.
+    index-size ratio before tuning recall beyond the exact repeated-claim policy. The
+    available local archive is too small to close this gate.
 - [ ] 4.4 Complete threat/privacy review, update all linked memory docs, and run the full
   repository gates on the exact implementation state.
   - [x] Exclude inferred sensitive claims and credential-bearing source messages from
@@ -177,8 +184,10 @@ prompt only for an explicit history request.
 See [ADR 0003](adr/0003-jev-decision-model.md).
 
 - [x] 5.1 Build a labeled synthetic recall-intent corpus and measure the current local
-  routing baseline. The 49-case corpus and deterministic ranker-intent proxy are
-  measured in [calibration.md](calibration.md); live Jev comparison remains pending.
+  routing baseline. The 49-case corpus, deterministic ranker-intent proxy, and synthetic
+  live Jev comparison are measured in [calibration.md](calibration.md). At the production
+  0.85 confidence threshold, 41/42 actionable Jev decisions were exact and none of the
+  four actionable no-history cases triggered recall.
 - [x] 5.2 Define an optional `DecisionClient` separate from streaming `ModelClient`; test
   typed output validation, fallback, timeout/rate-limit handling, zero calls while disabled,
   and content-free telemetry with a fake transport.
@@ -188,7 +197,8 @@ See [ADR 0003](adr/0003-jev-decision-model.md).
   call sends only the shared-secret-redacted current user request (maximum 12,000
   characters), two fixed `Choice` questions, and pinned model `jev-1.13.0`. It sends no hook
   context, conversation history, episode text, summaries, memory text, IDs, or project
-  paths. SDK request logging and retries are disabled; a one-second decision timeout,
+  paths. SDK request logging and retries are disabled; a two-second outer decision timeout
+  with a 1.9-second SDK attempt timeout,
   invalid output, missing key, provider error, or explicit setting disable falls through
   without blocking normal work. The selected route is added only to the active model call;
   speech-act labels are handled as described in 5.4.
@@ -199,15 +209,27 @@ See [ADR 0003](adr/0003-jev-decision-model.md).
   `preferred`/`decided`/`promised` labels can support inferred candidates only after matching
   content appears in at least two independent sessions; candidates remain review-only and
   the promotion path rechecks every source. Corrections and retractions are indexed as
-  context labels and never silently overwrite or delete memory. The balanced 36-case
-  synthetic speech-act corpus and live comparison runner are in place. Live quality results
-  remain pending a `TYPESAFE_API_KEY`; no model-quality result is claimed.
+  context labels and never silently overwrite or delete memory. The 72-case calibration
+  corpus scored 72/72 exact live and the separate 18-case phrasing holdout scored 18/18;
+  all 37 and 9 labels meeting the 0.85 persistence threshold were correct respectively.
+  These are synthetic results, not real-user language quality claims.
 - [x] 5.5 Pin `jev-1.13.0`, make global enablement the default as selected by the product
   owner, record content-free latency/token telemetry in local run traces, and add
   `bench/jev-recall-evaluation.ts` for a synthetic live comparison. The evaluator reports
   coverage, route precision/recall, no-recall false positives, Brier score, latency, token
   volume, and estimated input cost.
-  - [ ] Run the 49-case synthetic live comparison and record its results once a
-    `TYPESAFE_API_KEY` is available; it was not configured during this implementation.
-    The route is installed and enabled by policy, while live model quality and spend remain
-    unmeasured.
+  - [x] Run and record the 49-case synthetic live comparison. The pinned `jev-1.13.0`
+    scored 47/49 exact overall, 41/42 exact among decisions at confidence >= 0.85, and
+    0/4 false recalls among high-confidence no-history cases; median latency was 239.5 ms
+    and estimated input cost was $0.00194. The benchmark reports the action threshold
+    alongside unfiltered classification results.
+  - [x] Refine the `none` versus `asked` contract so generic new-work commands do not
+    count as memory questions; expand calibration to eight cases per label and add an
+    independent two-case-per-label phrasing holdout. Both live sets scored 100% exact
+    with zero fallbacks. Persisted-label precision was 37/37 (51.4% coverage) and 9/9
+    (50.0%); the all-label >= 0.85 confidence frontier was 66/66 (91.7%) and 17/17
+    (94.4%). The evaluator now reports coverage, confidence frontiers, fallback reasons,
+    and misclassified synthetic IDs.
+  - [x] Increase the Jev request budget from one to two seconds after a one-second run
+    produced 12 provider-error fallbacks; fix the SDK timeout classification path and
+    verify zero fallback in the repeated 72-case calibration and 18-case holdout runs.

@@ -11,7 +11,11 @@ import {
   evaluateJevSpeechActCorpus,
   formatJevSpeechActEvaluation,
 } from '../../bench/jev-speech-act-evaluation.js'
-import { loadJevSpeechActCorpus, type JevSpeechActCorpus } from '../../bench/jev-speech-act-corpus.js'
+import {
+  loadJevSpeechActCorpus,
+  loadJevSpeechActHoldoutCorpus,
+  type JevSpeechActCorpus,
+} from '../../bench/jev-speech-act-corpus.js'
 
 function decision(act: JevMemorySpeechAct, confidence: number): DecisionResult<RecallRouteDecision> {
   const speechActProbabilities = Object.fromEntries(JEV_MEMORY_SPEECH_ACTS.map((label) => [
@@ -33,8 +37,18 @@ describe('Jev speech-act evaluation', () => {
     const counts = Object.fromEntries(JEV_MEMORY_SPEECH_ACTS.map((act) => [act, 0])) as Record<JevMemorySpeechAct, number>
     for (const item of corpus.cases) counts[item.speechAct]++
 
-    expect(corpus.cases).toHaveLength(36)
-    expect(Object.values(counts)).toEqual(Array(JEV_MEMORY_SPEECH_ACTS.length).fill(4))
+    expect(corpus.cases).toHaveLength(72)
+    expect(Object.values(counts)).toEqual(Array(JEV_MEMORY_SPEECH_ACTS.length).fill(8))
+    expect(new Set(corpus.cases.map((item) => item.id)).size).toBe(corpus.cases.length)
+  })
+
+  it('loads a separate phrasing holdout with two cases for each label', () => {
+    const corpus = loadJevSpeechActHoldoutCorpus()
+    const counts = Object.fromEntries(JEV_MEMORY_SPEECH_ACTS.map((act) => [act, 0])) as Record<JevMemorySpeechAct, number>
+    for (const item of corpus.cases) counts[item.speechAct]++
+
+    expect(corpus.cases).toHaveLength(18)
+    expect(Object.values(counts)).toEqual(Array(JEV_MEMORY_SPEECH_ACTS.length).fill(2))
     expect(new Set(corpus.cases.map((item) => item.id)).size).toBe(corpus.cases.length)
   })
 
@@ -70,7 +84,17 @@ describe('Jev speech-act evaluation', () => {
       persistedCorrect: 1,
       persistedActPrecision: 0.5,
       persistedActCoverage: 0.5,
+      errors: [{ id: 'false-memory', expected: 'none', predicted: 'promised', confidence: 0.92 }],
+      fallbackReasons: { unavailable: 1 },
+      confidenceFrontier: {
+        '0.85': { selected: 2, correct: 1, precision: 0.5, coverage: 0.5 },
+        '0.9': { selected: 2, correct: 1, precision: 0.5, coverage: 0.5 },
+        '0.95': { selected: 1, correct: 1, precision: 1, coverage: 0.25 },
+        '0.98': { selected: 0, correct: 0, precision: 0, coverage: 0 },
+      },
     })
     expect(formatJevSpeechActEvaluation(report)).toContain('High-confidence persisted-label precision: 50.0% (1/2)')
+    expect(formatJevSpeechActEvaluation(report)).toContain('All-label confidence >= 0.95: exact precision 100.0% (1/1); coverage: 25.0%')
+    expect(formatJevSpeechActEvaluation(report)).toContain('Misclassified synthetic IDs: false-memory(none->promised,0.92)')
   })
 })

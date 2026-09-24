@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    { "id": "holdout-none-spreadsheet", "speechAct": "none", "text": "Can you build a quick budget spreadsheet from these numbers?" },
+    { "id": "holdout-none-notes", "speechAct": "none", "text": "Tidy these notes and put them in a table." },
+    { "id": "holdout-asked-backup", "speechAct": "asked", "text": "Do you remember which backup schedule we picked?" },
+    { "id": "holdout-asked-recap", "speechAct": "asked", "text": "How did I want the monthly recap organized?" },
+    { "id": "holdout-stated-database", "speechAct": "stated", "text": "Our new database goes live on Friday." },
+    { "id": "holdout-stated-benchmark", "speechAct": "stated", "text": "The benchmark completed without errors." },
+    { "id": "holdout-considered-summaries", "speechAct": "considered", "text": "I haven't made up my mind about keeping these summaries." },
+    { "id": "holdout-considered-schedule", "speechAct": "considered", "text": "We could perhaps revisit the schedule." },
+    { "id": "holdout-preferred-checkins", "speechAct": "preferred", "text": "Short weekly check-ins work best for me." },
+    { "id": "holdout-preferred-private", "speechAct": "preferred", "text": "I'd be happiest if older project notes stayed private." },
+    { "id": "holdout-decided-source-links", "speechAct": "decided", "text": "Let's make source links mandatory from now on." },
+    { "id": "holdout-decided-quarterly", "speechAct": "decided", "text": "The team is going with quarterly summaries." },
+    { "id": "holdout-promised-review", "speechAct": "promised", "text": "I'll check those notes before we next talk." },
+    { "id": "holdout-promised-archive", "speechAct": "promised", "text": "You have my word that I'll update the archive." },
+    { "id": "holdout-corrected-date", "speechAct": "corrected", "text": "One change to what I said before: the date should be the 12th." },
+    { "id": "holdout-corrected-place", "speechAct": "corrected", "text": "The previous entry should say Seattle, not Portland." },
+    { "id": "holdout-retracted-preference", "speechAct": "retracted", "text": "I changed my mind; don't keep the preference I just gave you." },
+    { "id": "holdout-retracted-commitment", "speechAct": "retracted", "text": "Forget my earlier commitment to finish this by Monday." }
+  ]
+}
