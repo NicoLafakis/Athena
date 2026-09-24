@@ -39,8 +39,5 @@ The stable wire contract is `src/contract.ts`. A producer returns a JSON documen
 
 ## Design references
 
-- ProvenContacts [ADR-0069](../../_ProvenLabs/app-source-code/ProvenContacts/.wiki/adr/0069-cross-app-cost-reporting-direct-bearer-pull.md)
-- ProvenContacts [connection runbook](../../_ProvenLabs/app-source-code/ProvenContacts/.wiki/runbooks/connect-an-app-to-portfolio-costs.md)
-- ProvenContacts [PRD 0008](../../_ProvenLabs/app-source-code/ProvenContacts/.wiki/prds/0008-prd-ai-cost-reporting-upgrade.md)
 - VMP pricing engine: `../.wiki/token-monitor/claude-plan/05-pricing-engine.md`
 - VMP collector design: `../.wiki/token-monitor/claude-plan/04-collectors.md`

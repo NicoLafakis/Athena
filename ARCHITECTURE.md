@@ -66,7 +66,9 @@ and local slash-command handler.
   delegated agents.
 - `src/brain/` — paths, settings, credentials and vaults, models, plugins, and local brain
   loading. Accessibility preferences are global/user-controlled and are not overridden
-  by project settings.
+  by project settings. Cross-project conversational continuity is specified in
+  `.wiki/features/conversational-continuity/`; the current runtime has project-scoped
+  resumable sessions and memory surfaces, not yet a unified temporal conversation index.
 - `src/experience/` — deterministic capture, compilation, storage, and retrieval of
   bounded experiential guidance.
 - `src/voice/` — provider-neutral optional voice contracts and routing over semantic

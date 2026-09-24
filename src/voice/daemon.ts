@@ -42,6 +42,8 @@ const WINDOWS_WAKE_MINIMUM_CONFIDENCE = 0.5
 export interface VoiceCommandInput {
   next(): Promise<VoiceCommand | null>
   close(): void
+  /** Ignore recognized audio while Athena's own speech is playing. */
+  setMuted?(muted: boolean): void
 }
 
 export type VoiceCommand =
@@ -129,6 +131,11 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
   private restarts = 0
   private restarting = false
   private listeningUntil = 0
+  private muted = false
+
+  setMuted(muted: boolean): void {
+    this.muted = muted
+  }
 
   constructor(options: WindowsPersistentWakeOptions = {}) {
     this.minimumConfidence = options.minimumConfidence ?? WINDOWS_WAKE_MINIMUM_CONFIDENCE
@@ -267,6 +274,7 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
    * dropped on-device.
    */
   private handlePhrase(phrase: RecognizedPhrase): void {
+    if (this.muted) return
     // Counted, never quoted: a rejected wake must leave a number behind and nothing else,
     // or the counter becomes a transcript of everything said near the microphone.
     if (phrase.confidence < this.minimumConfidence) {
@@ -721,6 +729,16 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
     },
   })
 
+  const whileSpeaking = async <T>(speak: () => Promise<T>): Promise<T> => {
+    options.input.setMuted?.(true)
+    try {
+      return await speak()
+    } finally {
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      options.input.setMuted?.(false)
+    }
+  }
+
   /**
    * Playback is the last step of a turn and the least essential one: the transcript is
    * printed FIRST so a dead audio device still leaves stable text for Braille and review,
@@ -744,36 +762,39 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
         ms: meter.now() - context.receivedAt,
       })
     }
+    if (turn.audio.length === 0 && !turn.transcript) return
     const startedAt = meter.now()
     const path = turn.audio.length > 0 ? 'realtime-audio' : 'local-speech'
-    try {
-      if (turn.audio.length > 0) await play(turn.audio)
-      else if (turn.transcript) await speakFallback(turn.transcript)
-      else return
-      meter.record({ event: 'playback.spoken', label: path, ms: meter.now() - startedAt })
-      return
-    } catch (error) {
-      meter.record({ event: 'playback.failed', label: path })
-      status(
-        'Athena voice could not play audio through the Windows audio backend: ' +
-        `${plainBounded((error as Error).message, 240)}. ` +
-        'The reply text above is the full response. Run `athena voice probe` to test playback.',
-      )
-    }
-    if (turn.audio.length === 0 || !turn.transcript) return
-    const recoveryAt = meter.now()
-    try {
-      await speakFallback(turn.transcript)
-      meter.record({
-        event: 'playback.spoken',
-        label: 'local-speech',
-        ms: meter.now() - recoveryAt,
-      })
-    } catch {
-      // Local speech was the recovery path; with both gone the stable text above is all
-      // there is, and saying so twice would add nothing.
-      meter.record({ event: 'playback.failed', label: 'local-speech' })
-    }
+    await whileSpeaking(async () => {
+      try {
+        if (turn.audio.length > 0) await play(turn.audio)
+        else if (turn.transcript) await speakFallback(turn.transcript)
+        else return
+        meter.record({ event: 'playback.spoken', label: path, ms: meter.now() - startedAt })
+        return
+      } catch (error) {
+        meter.record({ event: 'playback.failed', label: path })
+        status(
+          'Athena voice could not play audio through the Windows audio backend: ' +
+          `${plainBounded((error as Error).message, 240)}. ` +
+          'The reply text above is the full response. Run `athena voice probe` to test playback.',
+        )
+      }
+      if (turn.audio.length === 0 || !turn.transcript) return
+      const recoveryAt = meter.now()
+      try {
+        await speakFallback(turn.transcript)
+        meter.record({
+          event: 'playback.spoken',
+          label: 'local-speech',
+          ms: meter.now() - recoveryAt,
+        })
+      } catch {
+        // Local speech was the recovery path; with both gone the stable text above is all
+        // there is, and saying so twice would add nothing.
+        meter.record({ event: 'playback.failed', label: 'local-speech' })
+      }
+    })
   }
 
   /** Stable text plus local speech, with no model in the path and no way to throw. */
@@ -781,7 +802,7 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
     status(`Athena: ${text}`)
     lastSpoken = text
     try {
-      await speakFallback(text)
+      await whileSpeaking(() => speakFallback(text))
     } catch (error) {
       status(`Athena: could not speak that aloud: ${plainBounded((error as Error).message, 200)}`)
     }
@@ -800,7 +821,7 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
       if (!spoken) return
       void enqueueTurn(async () => {
         lastSpoken = text
-        await speakFallback(text)
+        await whileSpeaking(() => speakFallback(text))
       }).catch((error: unknown) => {
         status(`Athena: could not speak an announcement: ${(error as Error).message}`)
       })

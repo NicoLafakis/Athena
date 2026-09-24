@@ -958,6 +958,23 @@ describe('WindowsPersistentWakeInput', () => {
     input.close()
   })
 
+  it('drops wake phrases while Athena speech is playing', async () => {
+    const processes: FakeWakeProcess[] = []
+    const input = new WindowsPersistentWakeInput({
+      spawn: fakeSpawner(processes),
+      sleep: async () => {},
+    })
+    const pending = input.next()
+    const process = processes[0]!
+    process.emitStdout(readyLine('test recognizer'))
+    input.setMuted(true)
+    process.emitStdout(phraseLine('Athena status', 0.95) + '\n')
+    input.setMuted(false)
+    process.emitStdout(phraseLine('Athena repeat', 0.95) + '\n')
+    await expect(pending).resolves.toMatchObject({ kind: 'audio', wakeTranscript: 'Athena repeat' })
+    input.close()
+  })
+
   it('restarts a crashed listener within a bounded budget and keeps waiting', async () => {
     const processes: FakeWakeProcess[] = []
     const warnings: string[] = []

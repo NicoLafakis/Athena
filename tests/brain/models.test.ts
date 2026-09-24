@@ -21,15 +21,17 @@ describe('provider registry', () => {
     expect([...EFFORTS]).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
   })
 
-  it('openai uses the platform default URL, bearer auth, and the verified 5.6 lineup', () => {
+  it('openai uses the platform default URL, bearer auth, and the verified GPT-6 lineup', () => {
     expect(PROVIDERS.openai.baseURL).toBeNull()
     expect(PROVIDERS.openai.envVar).toBe('OPENAI_API_KEY')
     expect(PROVIDERS.openai.authMode).toBe('bearer')
     expect(PROVIDERS.openai.defaultModel).toBe('sol')
     expect(PROVIDERS.openai.validationModel).toBe('luna')
-    expect(modelId('openai', 'sol')).toBe('gpt-5.6-sol')
-    expect(modelId('openai', 'terra')).toBe('gpt-5.6-terra')
-    expect(modelId('openai', 'luna')).toBe('gpt-5.6-luna')
+    expect(modelKeys('openai')).toEqual(['luna', 'sol', 'astra'])
+    expect(modelId('openai', 'luna')).toBe('gpt-6-luna')
+    expect(modelId('openai', 'sol')).toBe('gpt-6-sol')
+    expect(modelId('openai', 'astra')).toBe('gpt-6-astra')
+    expect(normalizeModel('openai', 'gpt-6-astra')).toBe('astra')
     // Effort maps to reasoning.effort; thinking stays off (Anthropic-only param).
     expect(supportsEffort('openai', 'sol')).toBe(true)
     expect(supportsThinking('openai', 'sol')).toBe(false)

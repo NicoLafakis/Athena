@@ -208,6 +208,8 @@ semantic plane when waiting for a model round trip would hide a blocker.
   path, changing only the input/output adapter.
 - **FR-012:** A Realtime session renewal is transparent before the provider session limit;
   the Athena harness session and conversational objective survive it.
+- **FR-013:** The persistent wake listener ignores recognized phrases while Athena is
+  speaking and through a short acoustic tail, so playback cannot become the next command.
 
 ## Accessibility requirements
 

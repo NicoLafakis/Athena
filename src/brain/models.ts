@@ -98,38 +98,39 @@ export interface ModelEntry {
 // endpoint accepts the same ids as the OpenAI one.
 export const MODELS: Record<ProviderId, Record<ModelKey, ModelEntry>> = {
   // NOTE: OpenAI ids, reasoning-effort sets, and prices verified against
-  // https://platform.openai.com/docs/models and /docs/pricing on 2026-08-12.
-  // All three take reasoning effort none..max; Athena's Effort union maps 1:1 (minus
-  // 'none'). Effort is emitted by resolveModelRequest and translated to
-  // reasoning:{effort} inside OpenAIClient — supportsThinking stays false: that flag
-  // drives Anthropic's thinking param, which has no OpenAI counterpart.
+  // https://developers.openai.com/api/docs/models on 2026-09-24.
+  // Sol and Luna take reasoning effort none..max; Astra takes low..max. Athena's Effort
+  // union maps 1:1 to their shared non-none levels. Effort is emitted by
+  // resolveModelRequest and translated to reasoning:{effort} inside OpenAIClient —
+  // supportsThinking stays false: that flag drives Anthropic's thinking param, which has
+  // no OpenAI counterpart.
   openai: {
-    sol: {
-      id: 'gpt-5.6-sol',
-      label: 'GPT-5.6 Sol',
-      supportsEffort: true,
-      supportsThinking: false,
-      contextWindowTokens: 1_050_000,
-      maxOutputTokens: 128_000,
-      pricing: { inputPerMillionUsd: 5, outputPerMillionUsd: 30, cacheReadPerMillionUsd: 0.5, cacheWritePerMillionUsd: 6.25, metered: true, asOf: '2026-08-12' },
-    },
-    terra: {
-      id: 'gpt-5.6-terra',
-      label: 'GPT-5.6 Terra',
-      supportsEffort: true,
-      supportsThinking: false,
-      contextWindowTokens: 1_050_000,
-      maxOutputTokens: 128_000,
-      pricing: { inputPerMillionUsd: 2, outputPerMillionUsd: 12, cacheReadPerMillionUsd: 0.2, cacheWritePerMillionUsd: 2.5, metered: true, asOf: '2026-08-12' },
-    },
     luna: {
-      id: 'gpt-5.6-luna',
-      label: 'GPT-5.6 Luna',
+      id: 'gpt-6-luna',
+      label: 'GPT-6 Luna',
       supportsEffort: true,
       supportsThinking: false,
       contextWindowTokens: 1_050_000,
       maxOutputTokens: 128_000,
-      pricing: { inputPerMillionUsd: 0.2, outputPerMillionUsd: 1.2, cacheReadPerMillionUsd: 0.02, cacheWritePerMillionUsd: 0.25, metered: true, asOf: '2026-08-12' },
+      pricing: { inputPerMillionUsd: 0.1, outputPerMillionUsd: 0.5, cacheReadPerMillionUsd: 0.01, cacheWritePerMillionUsd: 0.125, metered: true, asOf: '2026-09-24' },
+    },
+    sol: {
+      id: 'gpt-6-sol',
+      label: 'GPT-6 Sol',
+      supportsEffort: true,
+      supportsThinking: false,
+      contextWindowTokens: 1_050_000,
+      maxOutputTokens: 128_000,
+      pricing: { inputPerMillionUsd: 2, outputPerMillionUsd: 10, cacheReadPerMillionUsd: 0.2, cacheWritePerMillionUsd: 2.5, metered: true, asOf: '2026-09-24' },
+    },
+    astra: {
+      id: 'gpt-6-astra',
+      label: 'GPT-6 Astra',
+      supportsEffort: true,
+      supportsThinking: false,
+      contextWindowTokens: 1_050_000,
+      maxOutputTokens: 128_000,
+      pricing: { inputPerMillionUsd: 10, outputPerMillionUsd: 50, cacheReadPerMillionUsd: 1, cacheWritePerMillionUsd: 12.5, metered: true, asOf: '2026-09-24' },
     },
   },
   anthropic: {

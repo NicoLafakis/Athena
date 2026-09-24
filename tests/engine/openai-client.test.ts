@@ -17,7 +17,7 @@ function textDone(text: string, usage: Record<string, unknown> = {}): string {
     type: 'response.completed',
     response: {
       id: 'resp_1',
-      model: 'gpt-5.6-luna',
+      model: 'gpt-6-luna',
       status: 'completed',
       output: [{ type: 'message', content: [{ type: 'output_text', text }] }],
       usage: { input_tokens: 10, output_tokens: 2, ...usage },
@@ -110,7 +110,7 @@ describe('OpenAI provider translation', () => {
     const message = toAnthropicMessage(
       {
         id: 'resp_2',
-        model: 'gpt-5.6-sol',
+        model: 'gpt-6-sol',
         status: 'completed',
         output: [
           { type: 'message', content: [{ type: 'output_text', text: 'opening x' }] },
@@ -123,7 +123,7 @@ describe('OpenAI provider translation', () => {
           output_tokens_details: { reasoning_tokens: 4 },
         },
       },
-      'gpt-5.6-sol',
+      'gpt-6-sol',
     )
     expect(message.stop_reason).toBe('tool_use')
     expect(message.content[0]).toMatchObject({ type: 'text', text: 'opening x' })
@@ -146,13 +146,13 @@ describe('OpenAI provider translation', () => {
         incomplete_details: { reason: 'max_output_tokens' },
         output: [{ type: 'function_call', call_id: 'call_2', name: 'Read', arguments: '{nope' }],
       },
-      'gpt-5.6-luna',
+      'gpt-6-luna',
     )
     expect(message.stop_reason).toBe('tool_use')
     expect(message.content[0]).toMatchObject({ type: 'tool_use', input: {} })
     const plain = toAnthropicMessage(
       { status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' }, output: [] },
-      'gpt-5.6-luna',
+      'gpt-6-luna',
     )
     expect(plain.stop_reason).toBe('max_tokens')
   })
@@ -180,7 +180,7 @@ describe('OpenAIClient', () => {
     const deltas: string[] = []
     const result = await client.stream(
       {
-        model: 'gpt-5.6-luna',
+        model: 'gpt-6-luna',
         system: 'sys',
         messages: [{ role: 'user', content: 'hi' }],
         tools: [],
@@ -196,7 +196,7 @@ describe('OpenAIClient', () => {
     expect(result.message.usage.cache_read_input_tokens).toBe(4)
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     const body = JSON.parse(String(init.body)) as Record<string, unknown>
-    expect(body.model).toBe('gpt-5.6-luna')
+    expect(body.model).toBe('gpt-6-luna')
     expect(body.instructions).toBe('sys')
     expect(body.reasoning).toEqual({ effort: 'high', summary: 'auto' })
     expect(body.stream).toBe(true)
@@ -215,7 +215,7 @@ describe('OpenAIClient', () => {
     const thinking: string[] = []
     await client.stream(
       {
-        model: 'gpt-5.6-luna',
+        model: 'gpt-6-luna',
         system: '',
         messages: [{ role: 'user', content: 'hi' }],
         tools: [],
@@ -237,7 +237,7 @@ describe('OpenAIClient', () => {
     const client = new OpenAIClient('sk-test', undefined, 'openai', undefined, retryFetch)
     const result = await client.stream(
       {
-        model: 'gpt-5.6-luna',
+        model: 'gpt-6-luna',
         system: '',
         messages: [{ role: 'user', content: 'hi' }],
         tools: [],
@@ -254,7 +254,7 @@ describe('OpenAIClient', () => {
     await expect(
       denied.stream(
         {
-          model: 'gpt-5.6-luna',
+          model: 'gpt-6-luna',
           system: '',
           messages: [{ role: 'user', content: 'hi' }],
           tools: [],
@@ -278,7 +278,7 @@ describe('OpenAIClient', () => {
     await expect(
       client.stream(
         {
-          model: 'gpt-5.6-luna',
+          model: 'gpt-6-luna',
           system: '',
           messages: [{ role: 'user', content: 'hi' }],
           tools: [],
@@ -296,7 +296,7 @@ describe('OpenAIClient', () => {
     const fetchMock = vi.fn(async () =>
       okResponse(JSON.stringify({
         id: 'resp_3',
-        model: 'gpt-5.6-luna',
+        model: 'gpt-6-luna',
         status: 'completed',
         output: [{ type: 'message', content: [{ type: 'output_text', text: 'summary' }] }],
         usage: {
@@ -308,7 +308,7 @@ describe('OpenAIClient', () => {
       })),
     )
     const client = new OpenAIClient('sk-test', undefined, 'openai', telemetry, fetchMock)
-    const result = await client.completeDetailed({ model: 'gpt-5.6-luna', prompt: 'p', maxTokens: 32 })
+    const result = await client.completeDetailed({ model: 'gpt-6-luna', prompt: 'p', maxTokens: 32 })
     expect(result.text).toBe('summary')
     expect(result.usage).toMatchObject({ inputTokens: 30, outputTokens: 8, cacheReadTokens: 20 })
     expect(telemetry).toHaveBeenCalledTimes(1)

@@ -6,6 +6,11 @@ so continuity across sessions is built from specifics, not self-description. Thi
 specifies the journal alone. Where it feeds memory curation/promotion, only the interface
 seam is noted; the consuming system is scoped separately.
 
+The consumer and the broader user-facing continuity policy are specified in
+[Conversational Continuity](../features/conversational-continuity/00-overview.md). The
+journal remains an operational evidence stream; it is not a transcript archive or a
+replacement for source-linked conversational episodes.
+
 ## Why this and not a diary
 
 Two things are already grounded to reuse: `RunTraceWriter` (`src/harness/traces.ts`)
