@@ -113,6 +113,23 @@ describe('continuity retrieval', () => {
     expect(searchEpisodes(store.listEpisodes(), { text: 'nothing matches these terms' })).toEqual([])
   })
 
+  it('omits local search distractors with only one matching topical term', () => {
+    const target = new SessionStore(sessionsRoot, 'C:/projects/skill-guide').create()
+    target.appendMessage({ role: 'user', content: 'Which skill helps with committing changes?' })
+    target.appendMessage({ role: 'assistant', content: 'The commit-flow skill helps review and commit code.' })
+    target.appendEvent({ type: 'turn-done' })
+    const distractor = new SessionStore(sessionsRoot, 'C:/projects/general-help').create()
+    distractor.appendMessage({ role: 'user', content: 'I need help with a repository task.' })
+    distractor.appendMessage({ role: 'assistant', content: 'We can work through the code together.' })
+    distractor.appendEvent({ type: 'turn-done' })
+    const store = new ContinuityStore(join(root, 'continuity'))
+    store.rebuild(sessionsRoot)
+
+    const hits = searchEpisodes(store.listEpisodes(), { text: 'skill helps committing' })
+
+    expect(hits.map((hit) => hit.episode.sessionId)).toEqual([target.id])
+  })
+
   it('can load bounded adjacent turns without changing an episode’s own source refs', () => {
     const session = new SessionStore(sessionsRoot, 'C:/projects/adjacent-turns').create()
     session.appendMessage({ role: 'user', content: 'Earlier we were comparing two memory options.' })

@@ -560,7 +560,7 @@ export class HarnessSessionController {
         const decision = gate.check({
           toolName: name,
           input: parsed.data,
-          readOnly: tool.readOnly,
+          readOnly: tool.readOnlyForInput?.(parsed.data) ?? tool.readOnly,
           summary: `Hook invokes ${name}`,
         })
         if (decision.decision !== 'allow') {

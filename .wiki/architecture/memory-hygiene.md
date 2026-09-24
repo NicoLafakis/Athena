@@ -53,7 +53,10 @@ line. Only `preferred`, `decided`, and `promised` labels can support candidate g
 correction and retraction labels remain contextual and do not supersede memory by themselves.
 `athena memory review <id> <promote|reject>` and its slash equivalent provide local
 decisions; inferred promotion rechecks source lines, claims, timestamps, project scope, and
-sensitive wording at decision time. Semantic records stay out of automatically assembled
+sensitive wording at decision time. The mixed-capability `Memory` tool classifies validated
+`list` and `read` operations as read-only for permission hooks and gates; file writes,
+deletes, remember, review, supersede, and forget stay mutating. Semantic records stay out of
+automatically assembled
 provider prompts; only the verified `Memory.read` tool path returns permitted record content
 to the active conversation. Source-session forget/delete integration and citation-verification
 hooks for legacy free-text files remain unfinished. The user has not yet selected the

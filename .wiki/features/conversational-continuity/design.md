@@ -82,6 +82,11 @@ history to a model.
 - Scoring combines phrase/token relevance, inferred intent, layer preference, explicit
   versus corroborated source authority, speech-act/correction labels, a small current-
   project preference, and bounded recency. Time and project filters happen before score.
+- Search and ranking share a minimum topical-overlap gate after recall and time cues are
+  removed. A one-term query needs one match; a multi-term query needs at least two matches
+  and at least half its searchable terms. Common plural forms such as summary/summaries
+  are compared consistently. This rejects candidates selected by one incidental
+  generic word while retaining concise one-topic requests.
 - The preview returns at most five candidates by default (hard maximum eight), each with
   at most twelve source IDs; aggregate ranking metrics cap source IDs at 64. It displays
   the selected IDs, scope/status/time, confidence when present, score, and reason labels.
@@ -114,6 +119,10 @@ history to a model.
   model conversation. Prompt assembly does not inject the semantic directory; this
   read-tool path is an existing, call-triggered provider handoff and must be included in
   the privacy review. It does not authorize automatic episodic history retrieval.
+- Permission classification is operation-aware after input-schema validation: `list` and
+  `read` are read-only, while `write`, `delete`, `remember`, `review`, `supersede`, and
+  `forget` remain mutating. The engine permission hook, permission gate, and harness hook
+  dispatch use that validated operation classification.
 
 Automatic answer-time retrieval reuses the same filters and ranking policy. It reloads
 selected source sessions, checks line and episode digests, checks session suppression,
@@ -127,7 +136,10 @@ so historical text cannot forge a speaker line or close the evidence envelope. I
 written to session messages, hook context, Jev input, logs, or persistent memory.
 Recall-intent terms such as “decision,” “preference,” and “model” are not topic evidence
 on their own; if removing those cues leaves neither a searchable subject nor a bounded
-time range, Athena asks for clarification instead of ranking unrelated episodes.
+time range, Athena asks for clarification instead of ranking unrelated episodes. A topic
+request with an explicit date remains episode-focused rather than selecting a broad rollup.
+A named month and day without a year resolves to its most recent valid occurrence relative
+to the user's local date; impossible dates ask for clarification.
 
 Semantic records and rollup summaries are navigation/ranking metadata only: neither body
 is sent through automatic recall. Only ordinary, active, in-validity semantic records

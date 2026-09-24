@@ -119,6 +119,39 @@ describe('rankContinuityLayers', () => {
     }).candidates).toEqual([])
   })
 
+  it('filters multi-topic distractors that match only one generic query term', () => {
+    const relevant = episode(
+      'episode-skill-commit',
+      'project-a',
+      '2026-09-10T12:00:00.000Z',
+      'The user asked which skill helps with committing changes; commit-flow helps review and commit code.',
+    )
+    const distractor = episode(
+      'episode-generic-help',
+      'project-b',
+      '2026-09-11T12:00:00.000Z',
+      'The user asked for help with a repository task.',
+    )
+
+    const ranking = rankContinuityLayers({
+      query: 'skill helps committing',
+      episodes: [relevant, distractor],
+      rollups: rollupsFor([relevant, distractor]),
+    })
+
+    expect(ranking.candidates.map((candidate) => candidate.id)).toEqual([relevant.id])
+  })
+
+  it('keeps a direct one-topic query eligible and leaves bounded time recalls broad', () => {
+    const memory = episode('episode-memory', 'project-a', '2026-09-10T12:00:00.000Z', 'The user asked about memory.')
+    const ranking = rankContinuityLayers({
+      query: 'memory',
+      episodes: [memory],
+    })
+
+    expect(ranking.candidates.map((candidate) => candidate.id)).toEqual([memory.id])
+  })
+
   it('uses explicit time windows as hard filters and favors a matching rollup for recap intent', () => {
     const inWindow = episode('episode-sept', 'project-a', '2026-09-15T12:00:00.000Z', 'The user chose a weekly continuity review.')
     const outside = episode('episode-aug', 'project-a', '2026-08-15T12:00:00.000Z', 'The user chose monthly project planning.')
@@ -141,6 +174,30 @@ describe('rankContinuityLayers', () => {
     expect(ranking.candidates[0]?.layer).toBe('rollup')
     expect(ranking.candidates.flatMap((candidate) => candidate.sourceIds)).toContain(inWindow.id)
     expect(ranking.candidates.flatMap((candidate) => candidate.sourceIds)).not.toContain(outside.id)
+  })
+
+  it('keeps a date-scoped topic query on matching episodes instead of broad rollups', () => {
+    const relevant = episode('episode-orion-sample', 'project-a', '2026-09-15T12:00:00.000Z', 'We discussed the Orion sample importer.')
+    const distractor = episode('episode-other-importer', 'project-b', '2026-09-15T13:00:00.000Z', 'We discussed an importer for another tool.')
+    const outside = episode('episode-orion-old', 'project-a', '2026-09-14T12:00:00.000Z', 'We discussed the Orion sample importer.')
+    const window = {
+      start: '2026-09-15T04:00:00.000Z',
+      end: '2026-09-16T04:00:00.000Z',
+      timeZone: 'America/New_York',
+      kind: 'calendar' as const,
+      label: 'September 15, 2026',
+    }
+
+    const ranking = rankContinuityLayers({
+      query: 'Orion sample',
+      window,
+      episodes: [relevant, distractor, outside],
+      rollups: rollupsFor([relevant, distractor, outside]),
+    })
+
+    expect(ranking.intent).toBe('topic')
+    expect(ranking.candidates.map((candidate) => candidate.id)).toEqual([relevant.id])
+    expect(ranking.candidates.some((candidate) => candidate.layer === 'rollup')).toBe(false)
   })
 
   it('rejects a rollup after its source episode changes', () => {

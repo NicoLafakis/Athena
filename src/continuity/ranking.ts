@@ -12,6 +12,7 @@ import {
   type TemporalWindow,
   type TimeRollup,
 } from './schemas.js'
+import { hasSufficientTopicOverlap, matchingTopicTermCount } from './topic-match.js'
 
 export type RecallIntent = 'continuation' | 'temporal' | 'summary' | 'decision' | 'preference' | 'fact' | 'topic'
 export type RecallLayer = 'working' | 'episodic' | 'semantic' | 'rollup'
@@ -79,13 +80,14 @@ export interface RankContinuityLayersOptions {
 }
 
 const STOP_WORDS = new Set([
-  'a', 'about', 'an', 'and', 'are', 'as', 'at', 'be', 'been', 'but', 'by', 'did', 'do', 'does',
+  'a', 'about', 'an', 'and', 'are', 'as', 'at', 'be', 'been', 'but', 'by', 'can', 'could', 'did', 'do', 'does',
   'for', 'from', 'had', 'has', 'have', 'how', 'i', 'in', 'is', 'it', 'me', 'my', 'of', 'on', 'or',
   'our', 'the', 'then', 'this', 'that', 'these', 'those', 'to', 'was', 'we', 'what', 'when',
   'where', 'which', 'who', 'why', 'with', 'you', 'your', 'yesterday', 'today', 'earlier', 'last',
   'week', 'month', 'quarter', 'year', 'current', 'talk', 'talked', 'discuss', 'discussed',
   'remember', 'recall', 'happen', 'happened', 'say', 'said', 'agree', 'agreed', 'tell', 'told',
-  'give', 'me', 'please', 'about',
+  'give', 'me', 'please', 'about', 'would', 'should', 'will', 'might', 'may', 'maybe', 'ask', 'asked', 'asking',
+  'topic', 'topics', 'cover', 'covered', 'came', 'across', 'broad',
 ])
 
 // These words help identify the requested memory operation, but do not identify
@@ -96,7 +98,11 @@ const INTENT_ONLY_WORDS = new Set([
   'choose', 'chose', 'preference', 'preferences', 'prefer', 'preferred', 'fact', 'facts',
   'model', 'models', 'plan', 'plans', 'history', 'historical', 'previous', 'prior', 'similar',
   'work', 'works', 'task', 'tasks', 'project', 'projects', 'repo', 'repository', 'codebase',
-  'conversation', 'conversations', 'discussion', 'discussions',
+  'conversation', 'conversations', 'discussion', 'discussions', 'help', 'helps', 'helped', 'helping',
+  'connect', 'connects', 'connected', 'relate', 'relates', 'related', 'recap', 'summary', 'summarize',
+  'summarise', 'overview', 'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august',
+  'september', 'october', 'november', 'december', 'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug',
+  'sep', 'oct', 'nov', 'dec',
 ])
 
 const LAYER_ORDER: Record<RecallLayer, number> = {
@@ -129,25 +135,21 @@ function intentHas(queryTerms: string[], candidates: string[]): boolean {
 function inferIntent(query: string, window?: TemporalWindow): RecallIntent {
   const normalized = query.toLowerCase()
   const queryTerms = terms(query)
-  if (intentHas(queryTerms, ['recap', 'summarize', 'summarise', 'overview']) ||
+  if (intentHas(queryTerms, ['recap', 'summary', 'summarize', 'summarise', 'overview']) ||
     normalized.includes('what changed this') || normalized.includes('what happened this')) return 'summary'
   if (intentHas(queryTerms, ['prefer', 'preference', 'usually', 'tend', 'like'])) return 'preference'
   if (intentHas(queryTerms, ['decide', 'decision', 'agree', 'chose', 'choice', 'commit'])) return 'decision'
   if (intentHas(queryTerms, ['continue', 'pick', 'same', 'left'])) return 'continuation'
   if (intentHas(queryTerms, ['true', 'fact'])) return 'fact'
-  if (window) return 'temporal'
+  if (window && topicTerms(query).length === 0) return 'temporal'
   return 'topic'
 }
 function lexicalScore(query: string, queryTerms: string[], fields: string[]): number {
   if (queryTerms.length === 0) return 0
   const normalizedQuery = query.trim().toLowerCase()
   const normalizedFields = fields.map((field) => field.toLowerCase())
-  let score = normalizedFields.some((field) => normalizedQuery.length > 3 && field.includes(normalizedQuery)) ? 4 : 0
-  const fieldTerms = normalizedFields.map((field) => terms(field))
-  for (const term of queryTerms) {
-    if (fieldTerms.some((tokens) => tokens.some((token) => matchesTerm(term, token)))) score += 2
-  }
-  return score
+  const score = normalizedFields.some((field) => normalizedQuery.length > 3 && field.includes(normalizedQuery)) ? 4 : 0
+  return score + matchingTopicTermCount(queryTerms, fields) * 2
 }
 
 function isInWindow(timestamp: string, window?: TemporalWindow): boolean {
@@ -252,7 +254,8 @@ function candidateScore(
   now = Date.now(),
 ): { score: number; reasons: string[] } {
   const textScore = lexicalScore(query, queryTerms, fields)
-  if (!window && (queryTerms.length === 0 || textScore === 0)) {
+  if ((!window && queryTerms.length === 0) || (queryTerms.length > 0 &&
+    (!hasSufficientTopicOverlap(queryTerms, fields) || textScore === 0))) {
     return { score: Number.NEGATIVE_INFINITY, reasons: [] }
   }
   const reasons: string[] = []
@@ -378,6 +381,7 @@ export function rankContinuityLayers(options: RankContinuityLayersOptions): Reca
   }
 
   for (const input of options.rollups ?? []) {
+    if (intent !== 'summary' && intent !== 'temporal') continue
     const rollup = TimeRollupSchema.parse(input)
     if (!rollupOverlapsWindow(rollup, window)) continue
     const coveredEpisodes = rollup.sourceEpisodeIds.map((id) => episodeById.get(id))

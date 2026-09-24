@@ -75,6 +75,7 @@ export const memoryTool: ToolDefinition<z.infer<typeof MemoryInput>> = {
     'List, read, write, or delete Brain memory files. For current personal facts, use only semantic records marked active and within their valid dates; treat candidates as unconfirmed and superseded records as historical. The model-facing read action never returns candidate, flagged, rejected, tombstoned, or forgotten semantic content. Managed semantic reads verify that each cited session line is still available, unchanged, and user-authored, and reject sources suppressed by continuity tombstones; do not use a memory whose source is unavailable or changed. Use remember only when the user explicitly asks to retain a fact; questions and hypotheticals are not facts. Use review only after the user accepts or rejects a candidate; promotion revalidates every inferred source against the complete local continuity index and its current session lines. Supersede only when the user explicitly corrects an active memory. Forget only when the user explicitly asks to forget a derived semantic memory, using its memoryId; this erases the derived text and keeps its original session available for historical recall. Source links come from persisted user messages. Writes and deletes keep MEMORY.md in sync.',
   schema: MemoryInput,
   readOnly: false,
+  readOnlyForInput: (input) => input.op === 'list' || input.op === 'read',
   async execute(input, ctx) {
     const memDir = memoryDirOf(ctx.brainDir)
     if (input.op === 'list') {

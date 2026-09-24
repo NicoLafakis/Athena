@@ -30,6 +30,19 @@ const memFile = (rel: string) => join(dir, 'memory', rel)
 const indexFile = () => join(dir, 'memory', 'MEMORY.md')
 
 describe('memoryTool', () => {
+  it('classifies list/read as read-only while every memory lifecycle action remains mutating', () => {
+    const readOnlyForInput = (
+      memoryTool as typeof memoryTool & { readOnlyForInput?: (input: unknown) => boolean }
+    ).readOnlyForInput
+    expect(readOnlyForInput).toBeTypeOf('function')
+    if (!readOnlyForInput) return
+
+    expect(readOnlyForInput({ op: 'list' })).toBe(true)
+    expect(readOnlyForInput({ op: 'read', path: 'preferences/topic.md' })).toBe(true)
+    for (const op of ['write', 'delete', 'remember', 'review', 'supersede', 'forget']) {
+      expect(readOnlyForInput({ op })).toBe(false)
+    }
+  })
   it('write creates the file and appends an index line to MEMORY.md', async () => {
     const ctx = makeCtx(dir)
     const res = await memoryTool.execute(

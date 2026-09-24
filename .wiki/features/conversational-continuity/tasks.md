@@ -81,6 +81,8 @@ full test suite pass on this implementation state; cross-platform CI is pending 
   Prevent inferred single-episode facts from becoming active durable facts.
   - [x] Explicit remember, candidate review, and correct/supersede use the semantic
     lifecycle store; inferred records cannot be promoted from one source.
+  - [x] Classify Memory `list` and `read` as read-only after schema validation, while all
+    memory lifecycle and file-mutation operations remain permission-gated writes.
   - [x] Generate candidates only from repeated, direct user preferences/decisions/promises
     across distinct, source-digest-verified sessions; reject tentative, interrogative,
     assistant-authored, stale, incomplete, truncated, and credential-bearing evidence.
@@ -151,6 +153,9 @@ full test suite pass on this implementation state; cross-platform CI is pending 
     bytes = 8.35%, across 29 episodes, 8 sessions, and 2 projects from July 23–August 13,
     2026. Record as a limited local measurement only; it does not satisfy representative
     history coverage. Synthetic compressed index ratio is 3.49% at 10,000 episodes.
+  - [x] Tighten shared search/ranking topic overlap, keep date-scoped topic queries on
+    episode candidates, resolve yearless month/day dates, and record a bounded local smoke
+    check; see [design](design.md) and [calibration](calibration.md).
   - [ ] Dogfood representative live histories and review usefulness, correction rates, and
     index-size ratio before tuning recall beyond the exact repeated-claim policy. The
     available local archive is too small to close this gate.

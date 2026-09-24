@@ -83,6 +83,34 @@ describe('resolveTemporalWindow', () => {
     if (monthDay.status === 'resolved') expect(monthDay.window.start).toBe('2026-11-01T04:00:00.000Z')
   })
 
+  it('resolves a named month and day without a year to its most recent occurrence', () => {
+    const recentPast = resolveTemporalWindow('What did we discuss on August 12?', newYork)
+    const futureMonthDay = resolveTemporalWindow('August 12', {
+      ...newYork,
+      now: new Date('2026-01-10T15:00:00.000Z'),
+    })
+
+    expect(recentPast.status).toBe('resolved')
+    expect(futureMonthDay.status).toBe('resolved')
+    if (recentPast.status === 'resolved') {
+      expect(recentPast.window).toMatchObject({
+        start: '2026-08-12T04:00:00.000Z',
+        end: '2026-08-13T04:00:00.000Z',
+        label: 'August 12, 2026',
+      })
+    }
+    if (futureMonthDay.status === 'resolved') {
+      expect(futureMonthDay.window.start).toBe('2025-08-12T04:00:00.000Z')
+    }
+  })
+
+  it('clarifies an invalid yearless month and day', () => {
+    expect(resolveTemporalWindow('February 30', newYork)).toMatchObject({
+      status: 'clarify',
+      reason: 'invalid-date',
+    })
+  })
+
   it('treats “past N days” as an elapsed rolling interval', () => {
     const result = resolveTemporalWindow('past 7 days', newYork)
     expect(result.status).toBe('resolved')

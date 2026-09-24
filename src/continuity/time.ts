@@ -197,7 +197,7 @@ function hasMultipleTemporalCues(query: string): boolean {
     `\\b(?:this|last)\\s+${weekday}\\b`,
     `\\b${weekday}\\s+(?:this|last)\\s+week\\b`,
     `\\b(?:this|last)\\s+week\\s+${weekday}\\b`,
-    `\\b${month}\\s+\\d{1,2},?\\s+\\d{4}\\b`,
+    `\\b${month}\\s+\\d{1,2}(?:,?\\s+\\d{4})?\\b`,
     `\\b(?:in|during|throughout)\\s+${month}\\s+\\d{4}\\b`,
     `^\\s*${month}\\s+\\d{4}\\s*$`,
     `\\b(?:this|last)\\s+${month}\\b`,
@@ -290,14 +290,31 @@ function namedMonthWindow(
   query: string,
   today: CalendarDate,
   timeZone: string,
-): TemporalWindow | null {
+): TemporalWindow | null | 'invalid-date' {
   const names = MONTHS.map((month) => `${month}|${month.slice(0, 3)}`).join('|')
-  const fullDate = new RegExp(`\\b(${names})\\s+(\\d{1,2}),?\\s+(\\d{4})\\b`, 'i').exec(query)
-  if (fullDate) {
-    const month = monthIndex(fullDate[1]!)!
-    const start = { year: Number(fullDate[3]), month, day: Number(fullDate[2]) }
-    if (!dateFromKey(dateKey(start))) return null
-    return calendarWindow(start, addCalendarDays(start, 1), timeZone, fullDate[0])
+  const monthDay = new RegExp(`\\b(${names})\\s+(\\d{1,2})(?:,?\\s+(\\d{4}))?\\b`, 'i').exec(query)
+  if (monthDay) {
+    const month = monthIndex(monthDay[1]!)!
+    const day = Number(monthDay[2])
+    let start: CalendarDate | null = null
+    if (monthDay[3]) {
+      const explicit = { year: Number(monthDay[3]), month, day }
+      start = dateFromKey(dateKey(explicit)) ? explicit : null
+    } else {
+      let year = today.year
+      if (month > today.month || (month === today.month && day > today.day)) year--
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const candidate = { year, month, day }
+        if (dateFromKey(dateKey(candidate))) {
+          start = candidate
+          break
+        }
+        year--
+      }
+    }
+    if (!start) return 'invalid-date'
+    const monthLabel = MONTHS[month - 1]!.replace(/^./, (letter) => letter.toUpperCase())
+    return calendarWindow(start, addCalendarDays(start, 1), timeZone, `${monthLabel} ${day}, ${start.year}`)
   }
 
   const monthYear = new RegExp(`\\b(?:in|during|throughout)\\s+(${names})\\s+(\\d{4})\\b|^\\s*(${names})\\s+(\\d{4})\\s*$`, 'i').exec(query)
@@ -369,6 +386,7 @@ function resolveCalendarWindow(
   }
 
   const monthDay = namedMonthWindow(query, today, timeZone)
+  if (monthDay === 'invalid-date') return 'invalid-date'
   if (monthDay) return monthDay
   if (/(?:\b\w+\s+\d{1,2},?\s+\d{4}\b)/i.test(query)) return 'invalid-date'
 

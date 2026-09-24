@@ -142,6 +142,14 @@ useful retrieval within a concentrated August voice/permissions topic cluster, b
 cannot establish cross-project breadth, correction rates, or day/week/month/quarter/year
 continuity quality.
 
+A follow-up bounded smoke check found one source-verified candidate for a committing-skill
+query. A date-and-topic rank query returned five same-day candidates, with the exact
+question episode ranked first and no broad rollup selected. An end-to-end answer-time
+recall completed in one answer-model call with no tool calls; the returned answer matched
+the linked source. That call cost $0.039685. These observations are narrow examples, not
+precision estimates: the archive is small and concentrated, and representative multi-project
+dogfood remains required before making a 98–100% precision claim.
+
 The compressed index is 30,833 bytes, or 8.35% of source bytes; its prior plain JSON form
 was 97,851 bytes, or 26.5%. The under-10% size target is met on this archive only. Neither
 this measurement nor the focused spot-check closes Phase 4.3's representative-history

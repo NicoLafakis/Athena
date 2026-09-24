@@ -716,10 +716,11 @@ export class Engine {
       return { output: `Invalid input for ${block.name}: ${parsed.error.message}`, isError: true }
     }
     const effectiveBlock = { ...block, input: parsed.data } as ToolUseBlock
+    const operationReadOnly = tool.readOnlyForInput?.(parsed.data) ?? tool.readOnly
     const permissionHook = await hooks.run('PermissionRequest', {
       toolName: block.name,
       input: parsed.data,
-      readOnly: tool.readOnly,
+      readOnly: operationReadOnly,
     })
     if (!permissionHook.allowed) {
       return {
@@ -730,7 +731,7 @@ export class Engine {
     const decision = gate.check({
       toolName: block.name,
       input: parsed.data,
-      readOnly: tool.readOnly,
+      readOnly: operationReadOnly,
       summary: summarize(effectiveBlock),
     })
     let allowed = decision.decision === 'allow'

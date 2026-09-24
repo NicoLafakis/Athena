@@ -5,6 +5,7 @@ import { canonicalSessionRecords, listAllProjectSessions, readSessionLineRecords
 import { sessionLineDigest, stableSessionLineId } from '../harness/sessions.js'
 import type { SessionLineRecord } from '../harness/sessions.js'
 import { jevSpeechActsByUserMessage } from './jev-events.js'
+import { hasSufficientTopicOverlap } from './topic-match.js'
 
 export interface EpisodeSearchOptions {
   text?: string
@@ -45,7 +46,10 @@ const SEARCH_STOP_WORDS = new Set([
   'the', 'then', 'this', 'that', 'to', 'was', 'we', 'what', 'when', 'where', 'which', 'who', 'why',
   'with', 'you', 'your', 'yesterday', 'today', 'earlier', 'last', 'week', 'month', 'quarter', 'year',
   'current', 'this', 'talk', 'talked', 'discuss', 'discussed', 'remember', 'recall', 'happen', 'happened',
-  'say', 'said', 'agree', 'agreed', 'tell', 'told',
+  'say', 'said', 'agree', 'agreed', 'tell', 'told', 'help', 'helps', 'helped', 'helping', 'connect',
+  'connects', 'connected', 'relate', 'relates', 'related', 'january', 'february', 'march', 'april',
+  'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december', 'jan', 'feb', 'mar',
+  'apr', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec', 'ask', 'asked', 'asking',
 ])
 
 function sha256(value: string): string {
@@ -66,11 +70,11 @@ function matchesTerm(query: string, source: string): boolean {
 }
 
 function scoreEpisode(episode: ContinuityEpisode, queryTerms: string[], query: string): number {
-  const topicTerms = episode.topics.flatMap(terms)
+  const episodeTopicTerms = episode.topics.flatMap(terms)
   const summaryTerms = terms(episode.summary)
   let score = 0
   for (const term of queryTerms) {
-    if (topicTerms.some((candidate) => matchesTerm(term, candidate))) score += 5
+    if (episodeTopicTerms.some((candidate) => matchesTerm(term, candidate))) score += 5
     else if (summaryTerms.some((candidate) => matchesTerm(term, candidate))) score += 2
   }
   const normalizedQuery = query.trim().toLocaleLowerCase()
@@ -98,7 +102,7 @@ export function searchEpisodes(
       return (
         (options.projectId === undefined || episode.projectId === options.projectId) &&
         time >= start && time < end &&
-        (queryTerms.length === 0 || score > 0)
+        (queryTerms.length === 0 || (score > 0 && hasSufficientTopicOverlap(queryTerms, [episode.summary, ...episode.topics])))
       )
     })
     .sort(

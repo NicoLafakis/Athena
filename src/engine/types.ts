@@ -178,6 +178,8 @@ export interface ToolDefinition<I = unknown> {
    *  sees, while `schema` stays a permissive local-validation passthrough. */
   inputSchemaJson?: Record<string, unknown>
   readOnly: boolean
+  /** Classify a validated invocation when a tool exposes both query and mutation operations. */
+  readOnlyForInput?(input: I): boolean
   /** Whether multiple calls may execute concurrently without shared-write
    * conflicts. Omitted means the tool's readOnly value. */
   concurrencySafe?: (input: unknown) => boolean

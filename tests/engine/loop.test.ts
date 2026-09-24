@@ -73,6 +73,48 @@ function makeEngine(
 }
 
 describe('Engine.runTurn', () => {
+  it('uses validated per-operation read-only status for mixed-capability tools', async () => {
+    const OperationInput = z.object({ op: z.enum(['read', 'write']) })
+    type OperationInput = z.infer<typeof OperationInput>
+    const executed: string[] = []
+    const operationTool: ToolDefinition<OperationInput> & {
+      readOnlyForInput: (input: OperationInput) => boolean
+    } = {
+      name: 'Memory',
+      description: 'Read or write a memory file.',
+      schema: OperationInput,
+      readOnly: false,
+      readOnlyForInput: (input) => input.op === 'read',
+      async execute(input) {
+        executed.push(input.op)
+        return { output: input.op + ' complete', isError: false }
+      },
+    }
+    const checkedReadOnly: boolean[] = []
+    const gate: PermissionGate = {
+      check(request) {
+        checkedReadOnly.push(request.readOnly)
+        return request.readOnly
+          ? { decision: 'allow', reason: 'read-only operation' }
+          : { decision: 'deny', reason: 'write operation blocked' }
+      },
+      grantSession: () => {},
+    }
+    const { engine } = makeEngine(
+      [
+        { blocks: [toolUseBlock('memory-read', 'Memory', { op: 'read' })], stopReason: 'tool_use' },
+        { blocks: [toolUseBlock('memory-write', 'Memory', { op: 'write' })], stopReason: 'tool_use' },
+        { blocks: [textBlock('The read was allowed and the write was blocked.')], stopReason: 'end_turn' },
+      ],
+      { gate },
+      operationTool as unknown as ToolDefinition<z.infer<typeof EchoInput>>,
+    )
+
+    await engine.runTurn('Read this safely, then write it.')
+
+    expect(checkedReadOnly).toEqual([true, false])
+    expect(executed).toEqual(['read'])
+  })
   it('adds bounded recall output only to the answer-model prompt, not persisted conversation history', async () => {
     const userRequest = 'What did we decide earlier this week?'
     const priorQuote = 'We decided to preserve source links across project boundaries.'

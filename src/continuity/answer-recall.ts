@@ -21,12 +21,12 @@ const ROUTES_WITH_HISTORICAL_RECALL = new Set<RecallRoute>([
   'similar-work',
 ])
 
-const HISTORY_QUERY = /\b(?:what did (?:we|i|you) (?:say|decide|agree|discuss|talk about|promise|choose|settle|plan)|what have (?:we|i) (?:discussed|decided|worked on|been doing)|did (?:we|i) (?:say|mention|decide|agree|discuss|promise)|what happened|remind me (?:what|when|where)|where did we leave off|what was (?:my|our|the) (?:decision|preference|plan|agreement)|when did (?:we|i) (?:decide|agree|promise)|what have we talked about)\b/i
+const HISTORY_QUERY = /\b(?:what did (?:we|i|you) (?:ask|say|decide|agree|discuss|talk about|promise|choose|settle|plan)|what have (?:we|i) (?:asked|discussed|decided|worked on|been doing)|did (?:we|i) (?:say|mention|decide|agree|discuss|promise)|what happened|remind me (?:what|when|where)|where did we leave off|what was (?:my|our|the) (?:decision|preference|plan|agreement)|when did (?:we|i) (?:decide|agree|promise)|what have we talked about)\b/i
 const HISTORICAL_DECISION_QUERY = /\b(?:decid(?:e|ed|sion)|agre(?:e|ed|ement)|promis(?:e|ed)|cho(?:ose|se|ice)|settle(?:d)?|commit(?:ment|ted)?)\b/i
 const PREFERENCE_QUERY = /\b(?:prefer(?:ence|red)?|like|usually|tend to|default)\b/i
 const SIMILAR_WORK_QUERY = /\b(?:similar|analog(?:ous|y)|same way|prior work|previous project)\b/i
 const TIME_WORDS = /\b(?:today|yesterday|earlier|last|this|previous|past|week|month|quarter|year|q[1-4]|monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|march|april|may|june|july|august|september|october|november|december|\d{4})\b/gi
-const RECALL_CUE_WORDS = /\b(?:what|did|we|i|you|have|been|say|said|decide|decided|decision|decisions|agree|agreed|agreement|agreements|discuss|discussed|talk|talked|promise|promised|commitment|commitments|choose|chose|choice|choices|settle|settled|mention|mentioned|tell|told|happen|happened|remind|remember|recall|before|previously|prefer|preference|preferences|fact|facts|model|models|plan|plans)\b/gi
+const RECALL_CUE_WORDS = /\b(?:what|did|we|i|you|have|been|ask|asked|asking|say|said|decide|decided|decision|decisions|agree|agreed|agreement|agreements|discuss|discussed|talk|talked|promise|promised|commitment|commitments|choose|chose|choice|choices|settle|settled|mention|mentioned|tell|told|happen|happened|remind|remember|recall|before|previously|prefer|preference|preferences|fact|facts|model|models|plan|plans)\b/gi
 
 export type AnswerTimeRecallResult =
   | { status: 'not-requested' }

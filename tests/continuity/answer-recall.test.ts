@@ -92,6 +92,33 @@ function prepare(
 }
 
 describe('prepareAnswerTimeRecall', () => {
+  it('recognizes an explicit “what did I ask” history question when Jev is uncertain', () => {
+    addConversation(
+      'C:/projects/session-close',
+      'What should I type to end this session cleanly?',
+      'Use the local quit command so the session can persist its final turn.',
+      '2026-08-12T15:00:00.000Z',
+    )
+    addConversation(
+      'C:/projects/session-close-unrelated',
+      'We discussed the voice identity and its audio profile.',
+      'The voice identity remains a separate concern.',
+      '2026-08-12T16:00:00.000Z',
+    )
+
+    const result = prepare(
+      'What did I ask on August 12 about how to end sessions?',
+      'topic-recall',
+      { confidence: 0.84 },
+    )
+
+    expect(result.status).toBe('ready')
+    if (result.status !== 'ready') return
+    expect(result.episodeIds).toHaveLength(1)
+    expect(result.promptContext).toContain('What should I type to end this session cleanly?')
+    expect(result.promptContext).not.toContain('voice identity')
+    expect(result.promptContext).toContain('2026-08-12')
+  })
   it('does not read or rebuild history for none, continue-current, or low-confidence non-recall routes', () => {
     const none = prepare('Please implement a new parser.', 'none')
     const continuation = prepare('Continue with the next step.', 'continue-current')
@@ -137,6 +164,30 @@ describe('prepareAnswerTimeRecall', () => {
     expect(result.promptContext).not.toContain(previous.sessionId)
     expect(result.promptContext).not.toContain(previous.projectId)
     expect(store.status().state).toBe('ready')
+  })
+
+  it('uses a yearless named date as a hard filter alongside the requested topic', () => {
+    addConversation(
+      'C:/projects/date-topic-match',
+      'We discussed the Orion sample importer behavior.',
+      'The sample importer should preserve Orion source links.',
+      '2026-08-12T15:00:00.000Z',
+    )
+    addConversation(
+      'C:/projects/date-topic-other-day',
+      'We discussed the Orion sample importer behavior.',
+      'The sample importer should preserve Orion source links.',
+      '2026-08-13T15:00:00.000Z',
+    )
+
+    const result = prepare('What did we discuss on August 12 about the Orion sample?', 'topic-recall')
+
+    expect(result.status).toBe('ready')
+    if (result.status !== 'ready') return
+    expect(result.episodeIds).toHaveLength(1)
+    expect(result.promptContext).toContain('2026-08-12')
+    expect(result.promptContext).not.toContain('2026-08-13')
+    expect(result.promptContext).toContain('Orion sample importer')
   })
 
   it('keeps matching episodes available across two projects without crossing the scope filter', () => {
