@@ -18,11 +18,12 @@ subjective usefulness review against representative user histories.
 
 The balanced, labeled
 [`jev-recall-intent.v1.json`](../../../tests/fixtures/continuity/jev-recall-intent.v1.json)
-fixture has 49 synthetic requests, seven for each implemented route: `none`,
+fixture has 56 synthetic requests, eight for each implemented route: `none`,
 `continue-current`, `temporal-recall`, `topic-recall`, `preference-or-fact`,
 `historical-decision`, and `similar-work`. Labels treat a time phrase as a filter where a
-more specific preference or decision is the primary request. The fixture also covers an
-ambiguous short follow-up and a quoted recall phrase as non-recall inputs.
+more specific preference or decision is the primary request. It also distinguishes broad
+time summaries from specific decisions, immediate same-conversation interruption context,
+vague backward references, and quoted recall text used as an example.
 
 Run the deterministic baseline with
 `pnpm exec tsx bench/jev-recall-intent-baseline.ts`. It applies the existing ranker's
@@ -33,18 +34,18 @@ it is not the Jev model and does not measure answer-time relevance quality.
 
 | Proxy metric | Result |
 |---|---:|
-| Exact route accuracy | **25/49 (51.0%)** |
-| Macro F1 | **46.6%** |
-| `none` false positives | **7/7 (100%)** |
-| Continue-current recall | **42.9%** |
-| Temporal-recall recall | **85.7%** |
+| Exact route accuracy | **31/56 (55.4%)** |
+| Macro F1 | **50.1%** |
+| `none` false positives | **8/8 (100%)** |
+| Continue-current recall | **50.0%** |
+| Temporal-recall recall | **100%** |
 | Topic-recall recall | **100%** |
-| Preference-or-fact recall | **71.4%** |
-| Historical-decision recall | **57.1%** |
+| Preference-or-fact recall | **75.0%** |
+| Historical-decision recall | **62.5%** |
 | Similar-work recall | **0%** |
 
 The proxy always assigns an existing ranker intent, so it cannot abstain on `none`; all
-seven ordinary, ambiguous, or quoted-text examples receive a recall label. This result
+eight ordinary, ambiguous, or quoted-text examples receive a recall label. This result
 establishes the local comparison point and demonstrates why the Jev route includes a valid
 `none` answer. Jev's route is only an intent hint. Athena uses it to select a local,
 source-verifying retrieval path; for an explicit current history request, only bounded,
@@ -53,28 +54,39 @@ no historical text. The deterministic baseline's full confusion matrix and fixtu
 [`jev-recall-intent-baseline.test.ts`](../../../tests/continuity/jev-recall-intent-baseline.test.ts).
 
 The pinned-model live evaluator is:
-`pnpm exec tsx bench/jev-recall-evaluation.ts`. It uses the same 49 synthetic requests and
-reports coverage, route precision/recall, no-recall false positives, multiclass Brier
-score, median latency, input/output tokens, and estimated input cost. It requires
-`TYPESAFE_API_KEY`, sends no personal history, and produces aggregate output only. The
-2026-09-23 live run returned all 49 decisions:
+`pnpm exec tsx bench/jev-recall-evaluation.ts`. It runs the 56-case calibration fixture
+and the separate [`jev-recall-intent-holdout.v1.json`](../../../tests/fixtures/continuity/jev-recall-intent-holdout.v1.json)
+phrasing holdout (two cases per route). It reports raw and
+confidence-gated per-route precision, coverage, synthetic misclassification IDs,
+no-recall false positives, multiclass Brier score, median latency, token counts, and
+estimated input cost. It requires `TYPESAFE_API_KEY`, sends generated request text only,
+and produces aggregate output without source history. The final 2026-09-23 run returned:
 
-| Measure | Result |
-|---|---:|
-| Exact route accuracy | **47/49 (95.9%)** |
-| No-recall false positives, without confidence gating | **1/7 (14.3%)** |
-| Actionable decisions at Athena's 0.85 threshold | **42/49 (85.7%)** |
-| Exact actionable decisions | **41/42 (97.6%)** |
-| Actionable no-recall false positives | **0/4 (0%)** |
-| Macro F1 / multiclass Brier score | **95.9% / 0.0123** |
-| Median latency | **239.5 ms** |
-| Input / output tokens | **46,132 / 8,451** |
-| Estimated input cost | **$0.00194** |
+| Measure | Calibration | Phrasing holdout |
+|---|---:|---:|
+| Cases / decisions / fallbacks | **56 / 56 / 0** | **14 / 14 / 0** |
+| Exact route labels | **56/56 (100%)** | **14/14 (100%)** |
+| Precision for each route | **100%** | **100%** |
+| Actionable at confidence >= 0.85 | **52/56 (92.9%)** | **11/14 (78.6%)** |
+| Exact actionable decisions | **52/52 (100%)** | **11/11 (100%)** |
+| No-recall false positives (raw; actionable) | **0/8; 0/8** | **0/2; 0/0** |
+| Macro F1 / multiclass Brier score | **100% / 0.0019** | **100% / 0.0020** |
+| Median latency | **210.5 ms** | **206.0 ms** |
+| Input / output tokens | **72,566 / 9,642** | **18,148 / 2,412** |
+| Estimated input cost | **$0.00305** | **$0.00076** |
 
-The remaining raw no-recall error fell below the production action threshold. These
-results cover only seven synthetic no-recall cases; they do not establish real-history
-false-positive rates. TypeSafe's input price was checked at $0.042 per million tokens on
-2026-09-23; cost is an estimate at that price.
+The route contract now prioritizes a specific preference, fact, or decision over its time
+filter; directs immediate same-conversation context to `continue-current`; treats vague
+backward references and quoted recall examples according to the outer request; and uses
+`topic-recall` for a request to find a discussion rather than asking what choice was made.
+One case was relabeled from temporal to historical-decision because “What did we decide
+last quarter?” asks for a specific decision and uses the quarter as scope.
+
+The calibration corpus was used to refine this route contract. The phrasing holdout uses
+separate wording and was not used to diagnose the final topic/decision refinement. Both
+corpora are small synthetic sets; they do not establish accuracy or false-positive rates
+on representative real histories. Phase 4.3 dogfood remains open. TypeSafe's input price
+was checked at $0.042 per million tokens on 2026-09-23; costs are estimates at that price.
 
 ## Jev speech-act intake
 

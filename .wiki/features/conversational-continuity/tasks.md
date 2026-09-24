@@ -149,7 +149,7 @@ full test suite pass on this implementation state; cross-platform CI is pending 
   - [ ] Dogfood representative live histories and review usefulness, correction rates, and
     index-size ratio before tuning recall beyond the exact repeated-claim policy. The
     available local archive is too small to close this gate.
-- [ ] 4.4 Complete threat/privacy review, update all linked memory docs, and run the full
+- [x] 4.4 Complete threat/privacy review, update all linked memory docs, and run the full
   repository gates on the exact implementation state.
   - [x] Exclude inferred sensitive claims and credential-bearing source messages from
     semantic candidates; explicit sensitive storage uses the separate remember path.
@@ -160,7 +160,8 @@ full test suite pass on this implementation state; cross-platform CI is pending 
     `72e2833`; all passed. The follow-up CI run passed on Node 20 and 22 across Linux,
     macOS, and Windows.
   - [x] Re-run all four repository gates after semantic-memory forget; typecheck, lint,
-    150 test files / 1,420 tests, and build pass. Cross-platform CI is pending.
+    150 test files / 1,420 tests, and build pass. Follow-up CI passed on commit `949b3e9`
+    across all six Node/OS matrix jobs.
   - [x] Complete semantic-forget threat/privacy review: semantic text and description are
     removed, source IDs and minimal lifecycle metadata remain for suppression, and the
     source session remains available for explicitly requested historical recall.
@@ -169,6 +170,10 @@ full test suite pass on this implementation state; cross-platform CI is pending 
     navigation-only, adjacent turn labels, shared secret redaction, five-episode/4,000-
     character cap, no tools/paths/IDs/hooks/Jev/history persistence, and prompt-isolation
     coverage. General PII and sensitive-prose detection remain outside the shared redactor.
+  - [x] Reconcile route precedence and synthetic calibration/holdout results across the
+    linked continuity design, requirements, calibration, task, test, and NFR documents;
+    update the affected pages and run all four repository gates after this update. The
+    representative real-history gate remains tracked separately under 4.3.
 
 ## Phase 5 — Jev decision model (accepted; recall routing and speech-act intake implemented)
 
@@ -184,10 +189,11 @@ prompt only for an explicit history request.
 See [ADR 0003](adr/0003-jev-decision-model.md).
 
 - [x] 5.1 Build a labeled synthetic recall-intent corpus and measure the current local
-  routing baseline. The 49-case corpus, deterministic ranker-intent proxy, and synthetic
-  live Jev comparison are measured in [calibration.md](calibration.md). At the production
-  0.85 confidence threshold, 41/42 actionable Jev decisions were exact and none of the
-  four actionable no-history cases triggered recall.
+  routing baseline. The balanced 56-case corpus, separate 14-case phrasing holdout,
+  deterministic ranker-intent proxy, and synthetic live Jev comparison are measured in
+  [calibration.md](calibration.md). The final sets scored 56/56 and 14/14 exact; at the
+  production 0.85 threshold, 52/52 calibration and 11/11 holdout actions were exact with
+  no no-recall false positives. These are synthetic metrics, not real-history quality.
 - [x] 5.2 Define an optional `DecisionClient` separate from streaming `ModelClient`; test
   typed output validation, fallback, timeout/rate-limit handling, zero calls while disabled,
   and content-free telemetry with a fake transport.
@@ -216,13 +222,14 @@ See [ADR 0003](adr/0003-jev-decision-model.md).
 - [x] 5.5 Pin `jev-1.13.0`, make global enablement the default as selected by the product
   owner, record content-free latency/token telemetry in local run traces, and add
   `bench/jev-recall-evaluation.ts` for a synthetic live comparison. The evaluator reports
-  coverage, route precision/recall, no-recall false positives, Brier score, latency, token
-  volume, and estimated input cost.
-  - [x] Run and record the 49-case synthetic live comparison. The pinned `jev-1.13.0`
-    scored 47/49 exact overall, 41/42 exact among decisions at confidence >= 0.85, and
-    0/4 false recalls among high-confidence no-history cases; median latency was 239.5 ms
-    and estimated input cost was $0.00194. The benchmark reports the action threshold
-    alongside unfiltered classification results.
+  coverage, raw and confidence-gated route precision/recall, misclassified synthetic IDs,
+  no-recall false positives, Brier score, latency, token volume, and estimated input cost.
+  - [x] Run and record the 56-case balanced synthetic calibration and 14-case phrasing
+    holdout. The pinned `jev-1.13.0` scored 56/56 and 14/14 exact, with 100% precision for
+    every route on both sets. At confidence >= 0.85, it made 52/52 and 11/11 exact
+    actionable decisions; no no-recall cases triggered retrieval. The calibration contract
+    was refined using observed low-confidence misses; the separate holdout has two distinct
+    phrasings per route. These results do not measure real-user histories.
   - [x] Refine the `none` versus `asked` contract so generic new-work commands do not
     count as memory questions; expand calibration to eight cases per label and add an
     independent two-case-per-label phrasing holdout. Both live sets scored 100% exact

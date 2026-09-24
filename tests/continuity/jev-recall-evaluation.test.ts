@@ -75,6 +75,15 @@ describe('Jev recall evaluation', () => {
       actionableNoRecallDecided: 1,
       noRecallFalsePositives: 1,
       noRecallDecided: 1,
+      misclassifications: [{
+        id: 'memory',
+        expected: 'none',
+        predicted: 'temporal-recall',
+        confidence: 0.9,
+      }],
+      actionablePerRoute: {
+        'temporal-recall': { precision: 0, predictions: 1, correct: 0 },
+      },
       inputTokens: 26,
       outputTokens: 1,
     })
@@ -82,5 +91,7 @@ describe('Jev recall evaluation', () => {
     expect(report.medianLatencyMs).toBeGreaterThanOrEqual(0)
     expect(report.multiclassBrierScore).toBeGreaterThanOrEqual(0)
     expect(formatJevRecallEvaluation(report)).toContain('Actionable no-recall false positives: 1/1 (100.0%)')
+    expect(formatJevRecallEvaluation(report)).toContain('memory: none -> temporal-recall (0.90)')
+    expect(formatJevRecallEvaluation(report)).toContain('| temporal-recall | 1 | 50.0% | 100.0% | 66.7% | 0.0% | 0/1 |')
   })
 })

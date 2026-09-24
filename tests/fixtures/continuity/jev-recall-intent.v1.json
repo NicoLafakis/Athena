@@ -9,6 +9,7 @@
     { "id": "none-thanks", "intent": "none", "text": "Thanks, that explanation solved it." },
     { "id": "none-ambiguous", "intent": "none", "text": "What about the earlier one?" },
     { "id": "none-quoted-recall", "intent": "none", "text": "For this test, classify the string ‘What did we decide last week?’ as a sample input." },
+    { "id": "none-new-summary", "intent": "none", "text": "Summarize this paragraph: The garden opened in May after a wet spring." },
 
     { "id": "continue-direct", "intent": "continue-current", "text": "Let's continue where we left off." },
     { "id": "continue-pick-up", "intent": "continue-current", "text": "Can you pick up the task from the last step?" },
@@ -17,14 +18,17 @@
     { "id": "continue-stopped", "intent": "continue-current", "text": "Let's go back to the point where we stopped." },
     { "id": "continue-previous-implementation", "intent": "continue-current", "text": "Carry on with our previous implementation." },
     { "id": "continue-same-work", "intent": "continue-current", "text": "Continue the same work from this morning." },
+    { "id": "continue-paused-step", "intent": "continue-current", "text": "Continue the current plan from the step where we paused in this conversation." },
 
     { "id": "time-today", "intent": "temporal-recall", "text": "What did we discuss earlier today?" },
     { "id": "time-yesterday", "intent": "temporal-recall", "text": "What did we work on yesterday?" },
     { "id": "time-last-week", "intent": "temporal-recall", "text": "Give me an overview of last week." },
     { "id": "time-this-month", "intent": "temporal-recall", "text": "What changed this month?" },
     { "id": "time-this-week", "intent": "temporal-recall", "text": "What did I ask you earlier this week?" },
-    { "id": "time-last-quarter", "intent": "temporal-recall", "text": "What did we decide last quarter?" },
+    { "id": "time-last-quarter", "intent": "historical-decision", "text": "What did we decide last quarter?" },
     { "id": "time-year", "intent": "temporal-recall", "text": "Summarize our work in 2025." },
+    { "id": "time-quarter-overview", "intent": "temporal-recall", "text": "Give me a broad overview of what we worked on last quarter." },
+    { "id": "time-year-overview", "intent": "temporal-recall", "text": "Summarize our conversations throughout 2024." },
 
     { "id": "topic-log-viewer", "intent": "topic-recall", "text": "What did we cover about the new log viewer?" },
     { "id": "topic-retention", "intent": "topic-recall", "text": "Find our conversation about data retention." },
@@ -33,6 +37,7 @@
     { "id": "topic-vendor", "intent": "topic-recall", "text": "What did the vendor integration discussion cover?" },
     { "id": "topic-import-module", "intent": "topic-recall", "text": "Show the conversation where we named the import module." },
     { "id": "topic-sidebar", "intent": "topic-recall", "text": "Remind me what we said about the sidebar interaction." },
+    { "id": "topic-session-index", "intent": "topic-recall", "text": "What did we discuss about the session index?" },
 
     { "id": "preference-errors", "intent": "preference-or-fact", "text": "What do I prefer for error messages?" },
     { "id": "preference-test-runner", "intent": "preference-or-fact", "text": "What's my usual preference for test runners?" },
@@ -41,6 +46,7 @@
     { "id": "preference-memory", "intent": "preference-or-fact", "text": "What have I said about my preferred memory behavior?" },
     { "id": "fact-deployment", "intent": "preference-or-fact", "text": "What's the fact I shared about the deployment target?" },
     { "id": "fact-package-manager", "intent": "preference-or-fact", "text": "What is my default package manager?" },
+    { "id": "preference-code-language", "intent": "preference-or-fact", "text": "Which language do I prefer for code examples?" },
 
     { "id": "decision-retention", "intent": "historical-decision", "text": "What did we decide about memory retention?" },
     { "id": "decision-storage", "intent": "historical-decision", "text": "Which storage option did we choose?" },
@@ -56,6 +62,7 @@
     { "id": "similar-example", "intent": "similar-work", "text": "Can you find an example from work we've done before?" },
     { "id": "similar-pattern", "intent": "similar-work", "text": "Show a related implementation pattern from my earlier tasks." },
     { "id": "similar-athena", "intent": "similar-work", "text": "Did Athena already have something like this?" },
-    { "id": "similar-harness", "intent": "similar-work", "text": "Have we handled this sort of issue in another harness?" }
+    { "id": "similar-harness", "intent": "similar-work", "text": "Have we handled this sort of issue in another harness?" },
+    { "id": "similar-source-linking", "intent": "similar-work", "text": "Find a previous task with a comparable source-linking approach." }
   ]
 }

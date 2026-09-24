@@ -25,6 +25,13 @@ clear deterministic explicit-history phrase is the only fallback. The route is a
 hint, not evidence that a matching memory exists; local source and scope checks remain
 authoritative.
 
+The routing contract gives a specific preference, fact, or decision precedence over a
+time filter; a broad period summary uses `temporal-recall`. Finding the conversation about
+an identifiable subject uses `topic-recall`, while asking what choice was made uses
+`historical-decision`. Vague backward references and quoted sample text do not trigger
+history retrieval, and immediate same-conversation interruption context uses
+`continue-current`.
+
 The TypeSafe request contains only the shared-secret-redactor-processed current user
 request and fixed question definitions. It excludes hook-added context, conversation
 history, retrieved episodes, summaries, semantic memory text, source IDs, and project
@@ -105,17 +112,19 @@ agreement before materially changing the payload scope or provider configuration
 
 1. Build a synthetic corpus covering direct and implied continuation, dates, corrections,
    multiple projects, ordinary new requests, ambiguous requests, and adversarial text.
-   The checked-in 49-case fixture is complete. Its current local baseline is the intent
+   The checked-in 56-case calibration fixture and separate 14-case phrasing holdout are
+   complete. The local proxy baseline is the intent
    inferred by the deterministic ranker used in the manual preview and answer-time source
    ranking; it is not a measure of the Jev route or answer quality. See
    [the calibration snapshot](../calibration.md).
 2. Run `pnpm exec tsx bench/jev-recall-evaluation.ts` with `TYPESAFE_API_KEY` to compare
-   Jev against the 49-case synthetic corpus. It measures route precision/recall, coverage,
-   no-recall false positives, multiclass Brier score, latency, input/output tokens, and
-   estimated cost. The 2026-09-23 run used only the synthetic corpus: 47/49 exact routes
-   (95.9%); after the 0.85 action threshold, 41/42 actionable routes were exact (97.6%),
-   with 0/4 actionable no-recall false positives. See the calibration snapshot for the
-   full metrics and limits.
+   Jev against both synthetic corpora. It measures raw and confidence-gated per-route
+   precision, coverage, misclassified synthetic IDs, no-recall false positives,
+   multiclass Brier score, latency, input/output tokens, and estimated cost. The final
+   2026-09-23 run scored 56/56 exact on calibration and 14/14 on the phrasing holdout;
+   at the 0.85 action threshold, 52/52 and 11/11 actions were exact with no no-recall
+   false positives. The small synthetic sets do not establish representative live-history
+   quality. See the calibration snapshot for the full metrics and limits.
 3. Run `pnpm exec tsx bench/jev-speech-act-evaluation.ts` with `TYPESAFE_API_KEY` to
    measure all nine speech-act labels, high-confidence persisted-label precision, confidence
    frontiers, fallback reasons, coverage, macro F1, calibration, latency, and token counts

@@ -21,7 +21,7 @@
 | FR-014 / AC-010 budgets | Ranking + performance + prompt integration | Local candidate caps and privacy-safe metrics; automatic handoff is request-triggered, capped at five episodes/4,000 characters, and absent from Jev, hooks, persisted messages, and logs |
 | FR-015 / AC-007 rebuild/failure | Integration | Truncated JSONL, corrupt index, missing project, permission error, atomic-write failure |
 | Live-source presentation | Integration | Move a source session into `.trash` without rebuilding; ranking, linked semantic memory, direct `Memory.read`, and rollup text disappear immediately |
-| Jev recall routing (accepted and integrated) | Decision unit + fake SDK transport + engine integration + synthetic live evaluation | Verify disabled/missing-key zero calls, exact secret-redacted request fields, fixed model and labels, strict output shape, usage-only telemetry, timeout/rate-limit/oversized-input fallback, and transient prompt guidance. The 49-case synthetic live comparison was run; 0/4 actionable no-history cases caused recall at the production threshold. |
+| Jev recall routing (accepted and integrated) | Decision unit + fake SDK transport + engine integration + synthetic live evaluation | Verify disabled/missing-key zero calls, exact secret-redacted request fields, fixed model and labels, strict output shape, usage-only telemetry, timeout/rate-limit/oversized-input fallback, and transient prompt guidance. The 56-case calibration and separate 14-case phrasing holdout both scored 100% exact; at the 0.85 threshold, 52/52 and 11/11 actions were exact with no no-recall false positives. |
 | Jev speech-act intake (accepted and integrated) | Fake SDK transport + engine/controller integration + source-index/retrieval/candidate tests + synthetic live evaluation | Verify one current-request call returns both typed decisions; only high-confidence labels are stored after the user line is written; the stored event is content-free and digest-linked; edited sources invalidate labels; indirect preference/decision/commitment candidates remain review-only and require independent sessions; corrections/retractions are contextual labels only. The 72-case synthetic calibration set and 18-case phrasing holdout both scored 100% exact with zero fallbacks; persistence precision was 37/37 and 9/9. |
 
 ## Implemented evidence at this checkpoint
@@ -74,16 +74,17 @@
   semantic content, then trash that session and assert `Memory.read` no longer returns it.
   An unreviewed inferred candidate is also tested to ensure model-facing reads cannot
   return its claim text.
-- Jev routing uses a balanced, 49-case synthetic recall-intent corpus. Its baseline
+- Jev routing uses a balanced, 56-case synthetic recall-intent corpus. Its baseline
   regression locks the current local ranker's proxy confusion matrix, including the
   absence of a `none` class and the resulting proxy false positives. The local baseline
   remains ranking metadata and does not represent the Jev route now wired to turn handling.
-  A separate
-  `bench/jev-recall-evaluation.ts` sends only those synthetic request strings to the
-  pinned Jev model and reports route quality, coverage, no-recall false positives, Brier
-  score, latency, token volume, and estimated cost. The 2026-09-23 run scored 47/49
-  exact overall; at the production 0.85 threshold, 41/42 actionable decisions were
-  exact and 0/4 actionable no-history cases triggered recall.
+  `bench/jev-recall-evaluation.ts` sends only synthetic request strings to the pinned Jev
+  model and also runs a separate 14-case phrasing holdout. It reports route quality,
+  confidence-gated per-route precision, misclassified synthetic IDs, coverage, no-recall
+  false positives, Brier score, latency, token volume, and estimated cost. The final
+  2026-09-23 runs scored 56/56 and 14/14 exact; at the production 0.85 threshold, 52/52
+  calibration and 11/11 holdout actions were exact, with no no-recall false positives.
+  Both sets are synthetic, and the holdout has only two examples per route.
 - The optional `DecisionClient` seam is separate from streaming `ModelClient`. Fake-
   transport tests cover typed response validation, disabled/unavailable fallback, timeout
   abort, rate-limit fallback, content-free outcome/latency/token telemetry, and isolation

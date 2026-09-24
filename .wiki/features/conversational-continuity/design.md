@@ -157,16 +157,24 @@ IDs, or project paths. The shared redactor catches known credential fields and s
 patterns; it is not a general personal-information scrubber. The request is capped at
 12,000 characters.
 
+The route prompt applies specificity before time: a specific preference, fact, or decision
+keeps its own route while the date narrows its search; a broad period overview uses
+`temporal-recall`. A request to find a conversation by identifiable subject uses
+`topic-recall`, including when the subject was named or labeled. Vague backward references
+without a target do not start retrieval, quoted recall text is classified by the outer
+request, and immediate context before an interruption stays in `continue-current`.
+
 For a high-confidence route (`>= 0.85`), the engine may invoke the local answer-time
 retriever for one of the five historical routes. `none` and `continue-current` never
 trigger it. Below the threshold, only a clear deterministic explicit-recall phrase can
 trigger the local fallback. The route stays an intent hint: it cannot certify a source,
 change scope, or override local source/tombstone checks. Route guidance and any retrieved
 context are transient system-prompt additions and never enter persisted session messages.
-The 49-case synthetic live run scored 47/49 exact overall; at the production 0.85
-confidence threshold, 41/42 actionable decisions were exact and none of the four
-high-confidence no-history cases triggered recall. These small synthetic results do not
-replace representative live-history dogfood.
+The final synthetic live run scored 56/56 exact on the balanced calibration set and 14/14
+on the separate phrasing holdout. Each route had 100% precision on both small sets. At the
+production 0.85 confidence threshold, 52/52 calibration and 11/11 holdout decisions were
+exact; no no-history case triggered retrieval. These generated examples do not replace
+representative live-history dogfood.
 
 Global `jev.enabled` defaults to `true`; a project cannot override the user's setting.
 The network path requires `TYPESAFE_API_KEY`. Without the key, the adapter makes no call

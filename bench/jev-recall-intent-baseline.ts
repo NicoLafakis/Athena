@@ -45,8 +45,10 @@ export interface RecallBaselineReport {
 
 const labels = RecallRouteSchema.options
 
-export function loadRecallCorpus(): RecallCorpus {
-  const path = fileURLToPath(new URL('../tests/fixtures/continuity/jev-recall-intent.v1.json', import.meta.url))
+export function loadRecallCorpus(source?: string | URL): RecallCorpus {
+  const path = source
+    ? (source instanceof URL ? fileURLToPath(source) : source)
+    : fileURLToPath(new URL('../tests/fixtures/continuity/jev-recall-intent.v1.json', import.meta.url))
   return RecallCorpusSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
 }
 

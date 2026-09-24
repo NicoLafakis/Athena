@@ -32,6 +32,8 @@ export interface RecallEvaluationReport {
   actionableNoRecallFalsePositiveRate: number
   confusion: Record<RecallRoute, Record<RecallRoute, number>>
   perRoute: Record<RecallRoute, { precision: number; recall: number; f1: number; support: number }>
+  actionablePerRoute: Record<RecallRoute, { precision: number; predictions: number; correct: number }>
+  misclassifications: Array<{ id: string; expected: RecallRoute; predicted: RecallRoute; confidence: number }>
   macroF1: number
   multiclassBrierScore: number
   medianLatencyMs: number
@@ -63,6 +65,11 @@ export async function evaluateJevRecallCorpus(
     actual,
     Object.fromEntries(labels.map((predicted) => [predicted, 0])),
   ])) as Record<RecallRoute, Record<RecallRoute, number>>
+  const actionableConfusion = Object.fromEntries(labels.map((actual) => [
+    actual,
+    Object.fromEntries(labels.map((predicted) => [predicted, 0])),
+  ])) as Record<RecallRoute, Record<RecallRoute, number>>
+  const misclassifications: RecallEvaluationReport['misclassifications'] = []
   const latencies: number[] = []
   let completed = 0
   let correct = 0
@@ -95,7 +102,14 @@ export async function evaluateJevRecallCorpus(
     const predicted = result.value.route
     confusion[item.intent][predicted] += 1
     if (predicted === item.intent) correct += 1
+    else misclassifications.push({
+      id: item.id,
+      expected: item.intent,
+      predicted,
+      confidence: result.value.confidence,
+    })
     if (result.value.confidence >= ANSWER_RECALL_MIN_CONFIDENCE) {
+      actionableConfusion[item.intent][predicted] += 1
       actionableDecisions += 1
       if (predicted === item.intent) actionableCorrect += 1
       if (item.intent === 'none') {
@@ -122,6 +136,15 @@ export async function evaluateJevRecallCorpus(
     const f1 = precision + recall === 0 ? 0 : (2 * precision * recall) / (precision + recall)
     return [route, { precision, recall, f1, support }]
   })) as RecallEvaluationReport['perRoute']
+  const actionablePerRoute = Object.fromEntries(labels.map((route) => {
+    const correctForRoute = actionableConfusion[route][route]
+    const predictions = labels.reduce((sum, actual) => sum + actionableConfusion[actual][route], 0)
+    return [route, {
+      precision: predictions === 0 ? 0 : correctForRoute / predictions,
+      predictions,
+      correct: correctForRoute,
+    }]
+  })) as RecallEvaluationReport['actionablePerRoute']
 
   return {
     total: corpus.cases.length,
@@ -145,6 +168,8 @@ export async function evaluateJevRecallCorpus(
       : actionableNoRecallFalsePositives / actionableNoRecallDecided,
     confusion,
     perRoute,
+    actionablePerRoute,
+    misclassifications,
     macroF1: labels.reduce((sum, route) => sum + perRoute[route].f1, 0) / labels.length,
     multiclassBrierScore: completed === 0 ? 0 : brierTotal / (completed * labels.length),
     medianLatencyMs: median(latencies),
@@ -161,7 +186,9 @@ function formatPercent(value: number): string {
 export function formatJevRecallEvaluation(report: RecallEvaluationReport): string {
   const rows = labels.map((route) => {
     const metric = report.perRoute[route]
-    return `| ${route} | ${metric.support} | ${formatPercent(metric.precision)} | ${formatPercent(metric.recall)} | ${formatPercent(metric.f1)} |`
+    const actionable = report.actionablePerRoute[route]
+    const actionablePrecision = actionable.predictions === 0 ? '—' : formatPercent(actionable.precision)
+    return `| ${route} | ${metric.support} | ${formatPercent(metric.precision)} | ${formatPercent(metric.recall)} | ${formatPercent(metric.f1)} | ${actionablePrecision} | ${actionable.correct}/${actionable.predictions} |`
   })
   const confusionRows = labels.map((actual) =>
     `| ${actual} | ${labels.map((predicted) => report.confusion[actual][predicted]).join(' | ')} |`,
@@ -177,8 +204,13 @@ export function formatJevRecallEvaluation(report: RecallEvaluationReport): strin
     `Median latency: ${report.medianLatencyMs.toFixed(1)} ms; input tokens: ${report.inputTokens}; output tokens: ${report.outputTokens}`,
     `Estimated input cost: $${report.estimatedInputCostUsd.toFixed(8)} at $${INPUT_USD_PER_MILLION_TOKENS}/million input tokens (price checked 2026-09-23)`,
     '',
-    '| Route | Support | Precision | Recall | F1 |',
-    '|---|---:|---:|---:|---:|',
+    'Misclassified synthetic cases:',
+    ...(report.misclassifications.length === 0
+      ? ['None']
+      : report.misclassifications.map((item) => `${item.id}: ${item.expected} -> ${item.predicted} (${item.confidence.toFixed(2)})`)),
+    '',
+    `| Route | Support | Precision | Recall | F1 | Precision at >= ${report.actionConfidenceThreshold} | Correct/actionable |`,
+    '|---|---:|---:|---:|---:|---:|---:|',
     ...rows,
     '',
     `Confusion matrix (rows: expected; columns: predicted in order ${labels.join(', ')}):`,
@@ -197,8 +229,13 @@ async function main(): Promise<void> {
     return
   }
   const router = createJevRecallRouter({ apiKey })
-  const report = await evaluateJevRecallCorpus(loadRecallCorpus(), router)
-  console.log(formatJevRecallEvaluation(report))
+  const calibration = await evaluateJevRecallCorpus(loadRecallCorpus(), router)
+  const holdout = await evaluateJevRecallCorpus(
+    loadRecallCorpus(new URL('../tests/fixtures/continuity/jev-recall-intent-holdout.v1.json', import.meta.url)),
+    router,
+  )
+  console.log(`Calibration (56 cases)\n${formatJevRecallEvaluation(calibration)}`)
+  console.log(`\nIndependent phrasing holdout (14 cases)\n${formatJevRecallEvaluation(holdout)}`)
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
