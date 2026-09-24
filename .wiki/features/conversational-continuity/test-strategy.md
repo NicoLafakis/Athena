@@ -7,7 +7,7 @@
 | Requirement | Level | Required evidence |
 |---|---|---|
 | FR-001 / AC-009 source identity | Unit + integration | Canonical messages indexed once; checkpoint copies excluded; fork lineage and rewind branches resolve |
-| FR-002 / AC-001, AC-008 cross-project scope | Integration | Local CLI/slash recall across two projects works; project filters exclude unrelated sources. Prompt isolation remains pending provider-handoff authorization |
+| FR-002 / AC-001, AC-008, AC-012 cross-project scope | Integration | Local CLI/slash recall and automatic answer-time retrieval across projects; named-project filter excludes unrelated sources and ambiguous/unknown names clarify |
 | FR-003 / AC-002 temporal parsing | Unit + property | Relative/absolute windows, DST, timezone fallback, month/quarter/year edges |
 | FR-004 context reconstruction | Integration | Adjacent turns and source roles reconstruct tentative/decision/correction context |
 | FR-005 / FR-010 / AC-004 layers/rollups | Unit + integration | Day/week/month/quarter/year boundaries and timezone behavior; complete-index gate; bounded summaries with full source-ID coverage; source digest changes after correction; rollups empty after deletion; exact detail still resolves through episodes |
@@ -17,7 +17,7 @@
 | FR-011 controls/accessibility | CLI + presentation integration | Search/show/rank/candidate generation and promote/reject review parity with bounded plain text output; correct/forget parity remains planned |
 | FR-012 / AC-006 deletion | Integration | Session delete/restore tombstones suppress episodes, linked semantic records, and derived rollups; rebuild does not resurrect trashed sources. Semantic-memory forget remains pending its source-retention choice. |
 | FR-013 privacy | Security fixtures | Secret-shaped strings in episode and candidate data, path escapes, unsafe model output, no raw transcript copy; broad PII classification remains outside the current redactor |
-| FR-014 / AC-010 budgets | Ranking + performance + prompt integration | Local candidate count/source-ID caps and privacy-safe metrics; no background model calls; prompt handoff remains future work |
+| FR-014 / AC-010 budgets | Ranking + performance + prompt integration | Local candidate caps and privacy-safe metrics; automatic handoff is request-triggered, capped at five episodes/4,000 characters, and absent from Jev, hooks, persisted messages, and logs |
 | FR-015 / AC-007 rebuild/failure | Integration | Truncated JSONL, corrupt index, missing project, permission error, atomic-write failure |
 | Live-source presentation | Integration | Move a source session into `.trash` without rebuilding; ranking, linked semantic memory, direct `Memory.read`, and rollup text disappear immediately |
 | Jev recall routing (accepted and integrated) | Decision unit + fake SDK transport + engine integration + synthetic live evaluation | Verify disabled/missing-key zero calls, exact secret-redacted request fields, fixed model and labels, strict output shape, usage-only telemetry, timeout/rate-limit/oversized-input fallback, and transient prompt guidance. Run the 49-case synthetic live comparison when a TypeSafe key is available. |
@@ -41,6 +41,13 @@
   records. Source text is shown only after every linked line verifies.
 - CLI/slash/controller tests cover local status, rebuild, timeline, search, show, and
   indexing after persisted turns. A non-persisted session does not create an index entry.
+- Answer-time recall tests cover Jev confidence/routing, deterministic explicit-request
+  fallback, no-recall requests, no-hit and ambiguous-time behavior, cross-project matches,
+  named-project filtering and ambiguity, semantic navigation to source episodes, bounded
+  adjacent turns, tombstones, stale digests, credential redaction, fake-delimiter/speaker
+  neutralization, tool-block exclusion,
+  and the five-episode/4,000-character cap. Engine/controller tests assert the history
+  bundle is transient and reaches only the active answer-model request.
 - Semantic-memory tests cover strict metadata validation, explicit persisted-message
   source resolution, candidate support thresholds, exclusion of repeated sensitive claims
   and credential-bearing sources from inferred records, explicit sensitive memory through
@@ -90,15 +97,13 @@
   a 10,000-episode/10,000-session-file local performance sample, including the shared
   search presenter and verified source expansion. These measurements do not claim TUI
   rendering costs or subjective live-dogfood quality.
-- No answer-time provider handoff is implemented. Requirements that depend on retrieved
-  history entering a model prompt remain future integration tests and are not claimed as
-  covered by these local retrieval tests.
 
 ## Critical end-to-end scenarios
 
-1. Write messages in projects A and B on multiple dates; from B, use local memory
-   timeline/search for project A’s “earlier today” episode and inspect exact source
-   context. After provider handoff is authorized, add the automatic-answer variant.
+1. Write messages in projects A and B on multiple dates; from B, retrieve project A’s
+   “earlier today” episode through both local search and the automatic answer path. Verify
+   exact source text, adjacent-turn relationship, project/date labels, and the provider
+   boundary cap.
 2. Fork a session and rewind another; verify inherited checkpoint messages are linked once
    to their original source and branch-only conversation remains historically attributable.
 3. Record a tentative idea, a later decision, then a correction. Query current and
@@ -123,13 +128,13 @@
   ambiguous utterance, no resurrected forgotten item, no unsupported recollection.
 - Ensure every acceptance criterion maps to a test and that tests cover interactive and
   noninteractive paths.
-- Do not treat local CLI/slash source display as evidence that provider prompt transfer,
-  automatic relevance routing, or prompt-isolation behavior is implemented.
+- Keep local source-display tests distinct from provider-boundary tests; both are required
+  to establish source verification, automatic relevance routing, and prompt isolation.
 - Jev is the selected intent provider. Adapter tests use a fake HTTP fetch; evaluation
   requests use synthetic text only. Verify that the request contains no historical source
   or project identifiers, and that Jev output cannot bypass local source, scope,
-  sensitivity, permission, or memory-review gates. This authorization covers the current
-  redacted request only; historical input to Jev and historical answer-provider handoff
-  require a separate scope decision.
+  sensitivity, permission, or memory-review gates. Jev sees only the redacted current
+  request. Separately authorized answer-provider recall is limited to verified and
+  redacted user/Athena episode text for that request; no historical text is sent to Jev.
 - Live dogfood is required for subjective recall usefulness, but it supplements rather
   than replaces deterministic correctness and privacy tests.

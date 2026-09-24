@@ -26,8 +26,9 @@ ambiguous short follow-up and a quoted recall phrase as non-recall inputs.
 Run the deterministic baseline with
 `pnpm exec tsx bench/jev-recall-intent-baseline.ts`. It applies the existing ranker's
 local `RecallIntent` to the synthetic requests and maps those values to the Jev route
-labels. This remains a proxy measurement: the ranker intent is used only for the manual
-local ranking preview and is not the Jev model or the answer-time history retriever.
+labels. This remains a proxy measurement: the ranker intent is used for the manual local
+ranking preview and as one deterministic ranking input to answer-time history retrieval;
+it is not the Jev model and does not measure answer-time relevance quality.
 
 | Proxy metric | Result |
 |---|---:|

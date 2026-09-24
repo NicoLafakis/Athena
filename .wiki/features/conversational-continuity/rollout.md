@@ -6,8 +6,9 @@
 
 - Keep current memory and session behavior as the fallback.
 - The index is derived and disposable; source session files are not rewritten.
-- Do not enable automatic memory promotion or historical answer-prompt recall until
-  source-link, deletion, privacy, and cross-project tests pass.
+- Keep automatic memory promotion review-only. Scoped historical answer-prompt recall is
+  authorized and may run after its source-link, deletion, privacy, and cross-project tests
+  pass; retrieval remains read-only and request-triggered.
 - Capture, indexing, and ranking remain local. The accepted Jev route may send the current
   secret-redacted user request to TypeSafe when `TYPESAFE_API_KEY` is present; no history
   enters that request. The call is synchronous and bounded, not a background task.
@@ -33,11 +34,14 @@ pass; corrupt index is nonfatal.
 ### Phase 2: answer-time recall
 
 Connect bounded retrieval to conversational turns; dogfood date/topic/project queries and
-verify current source precedence, uncertainty, and no irrelevant context leakage.
+verify current source precedence, uncertainty, and no irrelevant context leakage. The
+answer-time path now applies Jev route confidence, explicit project/time scope, source
+verification, tombstones, adjacent-turn reconstruction, shared secret redaction, and the
+five-episode/4,000-character payload limit.
 
-**Exit:** acceptance criteria for source-backed answers and no-hit/conflict behavior pass.
-Historical answer-time retrieval remains disabled until this gate and its separate
-authorization are complete.
+**Exit:** acceptance criteria for source-backed answers, no-hit/conflict behavior,
+prompt isolation, and the bounded provider payload pass. The user separately authorized
+scoped recall on 2026-09-23. Representative live-history dogfood remains a Phase 4.3 gate.
 
 ### Phase 3: semantic memory lifecycle
 
@@ -61,8 +65,8 @@ Deterministic local day/week/month/quarter/year rollups are implemented as on-de
 over the complete episode index. They include all covered episode IDs and a digest of the
 current source set; refresh is automatic because no rollup cache is persisted. Retrieval
 ranking is implemented as a local-only preview across working, episodic, semantic, and
-rollup layers. CLI and slash interfaces return bounded metadata and explanation labels;
-they do not add historical excerpts to provider prompts. Calibration against representative
+rollup layers. Automatic answer-time retrieval expands selected episode sources; semantic
+content and rollup summaries remain navigation-only. Calibration against representative
 long histories remains.
 
 **Rollup exit:** source coverage, complete-index gating, timezone boundaries, summary bounds,
@@ -70,8 +74,8 @@ and correction/deletion refresh are covered by unit and integration tests. **Ran
 exit:** deterministic layer selection, source scope/validity filters, stale-rollup rejection,
 bounded metadata, and local CLI/slash parity are tested. **Phase exit:** representative-history
 relevance, false-positive/no-hit rates, latency budgets, and exact-detail source expansion
-are calibrated. Automatic provider handoff remains separately blocked on explicit user
-authorization and its privacy tests.
+are calibrated. Automatic provider handoff is authorized and implemented; keep monitoring
+its scoped payload and false-positive/no-hit rate during dogfood.
 
 ## Backfill and migration
 
@@ -105,8 +109,9 @@ authorization and its privacy tests.
   independent evidence and explicit review. Set `jev.enabled` to `false` to disable future
   Jev calls; this does not remove existing labels or candidates, which remain subject to
   source verification and review.
-  Automatic historical answer-time retrieval is not enabled. Explicit CLI/slash search and
-  timeline remain available.
+  Routed, explicitly requested historical recall uses bounded source-verified context in
+  the active answer call. If integrity checks fail, it attaches no history; explicit
+  CLI/slash search and timeline remain available for local inspection.
 
 ## Rollback
 
@@ -116,5 +121,6 @@ events remain in canonical session JSONL and continue to inform local indexing w
 source lines verify. Session delete/restore tombstones remain governed by the local
 continuity store. This does not touch RunTrace, credentials, or learning records. Managed
 semantic memories retain their source links and currently support review and correction;
-forget controls are unfinished. Historical answer-time retrieval remains outside this Jev
-route and requires its own authorization and implementation.
+forget controls are unfinished. A recall-scope incident requires reverting or correcting
+the answer-time callback and rerunning the privacy and prompt-isolation gates before
+release; disabling Jev alone does not disable the explicit deterministic fallback.

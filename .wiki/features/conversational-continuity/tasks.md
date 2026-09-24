@@ -46,16 +46,19 @@ invariant.
 
 ## Phase 2 — answer-time recall and user controls
 
-- [ ] 2.1 Wire a read-only continuity retrieval interface into the agent turn path and
-  prompt contract. The user authorized scoped recall on 2026-09-23. The exact excerpt
-  limits and provider payload still need to be recorded before wiring the handoff. The
-  local catalog, CLI, and slash retrieval surfaces do not send episode text to a provider.
+- [x] 2.1 Wire read-only continuity retrieval into the agent turn path and prompt
+  contract. The user authorized scoped recall on 2026-09-23. Jev high-confidence history
+  routes (>= 0.85) or a clear deterministic explicit-recall fallback can select local
+  history. Source text is reverified, redacted, and limited to five episodes/4,000
+  characters; only user/Athena text is sent to the configured answer model. Project
+  filters, semantic/rollup navigation, time scope, tombstones, and adjacent-turn labels are
+  handled locally. Jev, hooks, persisted messages, and logs receive no retrieved excerpts.
 - [x] 2.2 Add inspectable `/memory` status/rebuild/search/timeline/show actions and
   accessible equivalents in line mode. Maintain parity with CLI.
-- [ ] 2.3 Verify automatic answer-time no-hit, ambiguous-time, same-topic multi-project,
-  stale source, and source retrieval behavior after the prompt handoff is authorized.
-  Local CLI/slash no-hit, ambiguous-time, stale-source, and source-read failures are
-  covered independently.
+- [x] 2.3 Verify answer-time no-hit, ambiguous-time, same-topic multi-project, explicit
+  and ambiguous project scope, stale source, source retrieval, tombstone suppression,
+  redaction, tool-block exclusion, and payload caps. Engine/controller tests also confirm
+  that retrieved context is transient and isolated to the active answer call.
 
 ## Phase 3 — durable semantic memory and lifecycle
 
@@ -148,18 +151,24 @@ gaps.
   - [x] Run `pnpm typecheck`, `pnpm lint`, `pnpm test`, and `pnpm build` on commit
     `72e2833`; all passed. The follow-up CI run passed on Node 20 and 22 across Linux,
     macOS, and Windows.
-  - [ ] Complete semantic-forget review after the source-retention choice and
-    provider-prompt privacy review after the exact excerpt limits and payload are recorded.
+  - [ ] Complete semantic-forget review after the source-retention choice.
+  - [x] Review the automatic answer-provider boundary: scoped user request only, local
+    source verification, ordinary active semantic records as navigation-only, rollups as
+    navigation-only, adjacent turn labels, shared secret redaction, five-episode/4,000-
+    character cap, no tools/paths/IDs/hooks/Jev/history persistence, and prompt-isolation
+    coverage. General PII and sensitive-prose detection remain outside the shared redactor.
 
 ## Phase 5 — Jev decision model (accepted; recall routing and speech-act intake implemented)
 
 The product owner selected Jev for recall routing and explicitly approved speech-act
-intake on 2026-09-23. The TypeSafe adapter and engine path are implemented. Each current
+intake on 2026-09-23. Scoped answer-provider history retrieval was also authorized on
+2026-09-23. The TypeSafe adapter and engine path are implemented. Each current
 user request is classified for route and speech act in one request; only a route hint is
 added to the answer-model prompt. High-confidence speech acts are stored locally as
 content-free events linked to the exact persisted user line. Verified labels support
 review-only candidate generation and contextual correction/retraction retrieval. Historical
-episode text still does not enter provider prompts; that handoff remains separately open.
+text does not enter Jev prompts; scoped, source-verified excerpts enter the answer-model
+prompt only for an explicit history request.
 See [ADR 0003](adr/0003-jev-decision-model.md).
 
 - [x] 5.1 Build a labeled synthetic recall-intent corpus and measure the current local

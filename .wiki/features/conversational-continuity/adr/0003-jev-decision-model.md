@@ -18,11 +18,11 @@ in `src/decision/jev.ts` and invokes it once per inbound user request.
 One System One request classifies the current inbound request for both its route and speech
 act. The route chooses `none`, `continue-current`, `temporal-recall`, `topic-recall`,
 `preference-or-fact`, `historical-decision`, or `similar-work`, validated against a strict
-local schema. A non-`none` route adds an ephemeral instruction to the active answer-model
-system prompt: use only conversation messages present in the turn; if another session or
-project is needed, say that its source history is not loaded and point to local memory
-search. The route is an intent hint, not evidence that a matching memory exists. Jev does
-not automatically retrieve or disclose cross-session episode text.
+local schema. A high-confidence (`>= 0.85`) history route can invoke the local answer-time
+retriever. `none` and `continue-current` cannot. When Jev is absent or below threshold, a
+clear deterministic explicit-history phrase is the only fallback. The route is an intent
+hint, not evidence that a matching memory exists; local source and scope checks remain
+authoritative.
 
 The TypeSafe request contains only the shared-secret-redactor-processed current user
 request and fixed question definitions. It excludes hook-added context, conversation
@@ -32,9 +32,11 @@ does not remove names, general personal information, or arbitrary sensitive pros
 product owner selected Jev routing on 2026-09-23. Global `jev.enabled` defaults to `true`
 and can be set to `false` in `~/.athena/settings.json`; project settings cannot change it.
 The API key is supplied through `TYPESAFE_API_KEY` and is not written to settings or
-credentials files. A missing key means no network call and a local fallback. This decision
-does not authorize historical excerpts to the configured answer provider; that separate
-answer-time handoff remains pending.
+credentials files. A missing key means no Jev network call and a local explicit-recall
+fallback. Jev never receives history. The user separately authorized scoped, redacted,
+source-verified user/Athena excerpts to the configured answer model for a current history
+request. That payload is capped at five episodes/4,000 characters; semantic text, rollup
+summaries, tool blocks, source IDs, paths, and hook context are excluded.
 
 The adapter pins model `jev-1.13.0` through TypeSafe JavaScript SDK `0.6.0`, disables SDK
 request logging and retries, and enforces a one-second outer deadline with a 900 ms
@@ -99,7 +101,8 @@ agreement before materially changing the payload scope or provider configuration
 1. Build a synthetic corpus covering direct and implied continuation, dates, corrections,
    multiple projects, ordinary new requests, ambiguous requests, and adversarial text.
    The checked-in 49-case fixture is complete. Its current local baseline is the intent
-   inferred inside the manual ranking preview, not an answer-time router; see
+   inferred by the deterministic ranker used in the manual preview and answer-time source
+   ranking; it is not a measure of the Jev route or answer quality. See
    [the calibration snapshot](../calibration.md).
 2. Run `pnpm exec tsx bench/jev-recall-evaluation.ts` with `TYPESAFE_API_KEY` to compare
    Jev against the 49-case synthetic corpus. It measures route precision/recall, coverage,
@@ -113,8 +116,9 @@ agreement before materially changing the payload scope or provider configuration
 4. Tests fake the SDK HTTP boundary. They verify no call while disabled or without a key,
    exact allowed payload fields, redaction, model pinning, strict response validation,
    token-only telemetry, timeout/rate-limit fallback, and ephemeral system-prompt use.
-5. Dogfood with synthetic or separately authorized text. Historical episode text requires
-   its own explicit authorization before it enters any provider prompt.
+5. Dogfood with synthetic data for correctness and with user-authorized scoped history
+   only when exercising a real current recall request. Review false positives, no-hits,
+   source integrity, project scope, and the answer-provider payload.
 6. The product owner has selected global default enablement. Keep the key absent or set
    `jev.enabled` to `false` to disable calls; reevaluate before changing the pinned model.
 

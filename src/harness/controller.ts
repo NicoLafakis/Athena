@@ -56,7 +56,8 @@ import {
 import { makeSkillTool } from '../tools/skill.js'
 import { makeAgentTool } from '../tools/agent.js'
 import { ContinuityStore } from '../continuity/store.js'
-import { createJevRecallRouter, JEV_MODEL, type RecallIntentRouter } from '../decision/jev.js'
+import { prepareAnswerTimeRecall } from '../continuity/answer-recall.js'
+import { createJevRecallRouter, JEV_MODEL, type RecallIntentRouter, type RecallRouteDecision } from '../decision/jev.js'
 import { JevSpeechActEventSchema, JEV_SPEECH_ACT_PERSISTENCE_CONFIDENCE } from '../continuity/schemas.js'
 
 function gitBranch(cwd: string): string | null {
@@ -322,6 +323,19 @@ export class HarnessSessionController {
       apiKey: process.env.TYPESAFE_API_KEY,
       telemetry: (event) => trace.append('decision-model-call', event),
     })
+    const answerTimeRecall = ({ request, decision }: {
+      request: string
+      decision?: RecallRouteDecision
+    }) => prepareAnswerTimeRecall({
+      query: request,
+      ...(decision ? { decision } : {}),
+      sessionsRoot: paths.sessionsDir,
+      store: continuityStore,
+      memoryDir: paths.memoryDir,
+      continuityRoot: paths.continuityDir,
+      currentProjectId: store.projectId,
+      ...(settings.timeZone ? { configuredTimeZone: settings.timeZone } : {}),
+    })
 
     const registry = new ToolRegistry()
     for (const t of [
@@ -511,6 +525,7 @@ export class HarnessSessionController {
       effort,
       systemPrompt,
       recallRouter,
+      answerTimeRecall,
       maxTokens: settings.maxOutputTokens ?? activeCapabilities.maxOutputTokens,
       preflightContext: true,
       ...(askUser ? { askUser } : {}),

@@ -57,6 +57,10 @@ function terms(text: string): string[] {
     .filter((term) => !SEARCH_STOP_WORDS.has(term) && !/^\d+$/.test(term))
 }
 
+export function hasEpisodeSearchTerms(query: string): boolean {
+  return terms(query).length > 0
+}
+
 function matchesTerm(query: string, source: string): boolean {
   return query === source || source.startsWith(query) || query.startsWith(source)
 }
@@ -247,6 +251,7 @@ export function loadEpisodeSourceContexts(
   sessionsRoot: string,
   inputs: ContinuityEpisode[],
   maxMessages = 8,
+  includeAdjacentTurns = false,
 ): EpisodeSourceContextResult[] {
   const episodes = inputs.map(parseContinuityEpisode)
   const sources = new Map(
@@ -282,7 +287,7 @@ export function loadEpisodeSourceContexts(
       continue
     }
     for (const { index, episode } of group) {
-      results[index] = verifyEpisodeSourceContext(episode, records, maxMessages, false)
+      results[index] = verifyEpisodeSourceContext(episode, records, maxMessages, includeAdjacentTurns)
     }
   }
   return results.map((result, index) => result ?? {

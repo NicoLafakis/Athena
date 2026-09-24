@@ -19,13 +19,13 @@ and source history vs. active semantic memories.
 | False autobiographical memory | A hypothetical is saved as a plan or preference | Speech-act labels, source context, conservative promotion, inspect/reject controls |
 | Unreviewed candidate reaches the model | Candidate claim text enters an answer prompt as if it were established | The model-facing `Memory.read` blocks candidate, flagged, rejected, and tombstoned records; local review remains the only content display for those states |
 | Context collapse | A summary omits “I was considering” or later reversal | Source refs, adjacent-turn reconstruction, temporal/versioned claims |
-| Cross-project disclosure | Private project history appears in an unrelated task or leaves the machine | Current continuity search/show output is local CLI/slash only; no historical episode text enters provider prompts. Any future handoff requires explicit authorization, scoped retrieval, verified source refs, and prompt-isolation tests |
+| Cross-project disclosure | Private project history appears in an unrelated task or leaves the machine | Automatic recall requires a routed history request, locally resolves an explicit project as a hard filter, verifies source lines and tombstones, redacts/caps excerpts, and adds only the transient current answer prompt. Unknown/ambiguous project names clarify. |
 | Secondary-provider disclosure | A second vendor receives text from a user turn | The product owner selected Jev route and speech-act classification; global `jev.enabled` defaults to true and a request still requires `TYPESAFE_API_KEY`. One call classifies both from only the current request after shared secret redaction. No hook context, prior history, episode text, source IDs, or project paths are sent. The shared redactor does not remove general personal information or arbitrary sensitive prose. |
 | Stale semantic handoff | A semantic fact reaches the configured answer model after its source session is unavailable | Managed `Memory.read` verifies each session source line before returning text as a tool result; successful reads remain a provider handoff and are covered in the consent review |
 | Secret propagation | Credential appears in a memory summary or search result | Existing redaction plus summary-specific redaction tests; never copy full transcripts |
 | Stale memory | Old decision is stated as current | Observed/valid time, supersession, freshness ranking, current source precedence |
 | Index poisoning | Model supplies a forged source path or ID | Server-authored identifiers; strict schema; resolve only under known local roots |
-| Forgotten data resurrection | Rebuild recreates deleted session episodes or a semantically forgotten memory | Session deletion is protected by persistent source tombstones across reads and rebuilds; semantic-memory forget and its source-retention policy remain unimplemented |
+| Forgotten data resurrection | Rebuild recreates deleted session episodes or a semantically forgotten memory | Session deletion is protected by persistent source tombstones across reads and rebuilds; semantic-memory forget is tracked separately and will suppress derived semantic data while preserving its source session. |
 | Search side-channel | Query diagnostics leak private topic/content | Log counts, durations, index version, source IDs only; never query or result text |
 | Corrupt/hostile records | Malformed JSON or control characters enter context | Zod validation, bounds, safe text formatting, per-record isolation, atomic writes |
 | Unauthorized project setting | Project asks to add all history or sync it externally | Global user policy only; no network retrieval or project-controlled retention changes |
@@ -34,11 +34,13 @@ and source history vs. active semantic memories.
 ## Security invariants
 
 - Continuity is local and advisory; it cannot authorize a tool, override current runtime
-  truth, or silently transmit historical content.
+  truth, or transmit history without a current request routed for historical recall.
 - A linked episode stores bounded derived summary/metadata and source IDs, not a copied
   transcript. Source text is reloaded from the local session and digest-checked before it
-  is shown. At this implementation checkpoint, even verified source text is not sent to
-  the configured model provider.
+  is shown or sent. The user authorized scoped answer-time excerpts on 2026-09-23; the
+  configured answer provider receives only redacted user/Athena text for the current
+  history request, at most five episodes/4,000 characters. Jev, hooks, logs, and persisted
+  session messages receive no retrieved history.
 - Every semantic fact links to a persisted source message or event and may also identify
   supporting episodes; rollups link to source episodes. No unlinked personal claim is
   eligible for durable retrieval.
@@ -54,8 +56,9 @@ and source history vs. active semantic memories.
 - Candidate generation also skips a directly sourced message when the shared credential
   redactor would change it. This prevents old or manually edited unredacted credential text
   from being copied into a new semantic candidate.
-- Forgetting and source-session trash/restore integration are not implemented yet. Their
-  eventual behavior must follow the user's source-retention choice and prevent rebuild
+- Semantic-memory forget is not implemented yet. The selected behavior removes/suppresses
+  derived semantic content while preserving the original source session; deleting source
+  history remains the separate session delete action. Both paths must prevent rebuild
   resurrection.
 - Jev is an additional network boundary, even though route and speech-act questions receive
   no historical context. Its result is untrusted advisory data: validate options and
@@ -72,13 +75,17 @@ and source history vs. active semantic memories.
 
 - Red-team ambiguous and contradictory conversations, quoted prompt injection, fake
   timestamps/source IDs, and instructions embedded in retrieved content.
-- Before adding any provider handoff, inspect every prompt path and ensure authorized
-  historical content is bounded, source-verified, clearly delimited as untrusted context,
-  and cannot set system instructions.
+- For answer-time handoff, inspect every prompt path and ensure the authorized historical
+  content is bounded, source-verified, redacted, clearly delimited as untrusted evidence,
+  quoted to preserve message boundaries, and unable to set system instructions. Regression tests also prove no tool blocks, IDs,
+  paths, hooks, Jev input, or persisted conversation messages cross this boundary.
 - TypeSafe's model and privacy terms were reviewed for this integration on 2026-09-23,
   separately from the configured answer provider. Review them again before material
   changes to the payload or model. The fake SDK-boundary test asserts the exact request
   fields, and global settings define the current request-routing choice.
 - Verify secret/redaction behavior across summaries, time rollups, CLI output, prompt
   context, logs, and deletion tombstones.
+- The shared secret redactor does not classify general PII or arbitrary sensitive prose;
+  this limitation is documented, and automatic semantic navigation excludes sensitive
+  records. Review this boundary again if the redactor or payload scope changes.
 - Test cross-project and restore/delete behavior with two independent project stores.

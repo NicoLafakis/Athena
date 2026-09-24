@@ -19,10 +19,11 @@ existing local records. Keep one source of truth for each kind of information:
 
 The index is global to the local OS user and catalogs all project session directories.
 Project scope remains metadata for relevance and disclosure controls, not a hard boundary
-for a user’s explicit conversational recall. The target behavior is a small retrieval
-result only when a request calls for prior context; the current implementation stops at a
-local ranked preview. Historical excerpts are not sent to a provider pending explicit
-authorization.
+for a user’s explicit conversational recall. Automatic history retrieval runs only when
+Jev confidently selects a history route or the local explicit-recall fallback recognizes
+the request. It resolves time and named-project scope locally, ranks linked episodes plus
+eligible semantic/rollup navigation records, then expands only verified episode sources.
+The user authorized this scoped handoff on 2026-09-23.
 
 ## Memory layers and lifecycle
 
@@ -111,9 +112,27 @@ history to a model.
   read-tool path is an existing, call-triggered provider handoff and must be included in
   the privacy review. It does not authorize automatic episodic history retrieval.
 
-This preview does not yet expand selected IDs into answer context. A future provider
-handoff must re-verify sources, preserve adjacent conversation context, apply project
-disclosure rules, and pass prompt-isolation tests after explicit authorization.
+Automatic answer-time retrieval reuses the same filters and ranking policy. It reloads
+selected source sessions, checks line and episode digests, checks session suppression,
+keeps a named project as a hard local filter, and includes up to eight exact/adjacent
+source messages per episode. A bounded bundle of at most five episodes and 4,000
+characters is added only to the active answer-model system prompt. The bundle includes
+speaker, time, timezone, and a non-path project label. Ambiguous named projects and
+temporal expressions ask for clarification; misses and corrupt indexes attach no source
+text. Each excerpt is JSON-quoted on one line and angle-bracket delimiters are neutralized
+so historical text cannot forge a speaker line or close the evidence envelope. It is not
+written to session messages, hook context, Jev input, logs, or persistent memory.
+
+Semantic records and rollup summaries are navigation/ranking metadata only: neither body
+is sent through automatic recall. Only ordinary, active, in-validity semantic records
+whose session citations still resolve to unchanged user-authored lines may point to source
+episodes. Sensitive, candidate, flagged, rejected, superseded, expired, future, and
+tombstoned records cannot trigger current semantic navigation. Time rollups rank only
+bounded time requests and expand back into their covered episodes. Every returned text
+excerpt comes from a digest-verified user or Athena message; tool calls, tool results,
+paths, source IDs, and project IDs are excluded. The shared credential redactor runs at
+the provider boundary; it catches known secret patterns but is not a general PII or
+sensitive-prose classifier.
 
 ### Jev recall-intent routing (integrated)
 
@@ -132,14 +151,13 @@ IDs, or project paths. The shared redactor catches known credential fields and s
 patterns; it is not a general personal-information scrubber. The request is capped at
 12,000 characters.
 
-For any non-`none` route, Athena adds a transient instruction to the active answer-model
-system prompt. It directs the model to use messages already present in the conversation,
-avoid inventing cross-session details, and ask the user to use local memory search when a
-different session or project is needed. The route does not retrieve sources or transfer
-historical content. It is removed after the turn and never enters persisted session
-messages. Confidence and probabilities are retained for evaluation; there is no calibrated
-confidence threshold yet. The user selected this rollout on 2026-09-23, so the route is
-used while live quality results remain outstanding.
+For a high-confidence route (`>= 0.85`), the engine may invoke the local answer-time
+retriever for one of the five historical routes. `none` and `continue-current` never
+trigger it. Below the threshold, only a clear deterministic explicit-recall phrase can
+trigger the local fallback. The route stays an intent hint: it cannot certify a source,
+change scope, or override local source/tombstone checks. Route guidance and any retrieved
+context are transient system-prompt additions and never enter persisted session messages.
+Live route quality remains unmeasured until the TypeSafe key is available.
 
 Global `jev.enabled` defaults to `true`; a project cannot override the user's setting.
 The network path requires `TYPESAFE_API_KEY`. Without the key, the adapter makes no call
@@ -147,8 +165,9 @@ and the engine falls back to ordinary prompt handling. A user may disable the ro
 `jev.enabled: false`. The TypeSafe JavaScript SDK is pinned at `0.6.0`, model `jev-1.13.0`;
 SDK logging and retries are disabled, and the decision deadline is one second. Content-free
 outcome, elapsed-time, and token-count telemetry is written to the local run trace.
-Historical excerpts sent to the configured answer provider remain a separate decision
-and are not part of the Jev authorization.
+Jev never receives retrieved history. The user separately authorized scoped,
+source-verified excerpts to the configured answer model for a current request that asks
+for history; the Jev route itself does not grant source access.
 
 TypeSafe states that customer inputs are not used for model training; its privacy policy
 also describes retention for service purposes, processing by service providers, and U.S.
@@ -175,26 +194,35 @@ store or the authority for what actually happened. The synthetic speech-act corp
 live evaluator are documented in [ADR 0003](adr/0003-jev-decision-model.md); live model
 quality remains unmeasured until a TypeSafe key is available.
 
-### Target answer-time retrieval routing (not connected)
+### Answer-time retrieval routing (implemented)
 
-1. Read the current user request and active conversation state.
-2. Determine likely intent: continuation/open loop, recall by time, recall by topic/person,
-   preference/fact, historical decision, or similar prior task.
-3. Parse explicit temporal language into a bounded interval in the user's configured
+1. Classify the current request with Jev; if Jev is unavailable or below threshold, use
+   only the deterministic explicit-history-request fallback. Do not query history for
+   `none`, `continue-current`, ordinary implementation requests, or a topic-free request.
+2. Parse explicit temporal language into a bounded interval in the user's configured
    IANA timezone (falling back to the OS local IANA timezone and labeling the inference).
    Preserve UTC event timestamps and any captured source-local date/zone; compare UTC
    instants against the resolved interval.
-4. Restrict candidates by explicit scope, time, type, and retention/tombstone state.
-   With no project named, search all locally indexed projects.
-5. Rank deterministically using explicit-time match, source/subject match, lexical/topic
-   relevance, active scope, source authority, confidence, and recency. A recency boost
+3. Resolve an explicitly named project against local session partitions. One match is a
+   hard filter; unknown or multiply matched names clarify rather than widening to all
+   projects. With no project named, topical recall can search all local project sources.
+4. Rank complete episodes and eligible active semantic records; add validated time
+   rollups as navigation only for bounded time requests. Apply time, project,
+   sensitivity, validity, and tombstone filters locally.
+5. Rank deterministically using time, source/subject match, lexical/topic relevance,
+   layer/intent, source authority, confidence, and recency. A recency boost
    never overrides an explicit date or direct correction.
-6. Load adjacent source turns around the best message references. Include the episode
-   summary only as an orientation aid; use source text to answer exact questions.
-7. Return a bounded bundle with source IDs, dates, scope, speech-act/status labels, and
-   uncertainty. The response model must not claim unsupported details.
-8. If no candidates meet the evidence threshold, return no-hit. If equally relevant
-   sources conflict, present both with dates or ask a focused clarifying question.
+6. Load selected episode messages and bounded adjacent source turns, verifying exact
+   persisted lines and digests again. Semantic text and rollup summaries remain local;
+   they only guide source selection.
+7. Send up to five episodes and 4,000 characters of redacted user/Athena text to the
+   configured answer provider. Include dates, timezone, speaker, coarse project labels,
+   and preceding/following relationship. Never send tool blocks, paths, IDs, or hook
+   context. The answer model treats the delimited text as untrusted evidence and must not
+   claim unsupported details.
+8. If no candidates meet the evidence threshold, say local recall found no verified
+   match. If the scope is ambiguous or sources conflict, ask a focused question or present
+   both with dates.
 
 Temporal normalization is deterministic: calendar terms (`today`, `yesterday`, a named
 month, quarter, or year) use calendar boundaries in the query timezone; weeks are ISO
@@ -217,9 +245,9 @@ Suggested retrieval intent mapping:
 | “How did similar work go?” | Existing `ExperienceStore` scoped by project/task | Relevant run traces |
 | “What is true in this repo now?” | Current files/runtime tools | Historical decisions only as context |
 
-The scoring implementation is a baseline, not calibrated relevance quality. Phase 4.3
-requires representative multi-project dogfood and measured false-positive/no-hit review
-before any automatic answer-time use.
+The scoring implementation remains a baseline, not calibrated relevance quality. Phase
+4.3 requires representative multi-project dogfood and false-positive/no-hit review; until
+then the small deterministic budgets and strict source/project filters favor precision.
 
 The answer should naturally identify time and context when that avoids ambiguity. A
 source citation is available on request and in machine-readable results; the conversation
@@ -230,7 +258,8 @@ should not become a citation dump by default.
 The implemented contracts below are strict, versioned Zod schemas in
 `src/continuity/schemas.ts`. Source-linked semantic-memory storage and explicit remember,
 review, and correction paths are implemented foundations; deterministic on-demand time
-rollups are also implemented. Provider handoff remains pending explicit authorization.
+rollups are also implemented. Scoped automatic answer-time handoff is authorized and
+implemented with a five-episode/4,000-character cap; live dogfood and privacy review remain.
 
 ```ts
 interface SourceRef {
@@ -434,28 +463,29 @@ added without changing session-line identity.
   is linked to the correction message; the prior statement and its source remain
   unchanged. Valid-time intervals are schema-validated, but automatic interval closure
   is not yet wired.
-- Semantic-memory forget remains open pending selection of its source-retention behavior.
+- Semantic-memory forget remains open; it will suppress derived semantic material while
+  preserving the canonical session source, which remains deletable through the separate
+  session delete control.
   Source-session delete/restore is implemented through the persistent tombstone ledger;
   restore is explicit and reindexes only from the recovered source.
 
 Episode records are built deterministically from persisted message/event metadata and
 bounded redacted excerpts; no separate provider call runs during capture or indexing.
-Once answer-time source handoff is authorized and implemented, a weekly/monthly/yearly
-recap can synthesize from retrieved episode sources. Persistent rollups are optional
-caches and may be materialized only from that user-requested synthesis or an explicit
-summarize action; they never trigger hidden background provider calls.
+Weekly/monthly/yearly recall can use local rollups to find covered episodes and then answer
+from reverified source text. No generated rollup summary is sent to the answer provider.
+Persistent rollups remain optional and may be materialized only from an explicit user
+request; they never trigger hidden background provider calls.
 
 ## Interfaces
 
 The `Memory` tool provides explicit remember, review, and correct/supersede operations.
 The `athena memory` CLI and `/memory` provide status, rebuild, search, timeline by time
 range, source/context inspection, ranking previews, and explicit candidate generation and
-review. Semantic-memory forget remains open pending its source-retention choice. Session
-source deletion and restore use persistent continuity tombstones. Mutations validate
-targets. Do not silently add continuity to every project prompt.
-Automatic answer-time
-source handoff to the configured model provider remains pending explicit user authorization;
-until then, session-derived content stays in local CLI/slash results.
+review. Semantic-memory forget remains open pending implementation. Session source deletion
+and restore use persistent continuity tombstones. Mutations validate targets. Do not
+silently add continuity to every project prompt. Automatic source handoff occurs only in
+response to a routed historical-recall request and uses the documented local filters and
+payload caps.
 
 ## Failure behavior
 

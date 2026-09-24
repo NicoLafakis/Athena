@@ -73,6 +73,75 @@ function makeEngine(
 }
 
 describe('Engine.runTurn', () => {
+  it('adds bounded recall output only to the answer-model prompt, not persisted conversation history', async () => {
+    const userRequest = 'What did we decide earlier this week?'
+    const priorQuote = 'We decided to preserve source links across project boundaries.'
+    const scripted = new MockAnthropicClient([{ blocks: [textBlock('We agreed to preserve the links.')], stopReason: 'end_turn' }])
+    const systems: string[] = []
+    const persisted: MessageParam[][] = []
+    const client: ModelClient = {
+      async stream(params, callbacks) {
+        systems.push(params.system)
+        return scripted.stream(params, callbacks)
+      },
+      complete: (params) => scripted.complete(params),
+    }
+    const probabilities = {
+      none: 0.01,
+      'continue-current': 0.01,
+      'temporal-recall': 0.92,
+      'topic-recall': 0.01,
+      'preference-or-fact': 0.01,
+      'historical-decision': 0.02,
+      'similar-work': 0.02,
+    }
+    const decision: DecisionResult<RecallRouteDecision> = {
+      status: 'decision',
+      value: {
+        route: 'temporal-recall', confidence: 0.92, probabilities,
+        speechAct: {
+          act: 'asked', confidence: 0.99,
+          probabilities: { none: 0.01, asked: 0.92, stated: 0.01, considered: 0.01, preferred: 0.01, decided: 0.01, promised: 0.01, corrected: 0.01, retracted: 0.01 },
+        },
+      },
+    }
+    const recallRouter: RecallIntentRouter = {
+      classify: vi.fn(async (request) => {
+        expect(request).toBe(userRequest)
+        return decision
+      }),
+    }
+    const answerTimeRecall = vi.fn(({ request, decision: routeDecision }) => {
+      expect(request).toBe(userRequest)
+      expect(routeDecision).toEqual(decision.value)
+      return {
+        status: 'ready' as const,
+        promptContext: `<athena-source-verified-history>\nuser: ${priorQuote}\n</athena-source-verified-history>`,
+        episodeIds: ['episode-source'],
+        excerptCount: 1,
+        truncated: false,
+      }
+    })
+    const { engine } = makeEngine(
+      [{ blocks: [textBlock('unused')], stopReason: 'end_turn' }],
+      {
+        client,
+        recallRouter,
+        answerTimeRecall,
+        onMessagesChanged: (messages) => persisted.push(structuredClone(messages)),
+      },
+    )
+
+    await engine.runTurn(userRequest)
+
+    expect(recallRouter.classify).toHaveBeenCalledOnce()
+    expect(answerTimeRecall).toHaveBeenCalledOnce()
+    expect(systems[0]).toContain(priorQuote)
+    expect(systems[0]).toContain('source-verified prior-conversation excerpts')
+    expect(JSON.stringify(persisted)).not.toContain(priorQuote)
+    expect(JSON.stringify(engine.getMessages())).not.toContain(priorQuote)
+  })
+
   it('uses a Jev recall route as ephemeral answer guidance without persisting it', async () => {
     const scripted = new MockAnthropicClient([{ blocks: [textBlock('I do not have the earlier project context loaded.')], stopReason: 'end_turn' }])
     const systems: string[] = []
@@ -118,7 +187,7 @@ describe('Engine.runTurn', () => {
       signal: expect.any(AbortSignal),
     })
     expect(systems[0]).toContain('Jev classified the current request as temporal-recall.')
-    expect(systems[0]).toContain('Do not invent historical details.')
+    expect(systems[0]).toContain('do not invent historical details')
     expect(JSON.stringify(persisted)).not.toContain('Jev classified')
     expect(JSON.stringify(engine.getMessages())).not.toContain('Jev classified')
   })

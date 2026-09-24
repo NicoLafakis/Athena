@@ -83,10 +83,12 @@ Recall selection considers query intent, requested time, entities/topics, active
 conversation, scope, evidence quality, confidence, and freshness. Current repository
 facts continue to come from current files/runtime evidence, not a stale conversational
 summary. The accepted Jev decision call classifies the current user request for recall route
-and speech act; a route is only an ephemeral hint to the answer model, not evidence that a
-source exists, and does not perform historical retrieval. A high-confidence speech-act
-label is stored locally against its exact user-message source and may support review-only
-candidate generation after independent repeated evidence.
+and speech act. A high-confidence history route can invoke the local answer-time retriever;
+the route remains an ephemeral hint, not evidence that a source exists or permission to
+bypass local source checks. A high-confidence speech-act label is stored locally against
+its exact user-message source and may support review-only candidate generation after
+independent repeated evidence. When Jev is unavailable or below threshold, only a clear
+deterministic explicit-history request may use the local fallback.
 
 ### FR-010 — Time rollups
 
@@ -117,9 +119,11 @@ transcript duplication. Jev is a separately configured external decision service
 request after shared secret redaction, up to 12,000 characters, for route and speech-act
 classification. The existing redactor does not remove general personal information or
 arbitrary sensitive prose. It receives no history, episode text, source identifiers, or
-project paths. No project setting can enable
-or disable the global decision setting. Historical excerpts to an answer provider remain
-separately pending explicit authorization.
+project paths. No project setting can enable or disable the global decision setting. The
+user authorized scoped answer-provider recall on 2026-09-23: only redacted, source-verified
+user/Athena message text for a current explicit history request may be sent, capped at
+five episodes and 4,000 characters. Jev never receives historical excerpts. Semantic text,
+rollup summaries, tool blocks, paths, IDs, and hook context are excluded.
 
 ### FR-014 — Bounded retrieval
 
@@ -166,12 +170,18 @@ does not make optional continuity a boot precondition.
   references that resolve to the expected original message/trace.
 - **AC-010:** Indexing and local search add no provider call. When the Jev setting and key
   are present, the current turn may make one synchronous decision call with a one-second
-  deadline and the bounded payload in FR-013; failures fall through to the ordinary turn.
-  Historical excerpts are not sent to the answer provider without separate authorization.
+  deadline and the bounded payload in FR-013; failures fall through to local explicit
+  recall routing or the ordinary turn. On a historical-recall request only, the configured
+  answer provider may receive up to five episodes/4,000 characters of redacted,
+  source-verified user/Athena text. No Jev request receives history.
 - **AC-011:** The Jev adapter sends no hook-added context or prior session material, validates
   route and speech-act probability schemas, records only content-free token/latency telemetry,
   never persists its route hint in session messages, and persists an eligible speech-act
   label only as a content-free event linked to the digested user source line.
+- **AC-012:** Given an explicit project filter, only sources from the uniquely resolved
+  local project enter the answer prompt; unknown or ambiguous names clarify. Every excerpt
+  resolves to unchanged source lines, adjacent turns are labeled, and source text, paths,
+  IDs, tool blocks, and hook context never persist into the session or Jev request.
 
 ## Non-goals
 

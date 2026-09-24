@@ -4,10 +4,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { HarnessSessionController } from '../../src/harness/controller.js'
 import { MockAnthropicClient, textBlock, toolUseBlock } from '../helpers/mock-client.js'
+import type { ModelClient } from '../../src/engine/client.js'
 import type { Settings } from '../../src/brain/settings.js'
 import type { BrainPaths } from '../../src/brain/paths.js'
 import { MemoryHygieneStore } from '../../src/brain/hygiene.js'
-import { readSessionLineRecords, sessionLineDigest } from '../../src/harness/sessions.js'
+import { readSessionLineRecords, sessionLineDigest, SessionStore } from '../../src/harness/sessions.js'
 import type { RecallIntentRouter } from '../../src/decision/jev.js'
 
 import { resolveBrainPaths } from '../../src/brain/paths.js'
@@ -47,6 +48,70 @@ const defaultSettings: Settings = {
 }
 
 describe('HarnessSessionController', () => {
+  it('retrieves source-verified history across projects into only the answer-model system prompt', async () => {
+    const previous = new SessionStore(paths.sessionsDir, 'C:/projects/previous-project').create()
+    previous.appendMessage({
+      role: 'user',
+      content: 'We decided that cross-project memory should preserve the context from the original conversation.',
+    })
+    previous.appendMessage({ role: 'assistant', content: 'I will keep the source episode linked.' })
+    previous.appendEvent({ type: 'turn-done' })
+
+    const scripted = new MockAnthropicClient([
+      { blocks: [textBlock('We decided to preserve the original context.')], stopReason: 'end_turn' },
+    ])
+    const systems: string[] = []
+    const client: ModelClient = {
+      async stream(params, callbacks) {
+        systems.push(params.system)
+        return scripted.stream(params, callbacks)
+      },
+      complete: (params) => scripted.complete(params),
+    }
+    const recallRouter: RecallIntentRouter = {
+      configured: true,
+      classify: vi.fn(async () => ({
+        status: 'decision' as const,
+        value: {
+          route: 'historical-decision' as const,
+          confidence: 0.96,
+          probabilities: {
+            none: 0.01, 'continue-current': 0.01, 'temporal-recall': 0.01, 'topic-recall': 0.01,
+            'preference-or-fact': 0.01, 'historical-decision': 0.93, 'similar-work': 0.02,
+          },
+          speechAct: {
+            act: 'asked' as const, confidence: 0.96,
+            probabilities: { none: 0.01, asked: 0.92, stated: 0.01, considered: 0.01, preferred: 0.01, decided: 0.01, promised: 0.01, corrected: 0.01, retracted: 0.01 },
+          },
+        },
+      })),
+    }
+    const controller = await HarnessSessionController.create({
+      paths,
+      effectivePaths: paths,
+      cwd: root,
+      provider: 'anthropic',
+      client,
+      settings: defaultSettings,
+      projectTrust: { trusted: true, allowProjectHooks: true, allowProjectMcp: true },
+      recallRouter,
+    })
+
+    const prompt = 'What did we decide about cross-project memory?'
+    const result = await controller.submitTurn(prompt)
+
+    expect(result.status).toBe('completed')
+    expect(recallRouter.classify).toHaveBeenCalledWith(prompt, { signal: expect.any(AbortSignal) })
+    expect(systems[0]).toContain('cross-project memory should preserve the context')
+    expect(systems[0]).toContain('other project')
+    expect(systems[0]).not.toContain(previous.file)
+    expect(systems[0]).not.toContain(previous.id)
+    expect(JSON.stringify(scripted.calls)).not.toContain('cross-project memory should preserve the context')
+    expect(controller.continuityStore.status().state).toBe('ready')
+
+    await controller.close()
+  })
+
   it('creates a harness session controller and submits a turn', async () => {
     const client = new MockAnthropicClient([
       { blocks: [textBlock('Hello from Athena harness!')], stopReason: 'end_turn' },

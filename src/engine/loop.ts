@@ -16,6 +16,7 @@ import type { HookRunner } from '../harness/hooks.js'
 import { redactSessionValue } from '../harness/redaction.js'
 import type { JevMemorySpeechAct, RecallIntentRouter, RecallRouteDecision } from '../decision/jev.js'
 import { JEV_SPEECH_ACT_PERSISTENCE_CONFIDENCE } from '../continuity/schemas.js'
+import type { AnswerTimeRecallResult } from '../continuity/answer-recall.js'
 import {
   modelCapabilities,
   modelId,
@@ -68,6 +69,12 @@ export interface EngineOptions {
   preflightContext?: boolean
   /** Optional typed classifier for current-turn continuity intent. */
   recallRouter?: RecallIntentRouter
+  /** Source-verifying local recall loader; only its bounded prompt context reaches the answer model. */
+  answerTimeRecall?: (input: {
+    request: string
+    decision?: RecallRouteDecision
+    signal: AbortSignal
+  }) => Promise<AnswerTimeRecallResult> | AnswerTimeRecallResult
 }
 
 function recallRouteGuidance(decision: RecallRouteDecision): string {
@@ -75,9 +82,8 @@ function recallRouteGuidance(decision: RecallRouteDecision): string {
     '<athena-recall-routing>',
     `Jev classified the current request as ${decision.route}.`,
     'Use the conversation messages actually present in this turn when they contain the answer.',
-    'Athena has not attached source-verified text from other sessions or projects to this turn.',
-    'If answering requires another session or project, say that the source history is not loaded and ask the user to use `athena memory search` or `/memory search`.',
-    'The route is an intent hint, not evidence that a matching memory exists. Do not invent historical details.',
+    'Only treat source-verified prior-conversation excerpts explicitly attached below as historical evidence. The route is an intent hint, not evidence that a matching source exists.',
+    'If no verified excerpt is attached, do not invent historical details; say local recall did not find them and ask for a topic or time range, or suggest `athena memory search`.',
     '</athena-recall-routing>',
   ].join('\n')
 }
@@ -209,12 +215,16 @@ export class Engine {
     }
     this.turnRecallDirective = undefined
     let currentSpeechAct: { act: JevMemorySpeechAct; confidence: number } | undefined
+    let recallDecision: RecallRouteDecision | undefined
     if (this.opts.recallRouter) {
       try {
         const decision = await this.opts.recallRouter.classify(userText, { signal })
         if (decision.status === 'decision') {
+          recallDecision = decision.value
           currentSpeechAct = decision.value.speechAct
-          if (decision.value.route !== 'none') this.turnRecallDirective = recallRouteGuidance(decision.value)
+          if (decision.value.route !== 'none' && decision.value.route !== 'continue-current') {
+            this.turnRecallDirective = recallRouteGuidance(decision.value)
+          }
         } else if (
           decision.status === 'fallback' &&
           decision.reason === 'unavailable' &&
@@ -229,6 +239,22 @@ export class Engine {
         }
       } catch {
         // Optional intent classification cannot prevent the user's turn from running.
+      }
+    }
+    if (this.opts.answerTimeRecall) {
+      try {
+        const recall = await this.opts.answerTimeRecall({
+          request: userText,
+          ...(recallDecision ? { decision: recallDecision } : {}),
+          signal,
+        })
+        if (recall.status !== 'not-requested') {
+          this.turnRecallDirective = [this.turnRecallDirective, recall.promptContext]
+            .filter((part): part is string => Boolean(part))
+            .join('\n\n')
+        }
+      } catch {
+        // Optional local retrieval fails closed; the normal turn proceeds without history.
       }
     }
     const text = promptHook.addedContext

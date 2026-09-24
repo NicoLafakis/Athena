@@ -2,7 +2,7 @@
 
 - **Tier:** 3 — major / high trust impact
 - **Date:** 2026-09-23
-- **Status:** implementation in progress; local linked-episode catalog, CLI/slash inspection, source-verified semantic candidate generation/review, on-demand time rollups, explainable local ranking previews, persistent session delete/restore tombstones, Jev recall routing, and source-linked Jev speech-act intake are implemented; automatic historical answer-provider handoff, semantic-memory forget, and live Jev quality evaluation remain open
+- **Status:** implementation in progress; local linked-episode catalog, CLI/slash inspection, source-verified semantic candidate generation/review, on-demand time rollups, explainable local ranking previews, persistent session delete/restore tombstones, Jev recall routing, source-linked Jev speech-act intake, and scoped answer-time history retrieval are implemented; semantic-memory forget, live-history dogfood, and live Jev quality evaluation remain open
 - **Product owner:** Nico
 
 ## What was asked
@@ -71,9 +71,9 @@ plausible-sounding recollection.
   speech act, and a high-confidence label is persisted locally with the exact user-message
   digest. Verified labels support review-only candidate detection; correction and retraction
   labels stay contextual and do not change memory by themselves. The route adds a temporary
-  answer-model instruction to avoid unsupported cross-session claims. Automatic retrieval
-  and transfer of historical excerpts to the answer provider remain a separate, pending
-  authorization.
+  answer-model instruction to avoid unsupported cross-session claims. The user separately
+  authorized scoped, source-verified episode excerpts to the configured answer model for
+  current history requests. Jev itself receives no historical data.
 
 ### Dropping
 
@@ -122,9 +122,12 @@ filters explicit time/project scope, checks semantic validity and sensitivity, r
 stale rollups, and returns bounded identifiers and explanation metadata without source
 text. Rollups use only a complete current index, retain coverage IDs and a source digest,
 and are recomputed after the session index changes. The index refreshes after persisted turn
-completion and can be rebuilt explicitly. Automatic transfer of historical excerpts into
-provider prompts is pending explicit authorization because it crosses the
-local-history/provider boundary. `athena memory candidates` / `/memory candidates`
+completion and can be rebuilt explicitly. On a routed history request, answer-time
+retrieval applies time/project scope locally, verifies source lines and tombstones, uses
+semantic records and rollups only as navigation, and sends at most five episodes/4,000
+redacted characters of user/Athena text to the active answer call. Source paths, IDs, tool
+blocks, and hook context are excluded; retrieved context is not persisted. `athena memory
+candidates` / `/memory candidates`
 generate local review candidates only from repeated direct user claims in at least two
 distinct, digest-verified sessions; the bounded listing includes linked episode IDs.
 `athena memory review <id> <promote|reject>` and `/memory review ...` apply an explicit
@@ -133,6 +136,6 @@ session remains canonical, and explicit remember is a separate user-directed pat
 explicit or terminal decisions suppress duplicates. Session deletion persists a
 content-free tombstone that suppresses episodes and derived rollups across reads and
 rebuilds; `athena session restore <id>` explicitly restores the canonical source and
-reindexes it. Semantic-memory forget and its source-retention choice remain open. Synthetic
-quality and latency calibration is documented; live-history dogfood, correction rates, and
-provider handoff remain open.
+reindexes it. Semantic-memory forget remains open; the source conversation will be preserved
+unless the user separately deletes its session. Synthetic quality and latency calibration
+is documented; representative live-history dogfood and live Jev quality remain open.
