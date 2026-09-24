@@ -226,18 +226,19 @@ export class HarnessSessionController {
 
     ensureBrainScaffold(paths)
 
-    // Write checks resolve requested targets through existing symlinks and platform
-    // aliases. Normalize configured fence roots the same way, or `/var` versus `/private`
-    // on macOS and Win32 short versus long names can make the same path compare unequal.
-    const protectedPaths = ProtectedPaths.from(
-      settings.protectedPaths.map((root) => {
+    // Direct write checks resolve requested targets through existing symlinks and
+    // platform aliases, while shell-command scans inspect lexical path tokens. Keep both
+    // configured and canonical roots so `/var` versus `/private` on macOS and Win32 short
+    // versus long names stay fenced in either path.
+    const protectedRoots = settings.protectedPaths.flatMap((root) => {
         try {
-          return realPathForAccess(root, cwd)
+          const canonical = realPathForAccess(root, cwd)
+          return canonical === root ? [root] : [root, canonical]
         } catch {
-          return root
+          return [root]
         }
-      }),
-    )
+      })
+    const protectedPaths = ProtectedPaths.from(protectedRoots)
     const resourcePolicy = new ResourcePolicy(cwd, sandboxMode, [paths.brainDir], protectedPaths)
     const gate = new PermissionEngine({
       mode: permissionMode,
