@@ -109,9 +109,10 @@ Read [`.wiki/reference/tui-platform-limits.md`](.wiki/reference/tui-platform-lim
 before proposing any of these. Current bindings:
 [`.wiki/reference/tui-keybindings.md`](.wiki/reference/tui-keybindings.md).
 
-## 6. Gates before push
+## 6. Pre-push and merge gates
 
-Run all four, green, on the exact state being committed:
+Do not commit or push Athena code until all four local gates have passed on the exact
+staged tree that will be committed:
 
 ```sh
 pnpm typecheck
@@ -120,11 +121,32 @@ pnpm test
 pnpm build
 ```
 
-Any edit after a gate invalidates that gate: re-run it. Stage specific files; never
-`git add -A` or `git add .` (a project-local `.athena/` brain directory or a stray
-credential file is exactly what a blanket add sweeps in). Never push on red. CI runs the
-same gates on Node 20 and 22 across Linux, Windows, and macOS, so a local red is a
-guaranteed CI red.
+Use this sequence for each code change:
+
+1. Inspect `git status --short --branch`, review `git diff` and `git diff --cached`,
+   and run `git diff --check`.
+2. Stage only intended paths; never use `git add -A` or `git add .` (a project-local
+   `.athena/` brain directory or a stray credential file is exactly what blanket staging
+   can sweep in). Review the staged diff.
+3. Confirm the worktree has no unstaged tracked edits with `git diff --exit-code`, then
+   record the staged tree ID with `git write-tree`. Run the four gates above sequentially
+   and record each result. If any gate fails, do not commit or push; fix the cause, stage
+   the corrected tree, and rerun all four gates.
+4. After the gates pass, make no file or index edits. Commit the checked tree, then verify
+   `git rev-parse HEAD^{tree}` matches the tree ID recorded before the gates. If they do
+   not match, stop and rerun all four gates on the corrected candidate before committing.
+5. Before pushing, fetch the intended remote and confirm `git status --short --branch` is
+   clean, `HEAD` contains the checked tree, and the target branch is current and
+   non-divergent. Push only that commit.
+6. For changes intended for `main`, push a topic branch and open a pull request. Wait
+   for all six CI matrix jobs to pass before merging. CI runs the same four gates on
+   Node 20 and 22 across Linux, Windows, and macOS; local checks on one machine cannot
+   replace this cross-platform result. If a job fails, do not merge: fix it, rerun all
+   four local gates on the new commit, push the update, and wait for the full matrix
+   again.
+
+Never push or merge on red. A green local run is evidence only for the host and exact
+commit tested; the CI matrix is the merge gate for cross-platform changes.
 
 ## 7. Two-machine workflow
 
