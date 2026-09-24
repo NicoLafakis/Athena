@@ -14,6 +14,7 @@ import { JEV_SPEECH_ACT_PERSISTENCE_CONFIDENCE } from '../src/continuity/schemas
 import {
   loadJevSpeechActCorpus,
   loadJevSpeechActHoldoutCorpus,
+  loadJevSpeechActIndependentHoldoutCorpus,
   type JevSpeechActCorpus,
 } from './jev-speech-act-corpus.js'
 
@@ -212,7 +213,8 @@ async function main(): Promise<void> {
   const router = createJevRecallRouter({ apiKey })
   for (const [name, corpus] of [
     ['Calibration', loadJevSpeechActCorpus()],
-    ['Holdout', loadJevSpeechActHoldoutCorpus()],
+    ['Phrasing regression', loadJevSpeechActHoldoutCorpus()],
+    ['Independent holdout', loadJevSpeechActIndependentHoldoutCorpus()],
   ] as const) {
     const report = await evaluateJevSpeechActCorpus(corpus, router)
     console.log(`${name} corpus`)

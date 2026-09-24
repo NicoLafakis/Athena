@@ -18,6 +18,15 @@
     { "id": "holdout-corrected-date", "speechAct": "corrected", "text": "One change to what I said before: the date should be the 12th." },
     { "id": "holdout-corrected-place", "speechAct": "corrected", "text": "The previous entry should say Seattle, not Portland." },
     { "id": "holdout-retracted-preference", "speechAct": "retracted", "text": "I changed my mind; don't keep the preference I just gave you." },
-    { "id": "holdout-retracted-commitment", "speechAct": "retracted", "text": "Forget my earlier commitment to finish this by Monday." }
+    { "id": "holdout-retracted-commitment", "speechAct": "retracted", "text": "Forget my earlier commitment to finish this by Monday." },
+    { "id": "holdout-none-thanks-v2", "speechAct": "none", "text": "Thanks, that saved me some time." },
+    { "id": "holdout-asked-retention-v2", "speechAct": "asked", "text": "What did I say the retention window should be?" },
+    { "id": "holdout-stated-index-size-v2", "speechAct": "stated", "text": "The new index is around thirty kilobytes." },
+    { "id": "holdout-considered-review-v2", "speechAct": "considered", "text": "I might want a monthly review, but I'm not sure." },
+    { "id": "holdout-preferred-summaries-v2", "speechAct": "preferred", "text": "Short summaries are easiest for me to scan." },
+    { "id": "holdout-decided-source-ref-v2", "speechAct": "decided", "text": "From now on, every saved episode must include its source link." },
+    { "id": "holdout-promised-review-v2", "speechAct": "promised", "text": "I'll review the candidate list before our next session." },
+    { "id": "holdout-corrected-date-v2", "speechAct": "corrected", "text": "I need to correct the earlier date: use Thursday instead." },
+    { "id": "holdout-retracted-reminders-v2", "speechAct": "retracted", "text": "I withdraw my earlier request for weekly reminders." }
   ]
 }

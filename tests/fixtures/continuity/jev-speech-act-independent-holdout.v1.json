@@ -1,0 +1,140 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "blind-none-sort-files",
+      "speechAct": "none",
+      "text": "Sort these five filenames chronologically."
+    },
+    {
+      "id": "blind-none-thanks",
+      "speechAct": "none",
+      "text": "I appreciate the quick turnaround."
+    },
+    {
+      "id": "blind-none-rewrite",
+      "speechAct": "none",
+      "text": "Please rewrite this note in plainer language."
+    },
+    {
+      "id": "blind-asked-quarterly-digest",
+      "speechAct": "asked",
+      "text": "What had I said about when to generate the quarterly digest?"
+    },
+    {
+      "id": "blind-asked-local-port",
+      "speechAct": "asked",
+      "text": "Can you tell me which port I said the local server should use?"
+    },
+    {
+      "id": "blind-asked-retention-chat",
+      "speechAct": "asked",
+      "text": "Where did we leave the retention conversation yesterday?"
+    },
+    {
+      "id": "blind-stated-backup-time",
+      "speechAct": "stated",
+      "text": "The backup completed at 02:13."
+    },
+    {
+      "id": "blind-stated-packages",
+      "speechAct": "stated",
+      "text": "This workspace contains three active packages."
+    },
+    {
+      "id": "blind-stated-dashboard-theme",
+      "speechAct": "stated",
+      "text": "The dashboard currently uses a dark theme."
+    },
+    {
+      "id": "blind-considered-archive",
+      "speechAct": "considered",
+      "text": "I could try the monthly archive option, but I have not decided."
+    },
+    {
+      "id": "blind-considered-startup-refresh",
+      "speechAct": "considered",
+      "text": "Maybe the search index should refresh at startup; I am still weighing it."
+    },
+    {
+      "id": "blind-considered-weekly-review",
+      "speechAct": "considered",
+      "text": "A weekly review might be useful, though I am undecided."
+    },
+    {
+      "id": "blind-preferred-dialog",
+      "speechAct": "preferred",
+      "text": "I prefer the smaller confirmation dialog."
+    },
+    {
+      "id": "blind-preferred-project-updates",
+      "speechAct": "preferred",
+      "text": "For project updates, I like the summary first."
+    },
+    {
+      "id": "blind-preferred-local-tests",
+      "speechAct": "preferred",
+      "text": "I would rather use local examples when testing by default."
+    },
+    {
+      "id": "blind-decided-local-index",
+      "speechAct": "decided",
+      "text": "We have chosen to keep the session index local."
+    },
+    {
+      "id": "blind-decided-daily-snapshots",
+      "speechAct": "decided",
+      "text": "The final choice is daily snapshots; use that rule from now on."
+    },
+    {
+      "id": "blind-decided-source-url",
+      "speechAct": "decided",
+      "text": "The team agreed to require a source URL on every record."
+    },
+    {
+      "id": "blind-promised-reports",
+      "speechAct": "promised",
+      "text": "I will compare both migration reports after the release."
+    },
+    {
+      "id": "blind-promised-diagram",
+      "speechAct": "promised",
+      "text": "I will send the new diagram tomorrow."
+    },
+    {
+      "id": "blind-promised-logs",
+      "speechAct": "promised",
+      "text": "I will check the logs before the next review."
+    },
+    {
+      "id": "blind-corrected-session-count",
+      "speechAct": "corrected",
+      "text": "Correction: the archive includes 31 sessions, not 30."
+    },
+    {
+      "id": "blind-corrected-refresh-time",
+      "speechAct": "corrected",
+      "text": "I misstated the refresh time; it starts at 06:00."
+    },
+    {
+      "id": "blind-corrected-extension",
+      "speechAct": "corrected",
+      "text": "The file extension should be .jsonl, not .json."
+    },
+    {
+      "id": "blind-retracted-digest",
+      "speechAct": "retracted",
+      "text": "I withdraw the preference I gave for daily digests."
+    },
+    {
+      "id": "blind-retracted-guide-promise",
+      "speechAct": "retracted",
+      "text": "Take back my earlier commitment to update the guide tonight."
+    },
+    {
+      "id": "blind-retracted-source-rule",
+      "speechAct": "retracted",
+      "text": "I no longer want source URLs treated as mandatory; please retract that instruction."
+    }
+  ]
+}

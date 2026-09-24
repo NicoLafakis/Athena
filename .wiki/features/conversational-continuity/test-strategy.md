@@ -21,8 +21,8 @@
 | FR-014 / AC-010 budgets | Ranking + performance + prompt integration | Local candidate caps and privacy-safe metrics; automatic handoff is request-triggered, capped at five episodes/4,000 characters, and absent from Jev, hooks, persisted messages, and logs |
 | FR-015 / AC-007 rebuild/failure | Integration | Truncated JSONL, corrupt index, missing project, permission error, atomic-write failure |
 | Live-source presentation | Integration | Move a source session into `.trash` without rebuilding; ranking, linked semantic memory, direct `Memory.read`, and rollup text disappear immediately |
-| Jev recall routing (accepted and integrated) | Decision unit + fake SDK transport + engine integration + synthetic live evaluation | Verify disabled/missing-key zero calls, exact secret-redacted request fields, fixed model and labels, strict output shape, usage-only telemetry, timeout/rate-limit/oversized-input fallback, and transient prompt guidance. Across 238 synthetic requests, raw accuracy was 236/238; the production >= 0.98 gate accepted 170/238 at 170/170 exact (100%) with no no-recall false positives. |
-| Jev speech-act intake (accepted and integrated) | Fake SDK transport + engine/controller integration + source-index/retrieval/candidate tests + synthetic live evaluation | Verify one current-request call returns both typed decisions; only labels at confidence >= 0.98 are stored after the user line is written; the stored event is content-free and digest-linked; edited sources invalidate labels; indirect preference/decision/commitment candidates remain review-only and require independent sessions; corrections/retractions are contextual labels only. The latest calibration and holdout scored 89/90 raw exact; 35/35 labels meeting the production persistence gate were exact (38.9% combined coverage). |
+| Jev recall routing (accepted and integrated) | Decision unit + fake SDK transport + engine integration + synthetic live evaluation | Verify disabled/missing-key zero calls, exact secret-redacted request fields, fixed model and labels, strict output shape, usage-only telemetry, timeout/rate-limit/oversized-input fallback, and transient prompt guidance. Across 266 synthetic requests, raw accuracy was 266/266; the production >= 0.98 gate accepted 197/266 at 197/197 exact (100%) with no no-recall false positives. |
+| Jev speech-act intake (accepted and integrated) | Fake SDK transport + engine/controller integration + source-index/retrieval/candidate tests + synthetic live evaluation | Verify one current-request call returns both typed decisions; only labels at confidence >= 0.98 are stored after the user line is written; the stored event is content-free and digest-linked; edited sources invalidate labels; indirect preference/decision/commitment candidates remain review-only and require independent sessions; corrections/retractions are contextual labels only. The latest calibration, phrasing regression, and independent holdout scored 126/126 raw exact; 53/53 labels meeting the production persistence gate were exact (42.1% combined coverage). |
 
 ## Implemented evidence at this checkpoint
 
@@ -78,26 +78,28 @@
   regression locks the current local ranker's proxy confusion matrix, including the
   absence of a `none` class and the resulting proxy false positives. The local baseline
   remains ranking metadata and does not represent the Jev route now wired to turn handling.
-  `bench/jev-recall-evaluation.ts` sends only synthetic request strings to the pinned Jev
-  model and runs six disjoint corpora. It reports route quality, confidence-gated per-route
-  precision, misclassified synthetic IDs, coverage, no-recall false positives, Brier score,
-  latency, token volume, and estimated cost. The 2026-09-23 run scored 236/238 raw exact;
-  the production >= 0.98 gate accepted 170/238 decisions, all exact, with no no-recall false
-  positives. Both sets remain synthetic and do not prove live-history quality.
+  `bench/jev-recall-evaluation.ts` sends only synthetic request strings to pinned Jev and runs
+  calibration, phrasing regression, three boundary sets, an audit, and an independent
+  holdout. It reports route quality, confidence-gated per-route precision, misclassified
+  synthetic IDs, coverage, no-recall false positives, Brier score, latency, token volume, and
+  estimated cost. The 2026-09-24 run scored 266/266 raw exact; the production >= 0.98 gate
+  accepted 197/266 decisions, all exact, with no no-recall false positives or provider
+  fallbacks. The new 21-case independent holdout scored 21/21 exact. These synthetic sets do
+  not establish live-history quality.
 - The optional `DecisionClient` seam is separate from streaming `ModelClient`. Fake-
   transport tests cover typed response validation, disabled/unavailable fallback, timeout
   abort, rate-limit fallback, content-free outcome/latency/token telemetry, and isolation
   from telemetry sink failures. The TypeSafe adapter test uses an injected fake HTTP fetch
   to verify the exact request body and output mapping. Engine tests verify route guidance
   exists only in the active answer call and is absent from persisted messages.
-- Jev speech-act tests cover all nine typed labels in the 72-case calibration fixture and
-  separate 18-case holdout, confidence-gated persistence and all-label confidence frontiers,
-  fallback reasons and misclassified synthetic IDs, exact current-message source digests,
-  retrieval/index propagation, repeated indirect claim candidates, and correction/retraction
-  labels that do not create inferred memory. The live evaluator sends synthetic text only;
-  the latest 2026-09-23 runs scored 89/90 raw exact. At the production >= 0.98 persistence
-  threshold, 35/35 eligible persisted labels were exact (38.9% combined coverage). These
-  results do not measure real-user language or history quality.
+- Jev speech-act tests cover all nine typed labels in the 72-case calibration fixture, the
+  27-case phrasing regression set, and a separate 27-case independent holdout. They also
+  cover confidence-gated persistence, all-label frontiers, fallback reasons, source digests,
+  retrieval/index propagation, claim candidates, and correction/retraction behavior. The live
+  evaluator sends synthetic text only. On 2026-09-24, all 126 decisions were exact; 53/53
+  labels meeting the >= 0.98 persistence gate were exact (42.1% combined coverage), and the
+  independent holdout scored 27/27 raw exact with 12/12 persisted-label exact. These results
+  do not measure real-user language or history quality.
 - [`calibration.md`](calibration.md) records deterministic synthetic quality measures and
   a 10,000-episode/10,000-session-file performance sample, including compressed-index
   round trips, source expansion, and the shared search presenter. Store tests cover legacy

@@ -245,10 +245,15 @@ async function main(): Promise<void> {
     loadRecallCorpus(new URL('../tests/fixtures/continuity/jev-recall-intent-audit.v1.json', import.meta.url)),
     router,
   )
+  const independentHoldout = await evaluateJevRecallCorpus(
+    loadRecallCorpus(new URL('../tests/fixtures/continuity/jev-recall-intent-independent-holdout.v1.json', import.meta.url)),
+    router,
+  )
   console.log(`Calibration (56 cases)\n${formatJevRecallEvaluation(calibration)}`)
-  console.log(`\nIndependent phrasing holdout (14 cases)\n${formatJevRecallEvaluation(holdout)}`)
+  console.log(`\nExpanded phrasing regression set (21 cases)\n${formatJevRecallEvaluation(holdout)}`)
   console.log(`\nBoundary development/calibration (126 cases)\n${formatJevRecallEvaluation(boundary)}`)
   console.log(`\nFresh targeted boundary audit (42 cases)\n${formatJevRecallEvaluation(audit)}`)
+  console.log(`\nIndependent phrasing holdout (21 cases)\n${formatJevRecallEvaluation(independentHoldout)}`)
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

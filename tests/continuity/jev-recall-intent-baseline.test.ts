@@ -21,15 +21,33 @@ describe('Jev recall-intent evaluation baseline', () => {
     expect(corpus.cases.find((item) => item.id === 'time-last-quarter')?.intent).toBe('historical-decision')
   })
 
-  it('keeps a balanced phrasing holdout disjoint from the calibration corpus', () => {
+  it('keeps the expanded phrasing regression corpus balanced and disjoint from calibration', () => {
     const holdout = loadRecallCorpus(new URL('../fixtures/continuity/jev-recall-intent-holdout.v1.json', import.meta.url))
-    expect(holdout.cases).toHaveLength(14)
-    expect(new Set(holdout.cases.map((item) => item.id)).size).toBe(14)
+    expect(holdout.cases).toHaveLength(21)
+    expect(new Set(holdout.cases.map((item) => item.id)).size).toBe(21)
     expect(holdout.cases.some((item) => corpus.cases.some((calibration) => calibration.id === item.id))).toBe(false)
     expect(holdout.cases.some((item) => corpus.cases.some((calibration) => calibration.text === item.text))).toBe(false)
 
     for (const route of RecallRouteSchema.options) {
-      expect(holdout.cases.filter((item) => item.intent === route)).toHaveLength(2)
+      expect(holdout.cases.filter((item) => item.intent === route)).toHaveLength(3)
+    }
+  })
+
+  it('keeps a new independent balanced holdout separate from every tuning corpus', () => {
+    const independent = loadRecallCorpus(new URL('../fixtures/continuity/jev-recall-intent-independent-holdout.v1.json', import.meta.url))
+    const priorHoldout = loadRecallCorpus(new URL('../fixtures/continuity/jev-recall-intent-holdout.v1.json', import.meta.url))
+    const boundaryCalibration = loadRecallCorpus(new URL('../fixtures/continuity/jev-recall-intent-boundary-calibration.v1.json', import.meta.url))
+    const boundaryDevelopment = loadRecallCorpus(new URL('../fixtures/continuity/jev-recall-intent-boundary-development.v1.json', import.meta.url))
+    const boundaryValidation = loadRecallCorpus(new URL('../fixtures/continuity/jev-recall-intent-boundary-validation.v1.json', import.meta.url))
+    const audit = loadRecallCorpus(new URL('../fixtures/continuity/jev-recall-intent-audit.v1.json', import.meta.url))
+    const tuningCases = [...corpus.cases, ...priorHoldout.cases, ...boundaryCalibration.cases, ...boundaryDevelopment.cases, ...boundaryValidation.cases, ...audit.cases]
+
+    expect(independent.cases).toHaveLength(21)
+    expect(new Set(independent.cases.map((item) => item.id)).size).toBe(21)
+    expect(new Set(independent.cases.map((item) => item.text)).size).toBe(21)
+    expect(independent.cases.some((item) => tuningCases.some((known) => known.id === item.id || known.text === item.text))).toBe(false)
+    for (const route of RecallRouteSchema.options) {
+      expect(independent.cases.filter((item) => item.intent === route)).toHaveLength(3)
     }
   })
 

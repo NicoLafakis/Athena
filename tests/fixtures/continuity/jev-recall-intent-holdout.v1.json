@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "asOf": "2026-09-23T12:00:00.000Z",
+  "asOf": "2026-09-24T06:32:57.000Z",
   "cases": [
     { "id": "none-vague-holdout", "intent": "none", "text": "What about the one from before?" },
     { "id": "none-quoted-sample-holdout", "intent": "none", "text": "Label this quoted line as an example of a question: ‘What did I decide yesterday?’" },
@@ -21,6 +21,13 @@
     { "id": "decision-index-location-holdout", "intent": "historical-decision", "text": "Did I agree to keep the index on this machine?" },
 
     { "id": "similar-retry-policy-holdout", "intent": "similar-work", "text": "Show me an earlier project with a similar retry policy." },
-    { "id": "similar-another-tool-holdout", "intent": "similar-work", "text": "Have we solved a comparable issue in another tool?" }
+    { "id": "similar-another-tool-holdout", "intent": "similar-work", "text": "Have we solved a comparable issue in another tool?" },
+    { "id": "none-vague-holdout-v2", "intent": "none", "text": "Can you remind me about the thing from earlier?" },
+    { "id": "continue-chat-holdout-v2", "intent": "continue-current", "text": "Let's carry on from where this conversation paused." },
+    { "id": "time-friday-holdout-v2", "intent": "temporal-recall", "text": "Give me the highlights from everything we discussed Friday." },
+    { "id": "topic-sync-protocol-holdout-v2", "intent": "topic-recall", "text": "Find our discussion about the sync protocol." },
+    { "id": "fact-hosting-provider-holdout-v2", "intent": "preference-or-fact", "text": "What did I tell you about this service's hosting provider?" },
+    { "id": "decision-hosting-provider-holdout-v2", "intent": "historical-decision", "text": "Which deployment provider did the team settle on?" },
+    { "id": "similar-import-adapt-holdout-v2", "intent": "similar-work", "text": "Find a previous import implementation we could adapt." }
   ]
 }

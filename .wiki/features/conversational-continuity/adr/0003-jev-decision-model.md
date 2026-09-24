@@ -70,10 +70,11 @@ same normalized user text appears in two or more independent sessions. Candidate
 still applies redaction, sensitivity, completeness, and source-integrity checks. Promotion
 rechecks the exact source lines. `corrected` and `retracted` labels are kept with their
 episode context to help retrieval, but they do not automatically supersede, promote, or
-delete semantic memory. The latest live synthetic evaluation returned 89/90 exact labels
-across calibration and phrasing holdout. At the 0.98 persistence threshold, all 35/35
-eligible persisted-label decisions were correct (38.9% combined coverage). These small
-synthetic sets do not establish real-user precision.
+delete semantic memory. The 2026-09-24 calibration, phrasing regression, and independent holdout returned 126/126
+exact labels. At the 0.98 persistence threshold, all 53/53 eligible persisted-label decisions
+were correct (42.1% combined coverage). The independent holdout was authored after prompt
+freeze and scored 27/27 raw exact, with 12/12 persisted-label exact. These small synthetic
+sets do not establish real-user precision.
 
 Never give Jev authority to decide project trust, permission, tool execution, source
 retention, forgetting, deletion, credential handling, or user-confirmed facts. The
@@ -112,26 +113,28 @@ agreement before materially changing the payload scope or provider configuration
 
 1. Build a synthetic corpus covering direct and implied continuation, dates, corrections,
    multiple projects, ordinary new requests, ambiguous requests, and adversarial text.
-   The checked-in calibration, 14-case phrasing holdout, three boundary sets, and fresh
-   42-case audit are complete. The local proxy baseline is the intent
+   The checked-in calibration, 21-case phrasing regression set, three boundary sets, fresh
+   42-case audit, and separate 21-case independent holdout are complete. The local proxy baseline is the intent
    inferred by the deterministic ranker used in the manual preview and answer-time source
    ranking; it is not a measure of the Jev route or answer quality. See
    [the calibration snapshot](../calibration.md).
 2. Run `pnpm exec tsx bench/jev-recall-evaluation.ts` with `TYPESAFE_API_KEY` to compare
-   Jev against six synthetic corpora. It measures raw and confidence-gated per-route
+   Jev against seven synthetic corpora. It measures raw and confidence-gated per-route
    precision, coverage, misclassified synthetic IDs, no-recall false positives,
    multiclass Brier score, latency, input/output tokens, and estimated cost. The latest
-   2026-09-23 run scored 236/238 raw exact; at the 0.98 action threshold, 170/170 accepted
-   decisions were exact (71.4% coverage), with no no-recall false positives. The small
+   2026-09-24 run scored 266/266 raw exact; at the 0.98 action threshold, 197/197 accepted
+   decisions were exact (74.1% coverage), with no no-recall false positives or provider
+   fallbacks. The separate 21-case independent holdout scored 21/21 exact. The small
    synthetic sets do not establish representative live-history quality. See the calibration
    snapshot for full metrics and limits.
 3. Run `pnpm exec tsx bench/jev-speech-act-evaluation.ts` with `TYPESAFE_API_KEY` to
    measure all nine speech-act labels, high-confidence persisted-label precision, confidence
    frontiers, fallback reasons, coverage, macro F1, calibration, latency, and token counts
-   against the 72-case calibration set and separate 18-case holdout. The latest runs
-   returned 89/90 raw exact labels with no fallback; at the 0.98 persistence threshold,
-   35/35 eligible persisted-label decisions were correct (38.9% combined coverage). No
-   historical user text was sent in either evaluation.
+   against the 72-case calibration set, 27-case phrasing regression set, and separate 27-case
+   independent holdout. The 2026-09-24 runs returned 126/126 raw exact labels with no
+   fallback; at the 0.98 persistence threshold, 53/53 eligible persisted-label decisions
+   were correct (42.1% combined coverage). The independent holdout scored 27/27 raw exact.
+   No historical user text was sent in any evaluation.
 4. Tests fake the SDK HTTP boundary. They verify no call while disabled or without a key,
    exact allowed payload fields, redaction, model pinning, strict response validation,
    token-only telemetry, timeout/rate-limit fallback, and ephemeral system-prompt use.

@@ -194,12 +194,13 @@ prompt only for an explicit history request.
 See [ADR 0003](adr/0003-jev-decision-model.md).
 
 - [x] 5.1 Build labeled synthetic recall-intent corpora and measure the current local
-  routing baseline. The balanced calibration, phrasing holdout, three boundary corpora,
-  fresh audit, deterministic ranker-intent proxy, and live Jev comparison are measured in
-  [calibration.md](calibration.md). Across 238 synthetic requests, raw accuracy was
-  236/238 (99.2%); at the production 0.98 threshold, 170/170 eligible decisions were exact
-  (100% precision) at 71.4% coverage, with no no-recall false positives. These do not
-  measure real-history quality.
+  routing baseline. The balanced calibration, phrasing regression set, three boundary corpora,
+  fresh audit, independent holdout, deterministic ranker-intent proxy, and live Jev
+  comparison are measured in
+  [calibration.md](calibration.md). Across 266 synthetic requests, raw accuracy was
+  266/266 (100%); at the production 0.98 threshold, 197/197 eligible decisions were exact
+  (100% precision) at 74.1% coverage, with no no-recall false positives. The new independent
+  21-case holdout scored 21/21 exact. These do not measure real-history quality.
 - [x] 5.2 Define an optional `DecisionClient` separate from streaming `ModelClient`; test
   typed output validation, fallback, timeout/rate-limit handling, zero calls while disabled,
   and content-free telemetry with a fake transport.
@@ -221,27 +222,31 @@ See [ADR 0003](adr/0003-jev-decision-model.md).
   `preferred`/`decided`/`promised` labels can support inferred candidates only after matching
   content appears in at least two independent sessions; candidates remain review-only and
   the promotion path rechecks every source. Corrections and retractions are indexed as
-  context labels and never silently overwrite or delete memory. The latest calibration and
-  phrasing holdout scored 89/90 raw decisions exact; all 30 calibration and 5 holdout labels
-  meeting the 0.98 persistence threshold were correct (35/35, 38.9% combined coverage).
-  These are synthetic results, not real-user language quality claims.
+  context labels and never silently overwrite or delete memory. The latest calibration,
+  phrasing regression, and independent holdout scored 126/126 raw decisions exact; all
+  53 labels meeting the 0.98 persistence threshold were correct
+  (53/53, 42.1% combined coverage). The independent holdout scored 27/27 raw exact, with
+  12/12 persisted-label decisions exact. These are synthetic results, not real-user language
+  quality claims.
 - [x] 5.5 Pin `jev-1.13.0`, make global enablement the default as selected by the product
   owner, record content-free latency/token telemetry in local run traces, and add
   `bench/jev-recall-evaluation.ts` for a synthetic live comparison. The evaluator reports
   coverage, raw and confidence-gated route precision/recall, misclassified synthetic IDs,
   no-recall false positives, Brier score, latency, token volume, and estimated input cost.
-  - [x] Run and record the balanced calibration, phrasing holdout, boundary corpora, and
-    fresh boundary audit. Pinned `jev-1.13.0` scored 236/238 raw exact across 238 synthetic
-    requests. At confidence >= 0.98, it made 170/170 exact decisions (71.4% coverage) with
-    no no-recall false positives. Both raw errors were below the gate. These results do not
+  - [x] Run and record the balanced calibration, phrasing regression set, boundary corpora,
+    fresh boundary audit, and the separate independent holdout. Pinned `jev-1.13.0` scored
+    266/266 raw exact across seven synthetic corpora. At confidence >= 0.98, it made 197/197
+    exact decisions (74.1% coverage), with no no-recall false positives or provider
+    fallbacks. The independent 21-case holdout scored 21/21 exact. These results do not
     measure real-user histories.
-  - [x] Refine the `none` versus `asked` contract so generic new-work commands do not
-    count as memory questions; expand calibration to eight cases per label and add an
-    independent two-case-per-label phrasing holdout. The latest run scored 89/90 raw
-    decisions exact with zero fallbacks. At the 0.98 persistence threshold, persisted-label
-    precision was 30/30 (41.7% coverage) and 5/5 (27.8%). The all-label >= 0.98 frontier
-    was 49/49 (68.1%) and 10/10 (55.6%). The evaluator reports coverage, confidence
+  - [x] Refine the speech-act distinctions, keep the 27-case phrasing regression set, and add
+    a new independent three-case-per-label holdout after prompt freeze. The latest run scored
+    126/126 raw decisions exact with zero fallbacks. At the 0.98 persistence threshold,
+    53/53 eligible persisted labels were correct (42.1% combined coverage). The all-label
+    >= 0.98 frontier was 90/90 (71.4% coverage). The independent holdout scored 27/27 raw
+    exact and 12/12 persisted-label exact. The evaluator reports coverage, confidence
     frontiers, fallback reasons, and misclassified synthetic IDs.
   - [x] Increase the Jev request budget from one to two seconds after a one-second run
     produced 12 provider-error fallbacks; fix the SDK timeout classification path and
-    verify zero fallback in the repeated 72-case calibration and 18-case holdout runs.
+    verify zero fallback in the 72-case calibration, 27-case phrasing regression, and
+    independent 27-case holdout runs.

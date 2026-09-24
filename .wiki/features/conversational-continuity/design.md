@@ -170,10 +170,11 @@ trigger it. Below the threshold, only a clear deterministic explicit-recall phra
 trigger the local fallback. The route stays an intent hint: it cannot certify a source,
 change scope, or override local source/tombstone checks. Route guidance and any retrieved
 context are transient system-prompt additions and never enter persisted session messages.
-The production threshold is 0.98. On 238 synthetic requests across six disjoint corpora,
-raw route accuracy was 236/238 (99.2%); the gate accepted 170/238 (71.4%), all exact, with
-no `none` example triggering retrieval. Both raw errors fell below the gate. These
-generated examples do not replace representative live-history dogfood.
+The production threshold is 0.98. On the 2026-09-24 run, all 266 synthetic route requests
+across seven corpora were exact. The gate accepted 197/266 decisions (74.1%), all exact,
+with no `none` example triggering retrieval or provider fallbacks. The separate 21-case
+independent holdout scored 21/21 exact. These generated examples do not replace
+representative live-history dogfood.
 
 Global `jev.enabled` defaults to `true`; a project cannot override the user's setting.
 The network path requires `TYPESAFE_API_KEY`. Without the key, the adapter makes no call
@@ -210,10 +211,11 @@ source-digest verification, and explicit user review. Promotion repeats source c
 Correction and retraction labels stay attached to episode context for retrieval and never
 automatically overwrite or remove existing memory. Jev cannot promote memory, alter source
 history, or bypass scope, sensitivity, review, or permission gates. It is not the memory
-store or the authority for what actually happened. The final synthetic evaluation scored
-89/90 raw decisions exact across calibration and holdout. At the 0.98 persistence gate,
-35/35 accepted persisted-label decisions were exact (38.9% corpus coverage). These small
-synthetic sets do not establish equivalent accuracy on real-user language. See
+store or the authority for what actually happened. On 2026-09-24, the calibration, phrasing
+regression, and independent holdout scored 126/126 raw decisions exact. At the 0.98
+persistence gate, 53/53 eligible persisted-label decisions were exact (42.1% corpus
+coverage); the independent holdout scored 27/27 raw exact, with 12/12 persisted-label exact.
+These small synthetic sets do not establish equivalent accuracy on real-user language. See
 [ADR 0003](adr/0003-jev-decision-model.md) for complete results and limits.
 
 ### Answer-time retrieval routing (implemented)

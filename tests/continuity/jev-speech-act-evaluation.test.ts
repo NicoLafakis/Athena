@@ -14,6 +14,7 @@ import {
 import {
   loadJevSpeechActCorpus,
   loadJevSpeechActHoldoutCorpus,
+  loadJevSpeechActIndependentHoldoutCorpus,
   type JevSpeechActCorpus,
 } from '../../bench/jev-speech-act-corpus.js'
 
@@ -42,14 +43,29 @@ describe('Jev speech-act evaluation', () => {
     expect(new Set(corpus.cases.map((item) => item.id)).size).toBe(corpus.cases.length)
   })
 
-  it('loads a separate phrasing holdout with two cases for each label', () => {
+  it('loads a balanced phrasing regression set with three cases for each label', () => {
     const corpus = loadJevSpeechActHoldoutCorpus()
     const counts = Object.fromEntries(JEV_MEMORY_SPEECH_ACTS.map((act) => [act, 0])) as Record<JevMemorySpeechAct, number>
     for (const item of corpus.cases) counts[item.speechAct]++
 
-    expect(corpus.cases).toHaveLength(18)
-    expect(Object.values(counts)).toEqual(Array(JEV_MEMORY_SPEECH_ACTS.length).fill(2))
+    expect(corpus.cases).toHaveLength(27)
+    expect(Object.values(counts)).toEqual(Array(JEV_MEMORY_SPEECH_ACTS.length).fill(3))
     expect(new Set(corpus.cases.map((item) => item.id)).size).toBe(corpus.cases.length)
+  })
+
+  it('keeps a new independent balanced holdout separate from calibration and tuning phrases', () => {
+    const corpus = loadJevSpeechActIndependentHoldoutCorpus()
+    const calibration = loadJevSpeechActCorpus()
+    const tuningHoldout = loadJevSpeechActHoldoutCorpus()
+    const counts = Object.fromEntries(JEV_MEMORY_SPEECH_ACTS.map((act) => [act, 0])) as Record<JevMemorySpeechAct, number>
+    for (const item of corpus.cases) counts[item.speechAct]++
+
+    expect(corpus.cases).toHaveLength(27)
+    expect(Object.values(counts)).toEqual(Array(JEV_MEMORY_SPEECH_ACTS.length).fill(3))
+    expect(new Set(corpus.cases.map((item) => item.id)).size).toBe(27)
+    expect(new Set(corpus.cases.map((item) => item.text)).size).toBe(27)
+    const earlier = [...calibration.cases, ...tuningHoldout.cases]
+    expect(corpus.cases.some((item) => earlier.some((known) => known.id === item.id || known.text === item.text))).toBe(false)
   })
 
   it('measures classification quality and the high-confidence persistence gate', async () => {

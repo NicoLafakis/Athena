@@ -26,3 +26,7 @@ export function loadJevSpeechActCorpus(): JevSpeechActCorpus {
 export function loadJevSpeechActHoldoutCorpus(): JevSpeechActCorpus {
   return loadCorpus('jev-speech-act-holdout.v1.json')
 }
+
+export function loadJevSpeechActIndependentHoldoutCorpus(): JevSpeechActCorpus {
+  return loadCorpus('jev-speech-act-independent-holdout.v1.json')
+}
