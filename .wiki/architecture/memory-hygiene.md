@@ -56,14 +56,13 @@ decisions; inferred promotion rechecks source lines, claims, timestamps, project
 sensitive wording at decision time. The mixed-capability `Memory` tool classifies validated
 `list` and `read` operations as read-only for permission hooks and gates; file writes,
 deletes, remember, review, supersede, and forget stay mutating. Semantic records stay out of
-automatically assembled
-provider prompts; only the verified `Memory.read` tool path returns permitted record content
-to the active conversation. Source-session forget/delete integration and citation-verification
-hooks for legacy free-text files remain unfinished. The user has not yet selected the
-semantic forget preserves the canonical session source while atomically clearing the
-managed derived body and description, removing secondary source metadata, and retaining
-typed source identities plus minimal lifecycle metadata to suppress candidate regeneration
-from those lines. Use `athena memory forget <id>` or `/memory forget <id>`.
+automatically assembled provider prompts; only the verified `Memory.read` tool path returns
+permitted record content to the active conversation. Source-session forget/delete integration and citation-verification
+hooks for legacy free-text files remain unfinished. Semantic forget preserves the canonical
+session source while atomically clearing the managed derived body and description, removing
+secondary source metadata, and retaining typed source identities plus minimal lifecycle
+metadata to suppress candidate regeneration from those lines. Use `athena memory forget <id>`
+or the slash command `/memory forget <id>`.
 
 The [self-reflection journal](self-reflection-journal.md) remains operational evidence.
 Continuity may consume it when implemented, but it is neither a transcript archive nor a

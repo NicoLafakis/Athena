@@ -140,7 +140,10 @@ partitions, totaling 369,230 source bytes. The episode range is July 23–August
 so the archive covers only two active months. Bounded local search and ranking found some
 useful retrieval within a concentrated August voice/permissions topic cluster, but this
 cannot establish cross-project breadth, correction rates, or day/week/month/quarter/year
-continuity quality.
+continuity quality. An inventory on 2026-09-24 found eight session files in the configured
+global store across two populated project partitions; a path-only sweep found no additional
+project-local Athena session archive beneath the development workspace. This confirms the
+available corpus is small, not that it represents independent projects.
 
 A follow-up bounded smoke check found one source-verified candidate for a committing-skill
 query. A date-and-topic rank query returned five same-day candidates, with the exact

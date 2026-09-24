@@ -156,6 +156,9 @@ full test suite pass on this implementation state; cross-platform CI is pending 
   - [x] Tighten shared search/ranking topic overlap, keep date-scoped topic queries on
     episode candidates, resolve yearless month/day dates, and record a bounded local smoke
     check; see [design](design.md) and [calibration](calibration.md).
+  - [x] Audit local source availability: eight session files currently exist in two populated
+    partitions, and no additional project-local Athena session archive was found beneath the
+    development workspace; see [calibration](calibration.md).
   - [ ] Dogfood representative live histories and review usefulness, correction rates, and
     index-size ratio before tuning recall beyond the exact repeated-claim policy. The
     available local archive is too small to close this gate.
