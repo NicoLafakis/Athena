@@ -121,10 +121,11 @@ exact TypeScript contracts are in the design doc.
 Continuity indexes and summaries remain under the local per-user brain. Project
 configuration cannot widen global memory retrieval or control the user-wide Jev setting.
 The selected Jev decision call classifies route and speech act using only the current user
-request after shared secret redaction when a TypeSafe key is configured. A high-confidence
-speech-act label is stored locally against its exact message digest; its source text is not
-duplicated. Prompts, assistant text, traces, and generated
-summaries are untrusted inputs to parsing. Cap fields, avoid copying raw transcripts, and
+request after shared secret redaction when a TypeSafe key is configured. A route or
+speech-act decision must meet confidence >= 0.98 before it can guide retrieval or be
+persisted as a local event. The stored label is linked to its exact message digest; its
+source text is not duplicated. Prompts, assistant text, traces, and generated summaries
+are untrusted inputs to parsing. Cap fields, avoid copying raw transcripts, and
 do not infer sensitive attributes. The user authorized scoped answer-provider recall on
 2026-09-23. Only redacted source-verified user/Athena text for the current history request
 may cross that boundary; local project filters, tombstones, and source checks remain

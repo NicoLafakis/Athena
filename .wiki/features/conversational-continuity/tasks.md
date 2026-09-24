@@ -48,7 +48,7 @@ invariant.
 
 - [x] 2.1 Wire read-only continuity retrieval into the agent turn path and prompt
   contract. The user authorized scoped recall on 2026-09-23. Jev high-confidence history
-  routes (>= 0.85) or a clear deterministic explicit-recall fallback can select local
+  routes (>= 0.98) or a clear deterministic explicit-recall fallback can select local
   history. Source text is reverified, redacted, and limited to five episodes/4,000
   characters; only user/Athena text is sent to the configured answer model. Project
   filters, semantic/rollup navigation, time scope, tombstones, and adjacent-turn labels are
@@ -188,12 +188,13 @@ text does not enter Jev prompts; scoped, source-verified excerpts enter the answ
 prompt only for an explicit history request.
 See [ADR 0003](adr/0003-jev-decision-model.md).
 
-- [x] 5.1 Build a labeled synthetic recall-intent corpus and measure the current local
-  routing baseline. The balanced 56-case corpus, separate 14-case phrasing holdout,
-  deterministic ranker-intent proxy, and synthetic live Jev comparison are measured in
-  [calibration.md](calibration.md). The final sets scored 56/56 and 14/14 exact; at the
-  production 0.85 threshold, 52/52 calibration and 11/11 holdout actions were exact with
-  no no-recall false positives. These are synthetic metrics, not real-history quality.
+- [x] 5.1 Build labeled synthetic recall-intent corpora and measure the current local
+  routing baseline. The balanced calibration, phrasing holdout, three boundary corpora,
+  fresh audit, deterministic ranker-intent proxy, and live Jev comparison are measured in
+  [calibration.md](calibration.md). Across 238 synthetic requests, raw accuracy was
+  236/238 (99.2%); at the production 0.98 threshold, 170/170 eligible decisions were exact
+  (100% precision) at 71.4% coverage, with no no-recall false positives. These do not
+  measure real-history quality.
 - [x] 5.2 Define an optional `DecisionClient` separate from streaming `ModelClient`; test
   typed output validation, fallback, timeout/rate-limit handling, zero calls while disabled,
   and content-free telemetry with a fake transport.
@@ -210,33 +211,32 @@ See [ADR 0003](adr/0003-jev-decision-model.md).
   speech-act labels are handled as described in 5.4.
 - [x] 5.4 Implement the approved Jev speech-act intake in the same decision request. Store
   only `preferred`, `decided`, `promised`, `corrected`, or `retracted` labels at confidence
-  >= 0.85, as content-free local session events linked to the exact user-message digest.
+  >= 0.98, as content-free local session events linked to the exact user-message digest.
   Index and retrieval revalidate each event against its persisted user line. Verified
   `preferred`/`decided`/`promised` labels can support inferred candidates only after matching
   content appears in at least two independent sessions; candidates remain review-only and
   the promotion path rechecks every source. Corrections and retractions are indexed as
-  context labels and never silently overwrite or delete memory. The 72-case calibration
-  corpus scored 72/72 exact live and the separate 18-case phrasing holdout scored 18/18;
-  all 37 and 9 labels meeting the 0.85 persistence threshold were correct respectively.
+  context labels and never silently overwrite or delete memory. The latest calibration and
+  phrasing holdout scored 89/90 raw decisions exact; all 30 calibration and 5 holdout labels
+  meeting the 0.98 persistence threshold were correct (35/35, 38.9% combined coverage).
   These are synthetic results, not real-user language quality claims.
 - [x] 5.5 Pin `jev-1.13.0`, make global enablement the default as selected by the product
   owner, record content-free latency/token telemetry in local run traces, and add
   `bench/jev-recall-evaluation.ts` for a synthetic live comparison. The evaluator reports
   coverage, raw and confidence-gated route precision/recall, misclassified synthetic IDs,
   no-recall false positives, Brier score, latency, token volume, and estimated input cost.
-  - [x] Run and record the 56-case balanced synthetic calibration and 14-case phrasing
-    holdout. The pinned `jev-1.13.0` scored 56/56 and 14/14 exact, with 100% precision for
-    every route on both sets. At confidence >= 0.85, it made 52/52 and 11/11 exact
-    actionable decisions; no no-recall cases triggered retrieval. The calibration contract
-    was refined using observed low-confidence misses; the separate holdout has two distinct
-    phrasings per route. These results do not measure real-user histories.
+  - [x] Run and record the balanced calibration, phrasing holdout, boundary corpora, and
+    fresh boundary audit. Pinned `jev-1.13.0` scored 236/238 raw exact across 238 synthetic
+    requests. At confidence >= 0.98, it made 170/170 exact decisions (71.4% coverage) with
+    no no-recall false positives. Both raw errors were below the gate. These results do not
+    measure real-user histories.
   - [x] Refine the `none` versus `asked` contract so generic new-work commands do not
     count as memory questions; expand calibration to eight cases per label and add an
-    independent two-case-per-label phrasing holdout. Both live sets scored 100% exact
-    with zero fallbacks. Persisted-label precision was 37/37 (51.4% coverage) and 9/9
-    (50.0%); the all-label >= 0.85 confidence frontier was 66/66 (91.7%) and 17/17
-    (94.4%). The evaluator now reports coverage, confidence frontiers, fallback reasons,
-    and misclassified synthetic IDs.
+    independent two-case-per-label phrasing holdout. The latest run scored 89/90 raw
+    decisions exact with zero fallbacks. At the 0.98 persistence threshold, persisted-label
+    precision was 30/30 (41.7% coverage) and 5/5 (27.8%). The all-label >= 0.98 frontier
+    was 49/49 (68.1%) and 10/10 (55.6%). The evaluator reports coverage, confidence
+    frontiers, fallback reasons, and misclassified synthetic IDs.
   - [x] Increase the Jev request budget from one to two seconds after a one-second run
     produced 12 provider-error fallbacks; fix the SDK timeout classification path and
     verify zero fallback in the repeated 72-case calibration and 18-case holdout runs.

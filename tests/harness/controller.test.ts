@@ -74,7 +74,7 @@ describe('HarnessSessionController', () => {
         status: 'decision' as const,
         value: {
           route: 'historical-decision' as const,
-          confidence: 0.96,
+          confidence: 0.99,
           probabilities: {
             none: 0.01, 'continue-current': 0.01, 'temporal-recall': 0.01, 'topic-recall': 0.01,
             'preference-or-fact': 0.01, 'historical-decision': 0.93, 'similar-work': 0.02,
@@ -185,8 +185,8 @@ describe('HarnessSessionController', () => {
             'preference-or-fact': 0.003, 'historical-decision': 0.003, 'similar-work': 0.003,
           },
           speechAct: {
-            act: 'preferred', confidence: 0.96,
-            probabilities: { none: 0.005, asked: 0.005, stated: 0.005, considered: 0.005, preferred: 0.96, decided: 0.005, promised: 0.005, corrected: 0.005, retracted: 0.005 },
+            act: 'preferred', confidence: 0.98,
+            probabilities: { none: 0.0025, asked: 0.0025, stated: 0.0025, considered: 0.0025, preferred: 0.98, decided: 0.0025, promised: 0.0025, corrected: 0.0025, retracted: 0.0025 },
           },
         },
       }),
@@ -217,7 +217,7 @@ describe('HarnessSessionController', () => {
       type: 'jev-speech-act-classification',
       model: 'jev-1.13.0',
       speechAct: 'preferred',
-      confidence: 0.96,
+      confidence: 0.98,
       sourceRef: {
         kind: 'session-message',
         projectId: controller.sessionStore.projectId,

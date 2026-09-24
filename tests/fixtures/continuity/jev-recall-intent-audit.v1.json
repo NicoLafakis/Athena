@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-09-23T12:00:00.000Z",
+  "cases": [
+    { "id": "fresh-none-checklist-question", "intent": "none", "text": "Draft a brand-new help-center item asking readers to check a team selection." },
+    { "id": "fresh-none-proposal-text", "intent": "none", "text": "Extend the code snippet pasted here with one more example; don't refer to our prior chat." },
+    { "id": "fresh-none-attached-source", "intent": "none", "text": "The attached article's opening mentions old release notes; explain the term retention window." },
+    { "id": "fresh-none-quoted-default", "intent": "none", "text": "Give me a title for a new timeline feature we are planning now." },
+    { "id": "fresh-none-schedule-input", "intent": "none", "text": "Build a schedule solely from the times in this prompt; last Friday was a flight." },
+    { "id": "fresh-none-survey-example", "intent": "none", "text": "Translate this example question into French: ‘Which provider should I use by default?’" },
+
+    { "id": "fresh-continue-route-options", "intent": "continue-current", "text": "Resume our conversation at the point where we paused on the routing explanation." },
+    { "id": "fresh-continue-lost-connection", "intent": "continue-current", "text": "You were midway through laying out this plan before the chat disconnected; go on." },
+    { "id": "fresh-continue-resume-chat", "intent": "continue-current", "text": "Let's return to your immediately previous reply and finish the same subject." },
+    { "id": "fresh-continue-retrieval-list", "intent": "continue-current", "text": "I interrupted you while you were describing the retrieval step; continue in this thread." },
+    { "id": "fresh-continue-cutoff-sentence", "intent": "continue-current", "text": "What was the next thing you were about to tell me in this chat?" },
+    { "id": "fresh-continue-reasoning", "intent": "continue-current", "text": "Carry on from the last message in this conversation, please." },
+
+    { "id": "fresh-time-september", "intent": "temporal-recall", "text": "Walk me through broad themes of our conversations over the last two weeks." },
+    { "id": "fresh-time-weekend", "intent": "temporal-recall", "text": "What was I asking about on the first Monday of this month?" },
+    { "id": "fresh-time-twelfth", "intent": "temporal-recall", "text": "Summarize general activity spanning January through March." },
+    { "id": "fresh-time-thirty-days", "intent": "temporal-recall", "text": "What came up in our chats earlier this afternoon?" },
+    { "id": "fresh-time-quarter", "intent": "temporal-recall", "text": "Give me a month-by-month sketch of our work this year." },
+    { "id": "fresh-time-topics-yesterday", "intent": "temporal-recall", "text": "What subjects were on the table during the spring?" },
+
+    { "id": "fresh-topic-vault", "intent": "topic-recall", "text": "Retrieve the discussion where we covered locking DPAPI vault entries." },
+    { "id": "fresh-topic-permissions", "intent": "topic-recall", "text": "What was said in the thread about terminal resize handling?" },
+    { "id": "fresh-topic-redaction", "intent": "topic-recall", "text": "Show notes from our conversation about nested session forks." },
+    { "id": "fresh-topic-timezone", "intent": "topic-recall", "text": "Find our exchange regarding deleting a user memory." },
+    { "id": "fresh-topic-index", "intent": "topic-recall", "text": "Locate our earlier thread about ring-buffer limits." },
+    { "id": "fresh-topic-jobs", "intent": "topic-recall", "text": "Retrieve the discussion on time-zone changes after travel." },
+
+    { "id": "fresh-preference-date-format", "intent": "preference-or-fact", "text": "What settings did I say I like for command output?" },
+    { "id": "fresh-preference-provider", "intent": "preference-or-fact", "text": "Which language did I ask for in code examples by default?" },
+    { "id": "fresh-preference-doc-style", "intent": "preference-or-fact", "text": "How did I tell you to phrase progress updates?" },
+    { "id": "fresh-fact-command-timeout", "intent": "preference-or-fact", "text": "Did I share a preferred workflow for handling exceptions?" },
+    { "id": "fresh-preference-incident", "intent": "preference-or-fact", "text": "What do I usually want included in design documents?" },
+    { "id": "fresh-preference-originals", "intent": "preference-or-fact", "text": "Have I said what default shell you should assume when writing commands?" },
+
+    { "id": "fresh-decision-retrieval-policy", "intent": "historical-decision", "text": "What did we finally agree the rebuild command should do?" },
+    { "id": "fresh-decision-storage-option", "intent": "historical-decision", "text": "Which architecture option did we choose during that review?" },
+    { "id": "fresh-decision-jev-default", "intent": "historical-decision", "text": "Did I confirm that automatic promotion should stay disabled?" },
+    { "id": "fresh-decision-classifier-provider", "intent": "historical-decision", "text": "What did we agree to enable for the next release?" },
+    { "id": "fresh-decision-implementation", "intent": "historical-decision", "text": "What was the final decision about where to store tombstones?" },
+    { "id": "fresh-decision-episode-storage", "intent": "historical-decision", "text": "Which option was formally approved after the feature comparison?" },
+
+    { "id": "fresh-similar-date-search", "intent": "similar-work", "text": "Find a prior project with an interruptible retry loop we can adapt." },
+    { "id": "fresh-similar-credential-rotation", "intent": "similar-work", "text": "Show me a previously built CLI for viewing linked conversation records." },
+    { "id": "fresh-similar-memory-records", "intent": "similar-work", "text": "Locate reusable code from another app that verifies a file digest." },
+    { "id": "fresh-similar-retry-worker", "intent": "similar-work", "text": "Compare this export process with an earlier project's export implementation." },
+    { "id": "fresh-similar-correction-pattern", "intent": "similar-work", "text": "Find an earlier task where we implemented safe restoration from trash." },
+    { "id": "fresh-similar-restart-journal", "intent": "similar-work", "text": "Search another repository for an approach to pruning stale cache files." }
+  ]
+}

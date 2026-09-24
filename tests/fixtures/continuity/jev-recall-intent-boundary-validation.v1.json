@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-09-23T12:00:00.000Z",
+  "cases": [
+    { "id": "audit-none-checklist-item", "intent": "none", "text": "Draft a new checklist item asking a reviewer to confirm the team decision." },
+    { "id": "audit-none-proposal-sentence", "intent": "none", "text": "Continue the sentence in my proposal with a clause about default retries." },
+    { "id": "audit-none-uploaded-article", "intent": "none", "text": "The earlier section of this uploaded article defines memory; explain that definition for a beginner." },
+    { "id": "audit-none-quoted-default", "intent": "none", "text": "Write a sample question containing the words ‘What was my default?’" },
+    { "id": "audit-none-schedule-message", "intent": "none", "text": "Build a schedule using the appointment times in this message; last Tuesday was a travel day." },
+    { "id": "audit-none-survey-example", "intent": "none", "text": "Create a fresh example of a user preference survey question." },
+
+    { "id": "audit-continue-comparison", "intent": "continue-current", "text": "We were comparing these route options in this chat; carry on from your last reply." },
+    { "id": "audit-continue-lost-connection", "intent": "continue-current", "text": "I lost connection while you were describing the active plan. What point were you making?" },
+    { "id": "audit-continue-resume-conversation", "intent": "continue-current", "text": "Resume our active conversation from just before my last message." },
+    { "id": "audit-continue-retrieval-list", "intent": "continue-current", "text": "You began listing the retrieval safeguards; please continue that list here." },
+    { "id": "audit-continue-cutoff-sentence", "intent": "continue-current", "text": "What did you mean in the sentence you sent immediately before the cutoff?" },
+    { "id": "audit-continue-reasoning", "intent": "continue-current", "text": "Let's finish the reasoning you had started a moment ago in this thread." },
+
+    { "id": "audit-time-september", "intent": "temporal-recall", "text": "Give me an overview of everything we discussed in September." },
+    { "id": "audit-time-weekend", "intent": "temporal-recall", "text": "What kinds of questions did I ask you over the weekend?" },
+    { "id": "audit-time-date", "intent": "temporal-recall", "text": "Summarize our work across chats on the twelfth." },
+    { "id": "audit-time-thirty-days", "intent": "temporal-recall", "text": "What have we been doing during the past thirty days?" },
+    { "id": "audit-time-third-quarter", "intent": "temporal-recall", "text": "Recap our general activity in the third quarter this year." },
+    { "id": "audit-time-yesterday-topics", "intent": "temporal-recall", "text": "Which topics came up in our conversations yesterday?" },
+
+    { "id": "audit-topic-vault-migration", "intent": "topic-recall", "text": "Find our discussion about making vault migration fail safely." },
+    { "id": "audit-topic-permissions-model", "intent": "topic-recall", "text": "Which conversation covered the project permissions model?" },
+    { "id": "audit-topic-transcript-redaction", "intent": "topic-recall", "text": "Pull up the exchange about transcript redaction rules." },
+    { "id": "audit-topic-timezone-metadata", "intent": "topic-recall", "text": "What did we discuss about storing timezone metadata?" },
+    { "id": "audit-topic-search-index", "intent": "topic-recall", "text": "Locate the chat on staging the new search index." },
+    { "id": "audit-topic-long-running-tasks", "intent": "topic-recall", "text": "Show me the conversation where we reviewed long-running tasks." },
+
+    { "id": "audit-preference-log-dates", "intent": "preference-or-fact", "text": "What exact date format do I prefer in logs?" },
+    { "id": "audit-preference-ai-provider", "intent": "preference-or-fact", "text": "Which AI provider did I say should be my default?" },
+    { "id": "audit-preference-doc-style", "intent": "preference-or-fact", "text": "What documentation style did I ask you to follow across my repositories?" },
+    { "id": "audit-fact-local-timeout", "intent": "preference-or-fact", "text": "Did I previously specify a default timeout for local commands?" },
+    { "id": "audit-preference-incident-summary", "intent": "preference-or-fact", "text": "How do I like incident reports summarized?" },
+    { "id": "audit-preference-preserve-originals", "intent": "preference-or-fact", "text": "What standing rule did I give you about preserving originals?" },
+
+    { "id": "audit-decision-retrieval-policy", "intent": "historical-decision", "text": "Which retrieval policy did we approve after reviewing the tradeoffs?" },
+    { "id": "audit-decision-store-choice", "intent": "historical-decision", "text": "Did we choose the SQL store or the file index?" },
+    { "id": "audit-decision-jev-default", "intent": "historical-decision", "text": "What did the team agree would be the Jev default?" },
+    { "id": "audit-decision-production-provider", "intent": "historical-decision", "text": "Which provider did we settle on for production classification?" },
+    { "id": "audit-decision-implementation-commitment", "intent": "historical-decision", "text": "Which option did I commit us to implementing?" },
+    { "id": "audit-decision-episode-storage", "intent": "historical-decision", "text": "What was our final choice about storing episodes?" },
+
+    { "id": "audit-similar-date-search", "intent": "similar-work", "text": "Show me another project where we added date-scoped search." },
+    { "id": "audit-similar-credential-rotation", "intent": "similar-work", "text": "Find a reusable implementation from a prior repository for rotating API credentials." },
+    { "id": "audit-similar-memory-records", "intent": "similar-work", "text": "Has an earlier project implemented source-linked memory records we could adapt?" },
+    { "id": "audit-similar-retry-worker", "intent": "similar-work", "text": "Compare this retry worker with similar code from my other applications." },
+    { "id": "audit-similar-correction-pattern", "intent": "similar-work", "text": "Which past task has a reusable pattern for tracking corrections?" },
+    { "id": "audit-similar-restart-journal", "intent": "similar-work", "text": "Look across my projects for an example of a restart-safe journal." }
+  ]
+}

@@ -104,7 +104,7 @@ its scoped payload and false-positive/no-hit rate during dogfood.
   or silently restore a source from a summary.
 - Jev route hints are enabled by the global default; if the TypeSafe key is absent, no
   call is made and normal prompt handling continues. When configured, one request classifies
-  route and speech act. Eligible high-confidence speech-act labels are stored as
+  route and speech act. Only speech-act labels at confidence >= 0.98 are stored as
   content-free, source-digested local events; candidate generation still requires repeated
   independent evidence and explicit review. Set `jev.enabled` to `false` to disable future
   Jev calls; this does not remove existing labels or candidates, which remain subject to

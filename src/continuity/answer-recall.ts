@@ -9,7 +9,7 @@ import { semanticSourcesAvailable } from './semantic-source.js'
 import type { TemporalWindow } from './schemas.js'
 import { resolveTemporalWindow } from './time.js'
 
-export const ANSWER_RECALL_MIN_CONFIDENCE = 0.85
+export const ANSWER_RECALL_MIN_CONFIDENCE = 0.98
 export const ANSWER_RECALL_MAX_EPISODES = 5
 export const ANSWER_RECALL_MAX_CHARS = 4_000
 

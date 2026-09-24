@@ -87,10 +87,10 @@ describe('continuity schemas', () => {
       model: 'jev-1.13.0',
       sourceRef: { ...sourceRef, lineDigest: 'a'.repeat(64) },
       speechAct: 'preferred',
-      confidence: 0.85,
+      confidence: 0.98,
     }
     expect(JevSpeechActEventSchema.parse(event)).toEqual(event)
-    expect(JevSpeechActEventSchema.safeParse({ ...event, confidence: 0.84 }).success).toBe(false)
+    expect(JevSpeechActEventSchema.safeParse({ ...event, confidence: 0.979 }).success).toBe(false)
     expect(JevSpeechActEventSchema.safeParse({ ...event, sourceRef }).success).toBe(false)
     expect(JevSpeechActEventSchema.safeParse({ ...event, speechAct: 'considered' }).success).toBe(false)
     expect(JevSpeechActEventSchema.safeParse({

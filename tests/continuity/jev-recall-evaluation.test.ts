@@ -48,7 +48,7 @@ describe('Jev recall evaluation', () => {
         status: 'decision',
         value: {
           route,
-          confidence: text === 'What did we decide last week?' ? 0.9 : 0.84,
+          confidence: text === 'What did we decide last week?' ? 0.99 : 0.84,
           probabilities: probabilities(route),
           speechAct: { act: 'none', confidence: 1, probabilities: speechActProbabilities },
         },
@@ -67,7 +67,7 @@ describe('Jev recall evaluation', () => {
       correct: 1,
       accuracy: 0.5,
       coverage: 2 / 3,
-      actionConfidenceThreshold: 0.85,
+      actionConfidenceThreshold: 0.98,
       actionableDecisions: 1,
       actionableCorrect: 0,
       actionableCoverage: 1 / 3,
@@ -79,7 +79,7 @@ describe('Jev recall evaluation', () => {
         id: 'memory',
         expected: 'none',
         predicted: 'temporal-recall',
-        confidence: 0.9,
+        confidence: 0.99,
       }],
       actionablePerRoute: {
         'temporal-recall': { precision: 0, predictions: 1, correct: 0 },
@@ -91,7 +91,7 @@ describe('Jev recall evaluation', () => {
     expect(report.medianLatencyMs).toBeGreaterThanOrEqual(0)
     expect(report.multiclassBrierScore).toBeGreaterThanOrEqual(0)
     expect(formatJevRecallEvaluation(report)).toContain('Actionable no-recall false positives: 1/1 (100.0%)')
-    expect(formatJevRecallEvaluation(report)).toContain('memory: none -> temporal-recall (0.90)')
+    expect(formatJevRecallEvaluation(report)).toContain('memory: none -> temporal-recall (0.99)')
     expect(formatJevRecallEvaluation(report)).toContain('| temporal-recall | 1 | 50.0% | 100.0% | 66.7% | 0.0% | 0/1 |')
   })
 })

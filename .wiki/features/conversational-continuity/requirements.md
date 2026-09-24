@@ -83,12 +83,12 @@ Recall selection considers query intent, requested time, entities/topics, active
 conversation, scope, evidence quality, confidence, and freshness. Current repository
 facts continue to come from current files/runtime evidence, not a stale conversational
 summary. The accepted Jev decision call classifies the current user request for recall route
-and speech act. A high-confidence history route can invoke the local answer-time retriever;
-the route remains an ephemeral hint, not evidence that a source exists or permission to
-bypass local source checks. A high-confidence speech-act label is stored locally against
-its exact user-message source and may support review-only candidate generation after
-independent repeated evidence. When Jev is unavailable or below threshold, only a clear
-deterministic explicit-history request may use the local fallback.
+and speech act. A history route at confidence >= 0.98 can invoke the local answer-time
+retriever; the route remains an ephemeral hint, not evidence that a source exists or
+permission to bypass local source checks. A speech-act label at confidence >= 0.98 is stored
+locally against its exact user-message source and may support review-only candidate
+generation after independent repeated evidence. When Jev is unavailable or below
+threshold, only a clear deterministic explicit-history request may use the local fallback.
 
 ### FR-010 — Time rollups
 

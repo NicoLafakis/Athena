@@ -68,9 +68,11 @@ plausible-sounding recollection.
   `jev.enabled` defaults to true globally, but a TypeSafe call occurs only when
   `TYPESAFE_API_KEY` is configured. Jev receives only the current request after the shared
   secret redactor; it receives no history or project identifiers. The same call classifies
-  speech act, and a high-confidence label is persisted locally with the exact user-message
-  digest. Verified labels support review-only candidate detection; correction and retraction
-  labels stay contextual and do not change memory by themselves. The route adds a temporary
+  speech act, and only labels at confidence >= 0.98 are persisted locally with the exact
+  user-message digest. History routes also require confidence >= 0.98; clear deterministic
+  explicit-recall requests retain a local fallback. Verified labels support review-only
+  candidate detection; correction and retraction labels stay contextual and do not change
+  memory by themselves. The route adds a temporary
   answer-model instruction to avoid unsupported cross-session claims. The user separately
   authorized scoped, source-verified episode excerpts to the configured answer model for
   current history requests. Jev itself receives no historical data.

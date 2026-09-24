@@ -234,8 +234,21 @@ async function main(): Promise<void> {
     loadRecallCorpus(new URL('../tests/fixtures/continuity/jev-recall-intent-holdout.v1.json', import.meta.url)),
     router,
   )
+  const boundaryCalibration = loadRecallCorpus(new URL('../tests/fixtures/continuity/jev-recall-intent-boundary-calibration.v1.json', import.meta.url))
+  const boundaryDevelopment = loadRecallCorpus(new URL('../tests/fixtures/continuity/jev-recall-intent-boundary-development.v1.json', import.meta.url))
+  const boundaryValidation = loadRecallCorpus(new URL('../tests/fixtures/continuity/jev-recall-intent-boundary-validation.v1.json', import.meta.url))
+  const boundary = await evaluateJevRecallCorpus({
+    ...boundaryCalibration,
+    cases: [...boundaryCalibration.cases, ...boundaryDevelopment.cases, ...boundaryValidation.cases],
+  }, router)
+  const audit = await evaluateJevRecallCorpus(
+    loadRecallCorpus(new URL('../tests/fixtures/continuity/jev-recall-intent-audit.v1.json', import.meta.url)),
+    router,
+  )
   console.log(`Calibration (56 cases)\n${formatJevRecallEvaluation(calibration)}`)
   console.log(`\nIndependent phrasing holdout (14 cases)\n${formatJevRecallEvaluation(holdout)}`)
+  console.log(`\nBoundary development/calibration (126 cases)\n${formatJevRecallEvaluation(boundary)}`)
+  console.log(`\nFresh targeted boundary audit (42 cases)\n${formatJevRecallEvaluation(audit)}`)
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

@@ -55,14 +55,12 @@ sample; representative live-history performance remains unmeasured.
   turn without a route hint.
 - Measure Jev route precision/recall, no-recall false positives, speech-act precision,
   confidence-gated persisted-label precision, calibration, latency, token volume, and
-  estimated cost on labeled synthetic corpora. The 2026-09-23 recall run was 56/56 exact
-  on calibration and 14/14 on a separate phrasing holdout; at confidence >= 0.85, 52/52
-  and 11/11 actions were exact, with no no-history false positives in either set. These
-  are small synthetic results, not representative history quality. Speech-act results were
-  72/72 on the calibration set and 18/18 on a separate
-  phrasing holdout, with 37/37 and 9/9 high-confidence persisted labels correct and zero
-  fallbacks on either final run. These are synthetic results, not representative user-history
-  quality.
+  estimated cost on labeled synthetic corpora. On 2026-09-23, the recall evaluator scored
+  236/238 raw exact; at the production confidence >= 0.98 threshold, 170/170 accepted
+  decisions were exact (71.4% coverage) with no no-recall false positives. Speech-act
+  results were 89/90 raw exact; 35/35 labels meeting the >= 0.98 persistence threshold were
+  exact (38.9% coverage), with zero fallbacks. These are small synthetic results, not
+  representative live-conversation quality.
 - There is no duplicate raw transcript store. Jev is a paid provider path only when the
   user configures its key; disable it with global `jev.enabled: false`.
 - Logs and local traces contain no query strings, user content, route labels, facts, or

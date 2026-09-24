@@ -63,7 +63,7 @@ describe('Jev speech-act evaluation', () => {
       ],
     }
     const classify = vi.fn(async (text: string): Promise<DecisionResult<RecallRouteDecision>> => {
-      if (text === 'I would like concise paragraphs.') return decision('preferred', 0.96)
+      if (text === 'I would like concise paragraphs.') return decision('preferred', 0.99)
       if (text === 'Write a new README.') return decision('promised', 0.92)
       if (text.startsWith('Which memory')) return decision('asked', 0.6)
       return { status: 'fallback', reason: 'unavailable' }
@@ -80,20 +80,20 @@ describe('Jev speech-act evaluation', () => {
       correct: 2,
       accuracy: 2 / 3,
       coverage: 0.75,
-      persistedEligible: 2,
+      persistedEligible: 1,
       persistedCorrect: 1,
-      persistedActPrecision: 0.5,
-      persistedActCoverage: 0.5,
+      persistedActPrecision: 1,
+      persistedActCoverage: 0.25,
       errors: [{ id: 'false-memory', expected: 'none', predicted: 'promised', confidence: 0.92 }],
       fallbackReasons: { unavailable: 1 },
       confidenceFrontier: {
         '0.85': { selected: 2, correct: 1, precision: 0.5, coverage: 0.5 },
         '0.9': { selected: 2, correct: 1, precision: 0.5, coverage: 0.5 },
         '0.95': { selected: 1, correct: 1, precision: 1, coverage: 0.25 },
-        '0.98': { selected: 0, correct: 0, precision: 0, coverage: 0 },
+        '0.98': { selected: 1, correct: 1, precision: 1, coverage: 0.25 },
       },
     })
-    expect(formatJevSpeechActEvaluation(report)).toContain('High-confidence persisted-label precision: 50.0% (1/2)')
+    expect(formatJevSpeechActEvaluation(report)).toContain('High-confidence persisted-label precision: 100.0% (1/1)')
     expect(formatJevSpeechActEvaluation(report)).toContain('All-label confidence >= 0.95: exact precision 100.0% (1/1); coverage: 25.0%')
     expect(formatJevSpeechActEvaluation(report)).toContain('Misclassified synthetic IDs: false-memory(none->promised,0.92)')
   })

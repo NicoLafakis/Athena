@@ -89,7 +89,7 @@ describe('Engine.runTurn', () => {
     const probabilities = {
       none: 0.01,
       'continue-current': 0.01,
-      'temporal-recall': 0.92,
+      'temporal-recall': 0.98,
       'topic-recall': 0.01,
       'preference-or-fact': 0.01,
       'historical-decision': 0.02,
@@ -98,7 +98,7 @@ describe('Engine.runTurn', () => {
     const decision: DecisionResult<RecallRouteDecision> = {
       status: 'decision',
       value: {
-        route: 'temporal-recall', confidence: 0.92, probabilities,
+        route: 'temporal-recall', confidence: 0.99, probabilities,
         speechAct: {
           act: 'asked', confidence: 0.99,
           probabilities: { none: 0.01, asked: 0.92, stated: 0.01, considered: 0.01, preferred: 0.01, decided: 0.01, promised: 0.01, corrected: 0.01, retracted: 0.01 },
@@ -156,7 +156,7 @@ describe('Engine.runTurn', () => {
     const probabilities = {
       none: 0.01,
       'continue-current': 0.01,
-      'temporal-recall': 0.92,
+      'temporal-recall': 0.99,
       'topic-recall': 0.01,
       'preference-or-fact': 0.01,
       'historical-decision': 0.02,
@@ -165,7 +165,7 @@ describe('Engine.runTurn', () => {
     const recallDecision: DecisionResult<RecallRouteDecision> = {
         status: 'decision',
         value: {
-          route: 'temporal-recall', confidence: 0.92, probabilities,
+          route: 'temporal-recall', confidence: 0.98, probabilities,
           speechAct: {
             act: 'asked', confidence: 0.99,
             probabilities: { none: 0.01, asked: 0.92, stated: 0.01, considered: 0.01, preferred: 0.01, decided: 0.01, promised: 0.01, corrected: 0.01, retracted: 0.01 },
@@ -192,9 +192,44 @@ describe('Engine.runTurn', () => {
     expect(JSON.stringify(engine.getMessages())).not.toContain('Jev classified')
   })
 
+  it('does not send Jev recall guidance to the answer model below 0.98 confidence', async () => {
+    const scripted = new MockAnthropicClient([{ blocks: [textBlock('Sure.')], stopReason: 'end_turn' }])
+    const systems: string[] = []
+    const client: ModelClient = {
+      async stream(params, callbacks) {
+        systems.push(params.system)
+        return scripted.stream(params, callbacks)
+      },
+      complete: (params) => scripted.complete(params),
+    }
+    const recallRouter: RecallIntentRouter = {
+      classify: vi.fn(async () => ({
+        status: 'decision' as const,
+        value: {
+          route: 'topic-recall' as const,
+          confidence: 0.979,
+          probabilities: { none: 0.0035, 'continue-current': 0.0035, 'temporal-recall': 0.0035, 'topic-recall': 0.979, 'preference-or-fact': 0.0035, 'historical-decision': 0.0035, 'similar-work': 0.0035 },
+          speechAct: {
+            act: 'none' as const,
+            confidence: 0.99,
+            probabilities: { none: 0.99, asked: 0.00125, stated: 0.00125, considered: 0.00125, preferred: 0.00125, decided: 0.00125, promised: 0.00125, corrected: 0.00125, retracted: 0.00125 },
+          },
+        },
+      })),
+    }
+    const { engine } = makeEngine(
+      [{ blocks: [textBlock('unused')], stopReason: 'end_turn' }],
+      { client, recallRouter },
+    )
+
+    await engine.runTurn('Write a new README.')
+
+    expect(systems[0]).toBe('sys')
+  })
+
   it('persists only a high-confidence Jev speech-act label after the user message is written', async () => {
     const probabilities = {
-      none: 0.01, asked: 0.01, stated: 0.01, considered: 0.01, preferred: 0.92,
+      none: 0.0025, asked: 0.0025, stated: 0.0025, considered: 0.0025, preferred: 0.98,
       decided: 0.01, promised: 0.01, corrected: 0.01, retracted: 0.01,
     }
     const recallRouter: RecallIntentRouter = {
@@ -204,7 +239,7 @@ describe('Engine.runTurn', () => {
           route: 'none' as const,
           confidence: 0.92,
           probabilities: { none: 0.92, 'continue-current': 0.01, 'temporal-recall': 0.01, 'topic-recall': 0.01, 'preference-or-fact': 0.02, 'historical-decision': 0.02, 'similar-work': 0.01 },
-          speechAct: { act: 'preferred' as const, confidence: 0.96, probabilities },
+          speechAct: { act: 'preferred' as const, confidence: 0.98, probabilities },
         },
       })),
     }
@@ -227,7 +262,7 @@ describe('Engine.runTurn', () => {
 
     await engine.runTurn('I would like concise paragraphs as my default.')
 
-    expect(order.slice(0, 2)).toEqual(['user-written', 'classified:preferred:0.96'])
+    expect(order.slice(0, 2)).toEqual(['user-written', 'classified:preferred:0.98'])
     expect(engine.getMessages()[0]).toMatchObject({ role: 'user', content: 'I would like concise paragraphs as my default.' })
   })
 
@@ -242,8 +277,8 @@ describe('Engine.runTurn', () => {
           probabilities: { none: 0.99, 'continue-current': 0.002, 'temporal-recall': 0.002, 'topic-recall': 0.002, 'preference-or-fact': 0.001, 'historical-decision': 0.001, 'similar-work': 0.002 },
           speechAct: {
             act: 'preferred' as const,
-            confidence: 0.84,
-            probabilities: { none: 0.01, asked: 0.01, stated: 0.01, considered: 0.01, preferred: 0.84, decided: 0.03, promised: 0.03, corrected: 0.03, retracted: 0.03 },
+            confidence: 0.979,
+            probabilities: { none: 0.01, asked: 0.01, stated: 0.01, considered: 0.01, preferred: 0.979, decided: 0.03, promised: 0.03, corrected: 0.03, retracted: 0.03 },
           },
         },
       })),

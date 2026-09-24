@@ -54,26 +54,30 @@ no historical text. The deterministic baseline's full confusion matrix and fixtu
 [`jev-recall-intent-baseline.test.ts`](../../../tests/continuity/jev-recall-intent-baseline.test.ts).
 
 The pinned-model live evaluator is:
-`pnpm exec tsx bench/jev-recall-evaluation.ts`. It runs the 56-case calibration fixture
-and the separate [`jev-recall-intent-holdout.v1.json`](../../../tests/fixtures/continuity/jev-recall-intent-holdout.v1.json)
-phrasing holdout (two cases per route). It reports raw and
-confidence-gated per-route precision, coverage, synthetic misclassification IDs,
-no-recall false positives, multiclass Brier score, median latency, token counts, and
-estimated input cost. It requires `TYPESAFE_API_KEY`, sends generated request text only,
-and produces aggregate output without source history. The final 2026-09-23 run returned:
+`pnpm exec tsx bench/jev-recall-evaluation.ts`. It runs the 56-case calibration fixture,
+the separate 14-case phrasing holdout, three disjoint 42-case boundary sets, and a fresh
+42-case audit. It reports raw and confidence-gated per-route precision, coverage, synthetic
+misclassification IDs, no-recall false positives, multiclass Brier score, median latency,
+token counts, and estimated input cost. It requires `TYPESAFE_API_KEY`, sends generated
+request text only, and produces aggregate output without source history. On 2026-09-23,
+Jev 1.13.0 returned 236/238 exact raw route labels (99.2%). At the production confidence
+gate of >= 0.98, all 170 eligible decisions were exact (100.0% precision) across the six
+synthetic sets; coverage was 71.4%. No `none` example became a recall action. Both raw
+misclassifications were below the gate: `similar-athena` (similar-work -> none, 0.43) and
+`challenge-fact-cloud-provider` (preference-or-fact -> historical-decision, 0.69).
 
-| Measure | Calibration | Phrasing holdout |
-|---|---:|---:|
-| Cases / decisions / fallbacks | **56 / 56 / 0** | **14 / 14 / 0** |
-| Exact route labels | **56/56 (100%)** | **14/14 (100%)** |
-| Precision for each route | **100%** | **100%** |
-| Actionable at confidence >= 0.85 | **52/56 (92.9%)** | **11/14 (78.6%)** |
-| Exact actionable decisions | **52/52 (100%)** | **11/11 (100%)** |
-| No-recall false positives (raw; actionable) | **0/8; 0/8** | **0/2; 0/0** |
-| Macro F1 / multiclass Brier score | **100% / 0.0019** | **100% / 0.0020** |
-| Median latency | **210.5 ms** | **206.0 ms** |
-| Input / output tokens | **72,566 / 9,642** | **18,148 / 2,412** |
-| Estimated input cost | **$0.00305** | **$0.00076** |
+| Corpus | Cases | Raw exact | Exact at >= 0.98 | Gate coverage | `none` false positives (raw; gated) | Median latency | Input / output tokens |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Calibration | 56 | **55/56 (98.2%)** | **38/38 (100%)** | **67.9%** | **0/8; 0/5** | 190.4 ms | 92,110 / 9,642 |
+| Phrasing holdout | 14 | **14/14 (100%)** | **10/10 (100%)** | **71.4%** | **0/2; 0/0** | 194.6 ms | 23,034 / 2,412 |
+| Boundary development/calibration | 126 | **125/126 (99.2%)** | **94/94 (100%)** | **74.6%** | **0/18; 0/7** | 194.3 ms | 207,532 / 21,695 |
+| Fresh boundary audit | 42 | **42/42 (100%)** | **28/28 (100%)** | **66.7%** | **0/6; 0/1** | 191.8 ms | 69,193 / 7,228 |
+| **Combined** | **238** | **236/238 (99.2%)** | **170/170 (100%)** | **71.4%** | **0/34; 0/13** | — | **391,869 / 40,977** |
+
+Estimated input cost for the combined run was $0.01646 at the checked price of $0.042 per
+million input tokens. The 0.98 gate retained 170 of 238 route decisions and rejected 68;
+it produced no false positives in this synthetic sample. The measured precision is not a
+statistical guarantee for real conversations.
 
 The route contract now prioritizes a specific preference, fact, or decision over its time
 filter; directs immediate same-conversation context to `continue-current`; treats vague
@@ -83,10 +87,10 @@ One case was relabeled from temporal to historical-decision because “What did 
 last quarter?” asks for a specific decision and uses the quarter as scope.
 
 The calibration corpus was used to refine this route contract. The phrasing holdout uses
-separate wording and was not used to diagnose the final topic/decision refinement. Both
-corpora are small synthetic sets; they do not establish accuracy or false-positive rates
-on representative real histories. Phase 4.3 dogfood remains open. TypeSafe's input price
-was checked at $0.042 per million tokens on 2026-09-23; costs are estimates at that price.
+separate wording and was not used to diagnose the final topic/decision refinement. All six
+corpora are synthetic; they do not establish accuracy or false-positive rates on
+representative real histories. Phase 4.3 dogfood remains open. TypeSafe's input price was
+checked at $0.042 per million tokens on 2026-09-23; costs are estimates at that price.
 
 ## Jev speech-act intake
 
@@ -104,21 +108,21 @@ misclassified synthetic IDs, latency, and token counts. It requires `TYPESAFE_AP
 and sends synthetic text only. The outer decision budget is now two seconds, with a
 1.9-second SDK attempt timeout and SDK retries disabled.
 
-The final 2026-09-23 runs returned:
+The production speech-act persistence gate is >= 0.98. The final 2026-09-23 runs returned:
 
-| Corpus | Exact decisions | Fallbacks | Persisted labels at 0.85 | All-label precision at 0.85 | Median latency | Input / output tokens |
+| Corpus | Exact raw decisions | Persisted-label precision at >= 0.98 | Persisted-label coverage | All-label exact at >= 0.98 | Median latency | Input / output tokens |
 |---|---:|---:|---:|---:|---:|---:|
-| Calibration, 72 cases | **72/72 (100%)** | **0** | **37/37 (100%)**, 51.4% corpus coverage | **66/66 (100%)**, 91.7% coverage | 189.2 ms | 75,576 / 12,384 |
-| Holdout, 18 cases | **18/18 (100%)** | **0** | **9/9 (100%)**, 50.0% corpus coverage | **17/17 (100%)**, 94.4% coverage | 191.0 ms | 18,905 / 3,102 |
+| Calibration, 72 cases | **72/72 (100%)** | **30/30 (100%)** | **41.7%** | **49/49 (100%)**, 68.1% coverage | 198.4 ms | 118,416 / 12,374 |
+| Holdout, 18 cases | **17/18 (94.4%)** | **5/5 (100%)** | **27.8%** | **10/10 (100%)**, 55.6% coverage | 195.0 ms | 29,615 / 3,087 |
+| **Combined** | **89/90 (98.9%)** | **35/35 (100%)** | **38.9%** | **59/59 (100%)**, 65.6% coverage | — | **148,031 / 15,461** |
 
-For calibration, every decision at the 0.90, 0.95, and 0.98 confidence cutoffs was also
-exact: 64/64 (88.9% coverage), 58/58 (80.6%), and 50/50 (69.4%) respectively. Holdout
-results were 14/14 (77.8%), 13/13 (72.2%), and 11/11 (61.1%). The first expanded run
-under the earlier one-second budget returned 60 decisions and 12 provider-error fallbacks;
-the adapter now identifies TypeSafe timeout errors correctly and uses the two-second budget.
-These sets are synthetic and deliberately small (eight calibration examples and two holdout
-examples per label); they show a clear improvement on the known boundary errors but do not
-establish 98–100% accuracy on real-user language.
+The one raw holdout error was `holdout-decided-source-links` (decided -> preferred,
+confidence 0.42), below the persistence gate. No provider fallbacks occurred. For context,
+the current all-label confidence frontier is exact at each measured cutoff: calibration
+coverage is 93.1% / 88.9% / 80.6% / 68.1% at 0.85 / 0.90 / 0.95 / 0.98; holdout coverage
+is 88.9% / 77.8% / 72.2% / 55.6%. The production policy only persists eligible speech
+acts, yielding 35 accepted labels across 90 examples. These small synthetic sets do not
+establish equivalent accuracy on real-user language.
 
 ## Limited local-history spot-check
 

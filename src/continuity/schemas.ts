@@ -69,7 +69,7 @@ export const JevPersistedSpeechActSchema = z.enum([
   'retracted',
 ])
 
-export const JEV_SPEECH_ACT_PERSISTENCE_CONFIDENCE = 0.85
+export const JEV_SPEECH_ACT_PERSISTENCE_CONFIDENCE = 0.98
 
 export const SourceRefSchema = z
   .object({

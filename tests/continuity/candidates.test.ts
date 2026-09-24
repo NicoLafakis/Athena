@@ -46,7 +46,7 @@ function addJevTurn(
     model: 'jev-1.13.0',
     sourceRef,
     speechAct,
-    confidence: 0.96,
+    confidence: 0.99,
   })
   session.appendMessage({ role: 'assistant', content: 'The statement is preserved with its source.' })
   session.appendEvent({ type: 'turn-done' })

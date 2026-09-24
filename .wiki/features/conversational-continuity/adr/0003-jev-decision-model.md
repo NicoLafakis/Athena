@@ -19,7 +19,7 @@ in `src/decision/jev.ts` and invokes it once per inbound user request.
 One System One request classifies the current inbound request for both its route and speech
 act. The route chooses `none`, `continue-current`, `temporal-recall`, `topic-recall`,
 `preference-or-fact`, `historical-decision`, or `similar-work`, validated against a strict
-local schema. A high-confidence (`>= 0.85`) history route can invoke the local answer-time
+local schema. A high-confidence (`>= 0.98`) history route can invoke the local answer-time
 retriever. `none` and `continue-current` cannot. When Jev is absent or below threshold, a
 clear deterministic explicit-history phrase is the only fallback. The route is an intent
 hint, not evidence that a matching memory exists; local source and scope checks remain
@@ -52,7 +52,7 @@ per-attempt SDK timeout. SDK timeouts are normalized to timeout fallbacks. Reque
 than 12,000 characters are skipped. Invalid or
 unknown choices, malformed probabilities, timeouts, missing credentials, rate limits, and
 provider errors fall through to the ordinary answer path. A route hint is transient and is
-not saved in session messages. Recall actions require confidence `>= 0.85`; synthetic
+not saved in session messages. Recall actions require confidence `>= 0.98`; synthetic
 evaluation is reported both before and after this gate. The threshold is an operational
 policy evaluated on a small synthetic set, not a statistically calibrated guarantee for
 real conversations. `Noul` returns a yes probability without a separate confidence field;
@@ -62,7 +62,7 @@ The product owner explicitly approved memory intake on 2026-09-23. Speech-act
 classification is persisted only after Athena writes the current user message. Athena
 resolves the source ID, timestamp, and line digest from its own session journal, then stores
 a content-free local event for `preferred`, `decided`, `promised`, `corrected`, or
-`retracted` labels when Jev confidence is at least 0.85. The event is accepted into an
+`retracted` labels when Jev confidence is at least 0.98. The event is accepted into an
 episode only while it resolves to that exact user-authored line and digest.
 
 Verified `preferred`, `decided`, and `promised` labels can support a candidate when the
@@ -70,10 +70,10 @@ same normalized user text appears in two or more independent sessions. Candidate
 still applies redaction, sensitivity, completeness, and source-integrity checks. Promotion
 rechecks the exact source lines. `corrected` and `retracted` labels are kept with their
 episode context to help retrieval, but they do not automatically supersede, promote, or
-delete semantic memory. The final live synthetic evaluation returned 72/72 exact labels
-on the calibration corpus and 18/18 on a separate phrasing holdout. At the 0.85
-persistence threshold, 37/37 and 9/9 persisted-label decisions were correct respectively.
-These small synthetic sets do not establish real-user precision.
+delete semantic memory. The latest live synthetic evaluation returned 89/90 exact labels
+across calibration and phrasing holdout. At the 0.98 persistence threshold, all 35/35
+eligible persisted-label decisions were correct (38.9% combined coverage). These small
+synthetic sets do not establish real-user precision.
 
 Never give Jev authority to decide project trust, permission, tool execution, source
 retention, forgetting, deletion, credential handling, or user-confirmed facts. The
@@ -112,26 +112,26 @@ agreement before materially changing the payload scope or provider configuration
 
 1. Build a synthetic corpus covering direct and implied continuation, dates, corrections,
    multiple projects, ordinary new requests, ambiguous requests, and adversarial text.
-   The checked-in 56-case calibration fixture and separate 14-case phrasing holdout are
-   complete. The local proxy baseline is the intent
+   The checked-in calibration, 14-case phrasing holdout, three boundary sets, and fresh
+   42-case audit are complete. The local proxy baseline is the intent
    inferred by the deterministic ranker used in the manual preview and answer-time source
    ranking; it is not a measure of the Jev route or answer quality. See
    [the calibration snapshot](../calibration.md).
 2. Run `pnpm exec tsx bench/jev-recall-evaluation.ts` with `TYPESAFE_API_KEY` to compare
-   Jev against both synthetic corpora. It measures raw and confidence-gated per-route
+   Jev against six synthetic corpora. It measures raw and confidence-gated per-route
    precision, coverage, misclassified synthetic IDs, no-recall false positives,
-   multiclass Brier score, latency, input/output tokens, and estimated cost. The final
-   2026-09-23 run scored 56/56 exact on calibration and 14/14 on the phrasing holdout;
-   at the 0.85 action threshold, 52/52 and 11/11 actions were exact with no no-recall
-   false positives. The small synthetic sets do not establish representative live-history
-   quality. See the calibration snapshot for the full metrics and limits.
+   multiclass Brier score, latency, input/output tokens, and estimated cost. The latest
+   2026-09-23 run scored 236/238 raw exact; at the 0.98 action threshold, 170/170 accepted
+   decisions were exact (71.4% coverage), with no no-recall false positives. The small
+   synthetic sets do not establish representative live-history quality. See the calibration
+   snapshot for full metrics and limits.
 3. Run `pnpm exec tsx bench/jev-speech-act-evaluation.ts` with `TYPESAFE_API_KEY` to
    measure all nine speech-act labels, high-confidence persisted-label precision, confidence
    frontiers, fallback reasons, coverage, macro F1, calibration, latency, and token counts
-   against the 72-case calibration set and separate 18-case holdout. The 2026-09-23 runs
-   returned 72/72 and 18/18 exact labels with no fallback; high-confidence persisted-label
-   decisions were 37/37 and 9/9 correct. No historical user text was sent in either
-   evaluation.
+   against the 72-case calibration set and separate 18-case holdout. The latest runs
+   returned 89/90 raw exact labels with no fallback; at the 0.98 persistence threshold,
+   35/35 eligible persisted-label decisions were correct (38.9% combined coverage). No
+   historical user text was sent in either evaluation.
 4. Tests fake the SDK HTTP boundary. They verify no call while disabled or without a key,
    exact allowed payload fields, redaction, model pinning, strict response validation,
    token-only telemetry, timeout/rate-limit fallback, and ephemeral system-prompt use.

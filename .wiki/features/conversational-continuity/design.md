@@ -164,17 +164,16 @@ keeps its own route while the date narrows its search; a broad period overview u
 without a target do not start retrieval, quoted recall text is classified by the outer
 request, and immediate context before an interruption stays in `continue-current`.
 
-For a high-confidence route (`>= 0.85`), the engine may invoke the local answer-time
+For a high-confidence route (`>= 0.98`), the engine may invoke the local answer-time
 retriever for one of the five historical routes. `none` and `continue-current` never
 trigger it. Below the threshold, only a clear deterministic explicit-recall phrase can
 trigger the local fallback. The route stays an intent hint: it cannot certify a source,
 change scope, or override local source/tombstone checks. Route guidance and any retrieved
 context are transient system-prompt additions and never enter persisted session messages.
-The final synthetic live run scored 56/56 exact on the balanced calibration set and 14/14
-on the separate phrasing holdout. Each route had 100% precision on both small sets. At the
-production 0.85 confidence threshold, 52/52 calibration and 11/11 holdout decisions were
-exact; no no-history case triggered retrieval. These generated examples do not replace
-representative live-history dogfood.
+The production threshold is 0.98. On 238 synthetic requests across six disjoint corpora,
+raw route accuracy was 236/238 (99.2%); the gate accepted 170/238 (71.4%), all exact, with
+no `none` example triggering retrieval. Both raw errors fell below the gate. These
+generated examples do not replace representative live-history dogfood.
 
 Global `jev.enabled` defaults to `true`; a project cannot override the user's setting.
 The network path requires `TYPESAFE_API_KEY`. Without the key, the adapter makes no call
@@ -195,11 +194,14 @@ and the research snapshot are in ADR 0003.
 ### Jev speech-act intake (integrated)
 
 The same current-request Jev call classifies both recall route and speech act. A
-high-confidence (`>= 0.85`) `preferred`, `decided`, `promised`, `corrected`, or `retracted`
+high-confidence (`>= 0.98`) `preferred`, `decided`, `promised`, `corrected`, or `retracted`
 label is stored as a content-free local session event only after the user message has been
 written. Athena resolves its source ID, timestamp, and SHA-256 line digest locally. Episode
 indexing and retrieval attach the label only while the event still points to the exact
 user-authored line and its current digest.
+The event schema enforces the same 0.98 floor during indexing, so older lower-confidence
+labels remain unchanged in source journals but are omitted from the current continuity
+index and candidate intake.
 
 Verified `preferred`, `decided`, and `promised` labels can broaden candidate detection to
 indirect wording. A candidate still requires the same normalized user text across at least
@@ -209,9 +211,9 @@ Correction and retraction labels stay attached to episode context for retrieval 
 automatically overwrite or remove existing memory. Jev cannot promote memory, alter source
 history, or bypass scope, sensitivity, review, or permission gates. It is not the memory
 store or the authority for what actually happened. The final synthetic evaluation scored
-72/72 exact on calibration and 18/18 exact on a separate phrasing holdout, with 37/37 and
-9/9 high-confidence persisted labels correct respectively. These small synthetic sets do
-not establish equivalent accuracy on real-user language. See
+89/90 raw decisions exact across calibration and holdout. At the 0.98 persistence gate,
+35/35 accepted persisted-label decisions were exact (38.9% corpus coverage). These small
+synthetic sets do not establish equivalent accuracy on real-user language. See
 [ADR 0003](adr/0003-jev-decision-model.md) for complete results and limits.
 
 ### Answer-time retrieval routing (implemented)
@@ -454,8 +456,8 @@ added without changing session-line identity.
 - The store accepts inferred records only as candidates and requires two distinct
   supporting episode IDs. `generateSemanticCandidates` runs only through an explicit local
   command and requires a ready catalog. It accepts a direct user preference, decision, or
-  promise, or an indirect claim with a high-confidence Jev label validated against that
-  exact user-message digest. The same normalized full claim must appear in at least two
+  promise, or an indirect claim with a Jev label at confidence >= 0.98 validated against
+  that exact user-message digest. The same normalized full claim must appear in at least two
   distinct `(project, session)` sources;
   each episode digest is verified before its user message is used. Tentative/question text,
   assistant messages, stale sources, incomplete catalogs, and oversized/truncated episode

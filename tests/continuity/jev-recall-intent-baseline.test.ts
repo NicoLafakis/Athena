@@ -33,6 +33,29 @@ describe('Jev recall-intent evaluation baseline', () => {
     }
   })
 
+  it('keeps all boundary development sets balanced and pairwise disjoint', () => {
+    const holdout = loadRecallCorpus(new URL('../fixtures/continuity/jev-recall-intent-holdout.v1.json', import.meta.url))
+    const boundaryCalibration = loadRecallCorpus(new URL('../fixtures/continuity/jev-recall-intent-boundary-calibration.v1.json', import.meta.url))
+    const boundaryDevelopment = loadRecallCorpus(new URL('../fixtures/continuity/jev-recall-intent-boundary-development.v1.json', import.meta.url))
+    const boundaryValidation = loadRecallCorpus(new URL('../fixtures/continuity/jev-recall-intent-boundary-validation.v1.json', import.meta.url))
+    const audit = loadRecallCorpus(new URL('../fixtures/continuity/jev-recall-intent-audit.v1.json', import.meta.url))
+    const allCases = [...corpus.cases, ...holdout.cases, ...boundaryCalibration.cases, ...boundaryDevelopment.cases, ...boundaryValidation.cases, ...audit.cases]
+
+    expect(boundaryCalibration.cases).toHaveLength(42)
+    expect(boundaryDevelopment.cases).toHaveLength(42)
+    expect(boundaryValidation.cases).toHaveLength(42)
+    expect(audit.cases).toHaveLength(42)
+    expect(new Set(allCases.map((item) => item.id)).size).toBe(allCases.length)
+    expect(new Set(allCases.map((item) => item.text)).size).toBe(allCases.length)
+
+    for (const route of RecallRouteSchema.options) {
+      expect(boundaryCalibration.cases.filter((item) => item.intent === route)).toHaveLength(6)
+      expect(boundaryDevelopment.cases.filter((item) => item.intent === route)).toHaveLength(6)
+      expect(boundaryValidation.cases.filter((item) => item.intent === route)).toHaveLength(6)
+      expect(audit.cases.filter((item) => item.intent === route)).toHaveLength(6)
+    }
+  })
+
   it('records the current local ranking-intent behavior without presenting it as a router', () => {
     const report = evaluateRecallBaseline(corpus)
 

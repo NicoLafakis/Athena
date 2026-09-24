@@ -23,7 +23,7 @@ describe('ContinuityStore', () => {
     expect(sourceRef).not.toBeNull()
     session.appendEvent({
       type: 'jev-speech-act-classification', schemaVersion: 1, model: 'jev-1.13.0',
-      sourceRef, speechAct: 'preferred', confidence: 0.96,
+      sourceRef, speechAct: 'preferred', confidence: 0.99,
     })
     session.appendEvent({ type: 'turn-done' })
     const store = new ContinuityStore(join(root, 'continuity'))
@@ -31,6 +31,24 @@ describe('ContinuityStore', () => {
     store.rebuild(sessionsRoot)
 
     expect(store.listEpisodes()[0]?.speechActs).toContain('preferred')
+  })
+
+  it('omits legacy Jev speech-act events below the production confidence gate', () => {
+    const sessions = new SessionStore(sessionsRoot, 'C:/projects/jev-low-confidence')
+    const session = sessions.create()
+    session.appendMessage({ role: 'user', content: 'I may prefer concise paragraphs.' })
+    const sourceRef = latestUserMessageSourceRef(session.file, sessions.projectId, session.id)
+    expect(sourceRef).not.toBeNull()
+    session.appendEvent({
+      type: 'jev-speech-act-classification', schemaVersion: 1, model: 'jev-1.13.0',
+      sourceRef, speechAct: 'preferred', confidence: 0.979,
+    })
+    session.appendEvent({ type: 'turn-done' })
+    const store = new ContinuityStore(join(root, 'continuity'))
+
+    store.rebuild(sessionsRoot)
+
+    expect(store.listEpisodes()[0]?.speechActs).toEqual([])
   })
 
   it('ignores a Jev label after its linked user message changes', () => {
@@ -41,7 +59,7 @@ describe('ContinuityStore', () => {
     expect(sourceRef).not.toBeNull()
     session.appendEvent({
       type: 'jev-speech-act-classification', schemaVersion: 1, model: 'jev-1.13.0',
-      sourceRef, speechAct: 'preferred', confidence: 0.96,
+      sourceRef, speechAct: 'preferred', confidence: 0.99,
     })
     session.appendEvent({ type: 'turn-done' })
     const originalLines = readFileSync(session.file, 'utf8').trimEnd().split('\n')

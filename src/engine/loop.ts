@@ -16,6 +16,7 @@ import type { HookRunner } from '../harness/hooks.js'
 import { redactSessionValue } from '../harness/redaction.js'
 import type { JevMemorySpeechAct, RecallIntentRouter, RecallRouteDecision } from '../decision/jev.js'
 import { JEV_SPEECH_ACT_PERSISTENCE_CONFIDENCE } from '../continuity/schemas.js'
+import { ANSWER_RECALL_MIN_CONFIDENCE } from '../continuity/answer-recall.js'
 import type { AnswerTimeRecallResult } from '../continuity/answer-recall.js'
 import {
   modelCapabilities,
@@ -222,7 +223,11 @@ export class Engine {
         if (decision.status === 'decision') {
           recallDecision = decision.value
           currentSpeechAct = decision.value.speechAct
-          if (decision.value.route !== 'none' && decision.value.route !== 'continue-current') {
+          if (
+            decision.value.confidence >= ANSWER_RECALL_MIN_CONFIDENCE &&
+            decision.value.route !== 'none' &&
+            decision.value.route !== 'continue-current'
+          ) {
             this.turnRecallDirective = recallRouteGuidance(decision.value)
           }
         } else if (

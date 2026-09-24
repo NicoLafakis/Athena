@@ -26,7 +26,7 @@ describe('continuity retrieval', () => {
     expect(sourceRef).not.toBeNull()
     session.appendEvent({
       type: 'jev-speech-act-classification', schemaVersion: 1, model: 'jev-1.13.0',
-      sourceRef, speechAct: 'corrected', confidence: 0.96,
+      sourceRef, speechAct: 'corrected', confidence: 0.99,
     })
     session.appendEvent({ type: 'turn-done' })
     const store = new ContinuityStore(join(root, 'continuity'))

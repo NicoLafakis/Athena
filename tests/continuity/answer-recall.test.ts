@@ -36,7 +36,7 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true })
 })
 
-function routeDecision(route: RecallRoute, confidence = 0.96): RecallRouteDecision {
+function routeDecision(route: RecallRoute, confidence = 0.99): RecallRouteDecision {
   return {
     route,
     confidence,
@@ -101,6 +101,20 @@ describe('prepareAnswerTimeRecall', () => {
     expect(continuation.status).toBe('not-requested')
     expect(uncertain.status).toBe('not-requested')
     expect(store.status().state).toBe('missing')
+  })
+
+  it('requires 0.98 confidence before Jev can select answer-time history retrieval', () => {
+    addConversation(
+      'C:/projects/confidence-threshold',
+      'The Rivendell pipeline keeps its source-linked episode context.',
+      'The source session remains attached to the episode.',
+    )
+
+    const below = prepare('Could this connect to Rivendell?', 'topic-recall', { confidence: 0.979 })
+    const atThreshold = prepare('Could this connect to Rivendell?', 'topic-recall', { confidence: 0.98 })
+
+    expect(below.status).toBe('not-requested')
+    expect(atThreshold.status).toBe('ready')
   })
 
   it('automatically builds a missing catalog and returns only source-verified cross-project text', () => {
@@ -318,7 +332,7 @@ describe('prepareAnswerTimeRecall', () => {
       'The source transcript remains in its original session.',
     )
 
-    const result = prepare('What did we decide about semantic memory?', 'none', { confidence: 0.97 })
+    const result = prepare('What did we decide about semantic memory?', 'none', { confidence: 0.99 })
 
     expect(result.status).toBe('not-requested')
   })
