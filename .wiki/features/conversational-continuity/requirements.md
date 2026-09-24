@@ -96,20 +96,26 @@ Day, week, month, quarter, and year rollups identify their covered time range, s
 episodes, generation version, and source freshness. A rollup is invalidated or rebuilt
 when a source is forgotten or corrected. Exact recall loads source episodes as needed.
 
-### FR-011 — Inspect and correct
+### FR-011 — Inspect, correct, and forget
 
 The user can list/search/timeline memories, inspect a source episode, review semantic
-candidates, correct a memory, mark a tentative inference as wrong, and see whether a result
-is direct or inferred. Equivalent CLI and interactive presentation paths are provided.
+candidates, correct a memory, mark a tentative inference as wrong, forget a derived
+semantic memory, and see whether a result is direct or inferred. Equivalent CLI and
+interactive presentation paths are provided.
 
 ### FR-012 — Forget and deletion integrity
 
-Forgetting an episode or semantic fact removes it from retrieval and invalidates dependent
-rollups. Rebuilds honor deletion tombstones and cannot silently resurrect forgotten
-derived content. Forgetting a memory is distinct from deleting its source session.
-Existing `athena session delete` moves the source file to per-project `.trash`; this
-feature must integrate with that soft-delete path. It must not imply a user-facing restore
-command exists until one is implemented.
+Forgetting an episode suppresses it from retrieval and invalidates dependent rollups.
+Forgetting a semantic fact atomically replaces its derived body and description with a
+content-free tombstone. The tombstone retains only typed source identity fields and the
+minimal lifecycle metadata required to suppress candidate scans from those exact lines;
+it drops source digests, timezones, episode IDs, original observation/validity dates, and
+project scope. The original session remains
+available for explicitly requested historical recall; semantic forget does not delete the
+source, episode, or source-derived rollups. `athena memory forget <memory-id>` and
+`/memory forget <memory-id>` target one managed semantic record. This is distinct from
+`athena session delete`, which moves the source file to per-project `.trash` and suppresses
+its episodes and dependent rollups until explicit restore.
 
 ### FR-013 — Privacy and locality
 
@@ -157,9 +163,11 @@ does not make optional continuity a boot precondition.
   project-scoped; cross-project evidence is global-scoped. Sensitive claims stay in their
   source sessions and are not copied into inferred candidates. An explicit “remember this”
   request may create an active memory immediately, subject to the explicit-memory policy.
-- **AC-006:** Given a correction or forget request, when retrieval and rebuild run, then
-  the corrected/forgotten value is not returned as current memory and source history is
-  handled according to the user’s deletion choice.
+- **AC-006:** Given a semantic forget request, the managed semantic body and description
+  are erased, model-facing semantic reads and ranking omit it, and candidate scans after
+  rebuild do not recreate it from the retained source lines. The canonical source session
+  remains available for explicit historical recall. Session deletion separately suppresses
+  source episodes and rollups until restore.
 - **AC-007:** Given missing, malformed, or corrupt index data, when Athena starts or
   answers a recall request, then normal work remains available and a recovery action is
   reported.

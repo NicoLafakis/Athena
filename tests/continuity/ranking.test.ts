@@ -85,6 +85,22 @@ describe('rankContinuityLayers', () => {
     expect(ranking.candidates[0]).not.toHaveProperty('summary')
   })
 
+  it('excludes forgotten semantic records from ranking', () => {
+    const forgotten = semantic({
+      status: 'tombstoned',
+      forgottenAt: '2026-09-23T15:00:00.000Z',
+      description: 'Forgotten semantic memory',
+      content: '',
+    })
+    const ranking = rankContinuityLayers({
+      query: 'What do I usually prefer about continuity memory?',
+      semanticMemories: [forgotten],
+      now: new Date('2026-09-30T00:00:00.000Z'),
+    })
+
+    expect(ranking.candidates).toEqual([])
+  })
+
   it('uses explicit time windows as hard filters and favors a matching rollup for recap intent', () => {
     const inWindow = episode('episode-sept', 'project-a', '2026-09-15T12:00:00.000Z', 'The user chose a weekly continuity review.')
     const outside = episode('episode-aug', 'project-a', '2026-08-15T12:00:00.000Z', 'The user chose monthly project planning.')

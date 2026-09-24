@@ -3,7 +3,7 @@
 > [Objective overview](00-overview.md) · [Requirements](requirements.md) ·
 > [Technical design](design.md) · [Tasks](tasks.md)
 
-- **Status:** Implementation in progress; linked-episode approach selected
+- **Status:** Implementation in progress; linked episodes, Jev routing/intake, scoped answer-time recall, and semantic-memory forget are implemented
 - **Priority:** P1 — core product direction
 - **Owner surface:** local sessions, `src/brain/`, prompt/tool integration, CLI memory controls
 - **Migration:** additive derived index; no session transcript migration or rewrite
@@ -65,8 +65,8 @@ windows retain the timezone used.
 
 Storage is additive under the per-user Athena brain. Existing session files remain
 untouched. Index versions support rebuild and can be discarded without destroying source
-history. Memory-file changes reuse the existing `Memory` tool/index discipline and its
-planned metadata extension; they do not create an independent durable fact store.
+history. Memory-file changes reuse the existing `Memory` tool/index discipline and the
+source-linked metadata now in place; they do not create an independent durable fact store.
 
 ## 8. Surfaces and experience
 
@@ -75,12 +75,14 @@ planned metadata extension; they do not create an independent durable fact store
   unresolved conversational commitment. Source-backed results are clearly distinguished
   from the model’s inference.
 - **Direct controls:** local `athena memory status|rebuild|search|timeline|show|rollup|rank`,
-  `athena memory candidates`, and `athena memory review <memory-id> <promote|reject>`
+  `athena memory candidates`, `athena memory review <memory-id> <promote|reject>`, and
+  `athena memory forget <memory-id>`
   commands, with equivalent in-session `/memory` commands. Candidate generation is an
   explicit local action that requires repeated direct user claims in distinct,
   source-verified sessions; review never happens automatically. Session delete/restore is
-  integrated with continuity tombstones. Semantic-memory forget will suppress derived
-  content while preserving its original session source; source deletion remains the
+  integrated with continuity tombstones. Semantic-memory forget scrubs the derived text
+  and description, suppresses re-derivation from those source lines, and preserves the
+  original session for explicitly requested historical recall. Source deletion remains the
   separate session-delete action.
 - **Common path:** one conversational question; no user-selected project/session when
   the request is unambiguous. Inspect/correct/forget actions require a clear target before
@@ -90,10 +92,9 @@ planned metadata extension; they do not create an independent durable fact store
   clarified.
 
 Exact command syntax follows the current CLI parser. Local episode search, inspection,
-ranking, candidate generation, and candidate review have CLI/slash parity. Session
-delete/restore is implemented through `athena session delete|restore` and persistent
-tombstones. Scoped automatic answer-time retrieval is implemented; semantic-memory forget
-remains open.
+ranking, candidate generation, candidate review, and semantic-memory forget have CLI/slash
+parity. Session delete/restore is implemented through `athena session delete|restore` and
+persistent tombstones. Scoped automatic answer-time retrieval is implemented.
 
 ## 9. Interface contract
 
@@ -105,12 +106,15 @@ send summaries, semantic-memory bodies, rollup text, source IDs, or paths. The p
 capped at five episodes/4,000 characters and exists only in the active answer-model call.
 The implemented `athena memory rank` and `/memory rank` surfaces remain local previews
 that show bounded identifiers and ranking explanations but no source text.
-Mutating operations (remember, correct, and review) validate IDs and source links and go
+Mutating operations (remember, correct, review, and forget) validate IDs and source links and go
 through one local store API. Candidate generation writes only review-state records after
 verifying source identities and digests. No raw absolute path or model-provided timestamp
-is trusted as an identifier. Forget remains unimplemented; it will preserve the source
-session while suppressing the derived semantic record. The exact TypeScript contracts are
-in the design doc.
+is trusted as an identifier. Forget atomically clears a semantic record's body and
+description, strips source digests, timezones, support episode IDs, original observation/
+validity dates, and project scope, and retains typed source identities plus minimal
+lifecycle metadata to prevent same-line regeneration. Its canonical source session remains
+available for explicit historical recall. The
+exact TypeScript contracts are in the design doc.
 
 ## 10. Security, privacy, and access control
 
@@ -216,8 +220,9 @@ history requests and the documented source/payload checks.
 
 - Linked episodes are confirmed. Existing session retention remains the policy; this
   feature introduces no automatic deletion.
-- Forgetting a semantic record suppresses its derived content while preserving the source
-  session. Source deletion remains an independent, explicit `athena session delete` action.
+- Forgetting a semantic record scrubs its derived content and suppresses re-derivation from
+  the same source lines while preserving the source session for explicit recall. Source
+  deletion remains an independent, explicit `athena session delete` action.
 - The minimum independent evidence threshold for inferred long-term promotion must be
   calibrated during dogfood and kept configurable/testable. The first release may keep
   inferred items as review candidates only.

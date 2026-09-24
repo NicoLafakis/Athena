@@ -63,20 +63,21 @@ invariant.
 ## Phase 3 — durable semantic memory and lifecycle
 
 Progress (2026-09-23): the versioned semantic record schema and lifecycle store, explicit
-remember/review/correction paths, conservative source-verified candidate generation, and
-local CLI/slash review commands are implemented. Inferred candidates are generated only
-from the same direct user claim in at least two distinct, digest-verified sessions; they
-remain candidates until an explicit review. Sensitive claims are not copied into inferred
-semantic storage; explicit memory remains a separate user-directed path.
-Session delete/restore now uses a content-free suppression ledger; semantic forget and
-its source-retention choice remain open. The repository gates and cross-platform CI passed
-on 2026-09-23; semantic forget and its retention choice remain the Phase 3 completion
-gaps.
+remember/review/correction/forget paths, conservative source-verified candidate generation,
+and local CLI/slash/Memory-tool controls are implemented. Forget atomically replaces the
+derived body and description with a generic tombstone, drops source digests, timezones,
+support episode IDs, original observation/validity dates, and project scope, and retains
+typed source identity fields only as needed to suppress candidate regeneration from those
+exact lines. The canonical source session remains available for explicit history recall.
+Inferred candidates still require repeated
+direct user claims in distinct, digest-verified sessions and explicit review. Sensitive
+claims remain excluded from inferred semantic storage. All four repository gates and the
+full test suite pass on this implementation state; cross-platform CI is pending after push.
 
 - [x] 3.1 Extend `Memory` records/tool with source references, observed/valid time, scope,
   speech act, sensitivity, confidence, candidate/active/flagged/superseded/rejected/tombstoned
   state, and correction links. Reuse memory-hygiene's canonical write/index path.
-- [ ] 3.2 Implement explicit remember, candidate review, correct/supersede, and forget.
+- [x] 3.2 Implement explicit remember, candidate review, correct/supersede, and forget.
   Prevent inferred single-episode facts from becoming active durable facts.
   - [x] Explicit remember, candidate review, and correct/supersede use the semantic
     lifecycle store; inferred records cannot be promoted from one source.
@@ -99,9 +100,9 @@ gaps.
     legacy citations remain protected by their content-derived stable identity.
   - [x] Keep candidate, flagged, rejected, and tombstoned semantic content out of the
     model-facing `Memory.read`; those states remain available through local review.
-  - [ ] Implement forget and derived-record suppression after the source-retention choice
-    is answered.
-- [ ] 3.3 Integrate user deletion and session delete/restore with continuity tombstones and
+  - [x] Forget erases derived body/description and suppresses repeat inference from the
+    exact original source lines while preserving those canonical sessions for history.
+- [x] 3.3 Integrate user deletion and session delete/restore with continuity tombstones and
   rollup invalidation. Prove rebuild cannot resurrect forgotten material.
   - [x] `athena session delete` writes a versioned content-free tombstone before moving the
     canonical JSONL to `.trash`; episodes, linked semantic records, and dependent rollups
@@ -109,8 +110,8 @@ gaps.
   - [x] `athena session restore <id>` restores the recoverable source (or accepts a still-live
     source after an interrupted delete), then clears its tombstone and reindexes it. Corrupt
     tombstone state fails closed and is preserved for recovery rather than overwritten.
-  - [ ] Add semantic-memory forget and source-retention behavior after the user's
-    retention choice; session restore does not silently undo a separate forget decision.
+  - [x] Add semantic-memory forget with source preservation; session restore does not
+    silently undo its durable source-line suppression.
 
 ## Phase 4 — hierarchical time views and calibration
 
@@ -151,7 +152,11 @@ gaps.
   - [x] Run `pnpm typecheck`, `pnpm lint`, `pnpm test`, and `pnpm build` on commit
     `72e2833`; all passed. The follow-up CI run passed on Node 20 and 22 across Linux,
     macOS, and Windows.
-  - [ ] Complete semantic-forget review after the source-retention choice.
+  - [x] Re-run all four repository gates after semantic-memory forget; typecheck, lint,
+    150 test files / 1,420 tests, and build pass. Cross-platform CI is pending.
+  - [x] Complete semantic-forget threat/privacy review: semantic text and description are
+    removed, source IDs and minimal lifecycle metadata remain for suppression, and the
+    source session remains available for explicitly requested historical recall.
   - [x] Review the automatic answer-provider boundary: scoped user request only, local
     source verification, ordinary active semantic records as navigation-only, rollups as
     navigation-only, adjacent turn labels, shared secret redaction, five-episode/4,000-

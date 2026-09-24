@@ -359,6 +359,36 @@ describe('memoryTool', () => {
     expect(remove.isError).toBe(true)
   })
 
+  it('forgets a managed semantic memory by ID and keeps its source session intact', async () => {
+    const sessions = new SessionStore(join(dir, 'sessions'), 'C:/projects/forget-memory')
+    const session = sessions.create()
+    session.appendMessage({ role: 'user', content: 'I prefer this private derived claim to be forgotten.' })
+    const source = latestUserMessageSourceRef(session.file, sessions.projectId, session.id)!
+    const semanticStore = new MemoryHygieneStore(join(dir, 'memory'))
+    const memory = semanticStore.create({
+      description: 'Private derived claim',
+      content: 'I prefer this private derived claim to be forgotten.',
+      sourceRefs: [source],
+      observedAt: source.timestamp,
+      speechAct: 'preferred',
+      captureMode: 'explicit',
+      confidence: 1,
+      sensitivity: 'ordinary',
+    })
+
+    const result = await memoryTool.execute({ op: 'forget', memoryId: memory.memoryId }, makeCtx(dir))
+
+    expect(result.isError).toBe(false)
+    expect(result.output).toContain(`forgotten: ${memory.memoryId}`)
+    expect(semanticStore.get(memory.memoryId)).toMatchObject({ status: 'tombstoned', content: '' })
+    expect(readFileSync(memory.file, 'utf8')).not.toContain('I prefer this private derived claim')
+    expect(readFileSync(session.file, 'utf8')).toContain('I prefer this private derived claim')
+    const read = await memoryTool.execute({ op: 'read', path: `semantic/${memory.memoryId}.md` }, makeCtx(dir))
+    expect(read.isError).toBe(true)
+    expect(read.output).toContain('was forgotten')
+    expect(read.output).not.toContain('I prefer this private derived claim')
+  })
+
   it('renders managed semantic memory without exposing its internal source identifiers', async () => {
     const sessions = new SessionStore(join(dir, 'sessions'), 'C:/projects/memory-render')
     const session = sessions.create()

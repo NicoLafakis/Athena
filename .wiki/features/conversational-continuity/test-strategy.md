@@ -14,8 +14,8 @@
 | FR-006 / AC-003 speech acts | Unit | Hypothetical, question, preference, decision, promise, correction, retraction fixtures |
 | FR-007 / AC-005 promotion | Unit + integration | Explicit remember; repeated direct user claim across two digest-verified sessions creates a candidate only; same-session repetition, tentative/question/assistant/stale/truncated evidence is excluded; sensitive claims are excluded from inferred semantic records; rejection/explicit memory suppress duplicate inference |
 | FR-008 conflict lifecycle | Unit | Supersession preserves prior value/date/source; direct correction ranks correctly |
-| FR-011 controls/accessibility | CLI + presentation integration | Search/show/rank/candidate generation and promote/reject review parity with bounded plain text output; correct/forget parity remains planned |
-| FR-012 / AC-006 deletion | Integration | Session delete/restore tombstones suppress episodes, linked semantic records, and derived rollups; rebuild does not resurrect trashed sources. Semantic-memory forget remains pending its source-retention choice. |
+| FR-011 controls/accessibility | CLI + presentation integration | Search/show/rank/candidate generation, promote/reject review, and forget parity with bounded plain text output |
+| FR-012 / AC-006 deletion | Integration | Session delete/restore tombstones suppress episodes, linked semantic records, and derived rollups; rebuild does not resurrect trashed sources. Semantic forget empties its derived file body/description, keeps the source session intact, blocks model-facing reads, suppresses candidate regeneration from its source lines after rebuild, and fails candidate generation closed when a managed semantic record is malformed. |
 | FR-013 privacy | Security fixtures | Secret-shaped strings in episode and candidate data, path escapes, unsafe model output, no raw transcript copy; broad PII classification remains outside the current redactor |
 | FR-014 / AC-010 budgets | Ranking + performance + prompt integration | Local candidate caps and privacy-safe metrics; automatic handoff is request-triggered, capped at five episodes/4,000 characters, and absent from Jev, hooks, persisted messages, and logs |
 | FR-015 / AC-007 rebuild/failure | Integration | Truncated JSONL, corrupt index, missing project, permission error, atomic-write failure |
@@ -110,9 +110,11 @@
    historical state and ensure no summary turns “maybe” into “decided.”
 4. Build a week/month/year rollup; ask for a precise detail; verify answer evidence comes
    from linked episodes, not rollup prose alone.
-5. Forget an episode, rebuild all indexes, and prove its summary/derived claim is no
-   longer retrievable. The original source session follows the selected forget policy;
-   any recovery must be explicit and must not silently undo the suppression tombstone.
+5. Forget a semantic memory through the tool, CLI, and slash path. Confirm its derived body
+   and description are erased, model-facing read is denied, candidate scans after rebuild
+   do not recreate it from the same source lines, and the source session remains available
+   for explicit history recall. Separately delete and restore a session; verify that only
+   the session delete/restore action controls whether its episode and rollups are available.
 6. Corrupt one session line and the derived index; confirm valid neighbors remain usable,
    warning names `athena memory rebuild`, and boot/ordinary project work continue.
 7. Ask a current-repository question after memory describes an older implementation;

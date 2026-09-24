@@ -259,6 +259,9 @@ describe('parseArgs — memory continuity commands', () => {
     expect(parseArgs(['memory', 'review', '123e4567-e89b-42d3-a456-426614174000', 'reject'])).toEqual({
       command: 'memory', action: 'review', args: ['123e4567-e89b-42d3-a456-426614174000', 'reject'],
     })
+    expect(parseArgs(['memory', 'forget', '123e4567-e89b-42d3-a456-426614174000'])).toEqual({
+      command: 'memory', action: 'forget', args: ['123e4567-e89b-42d3-a456-426614174000'],
+    })
     expect(parseArgs(['memory', 'show', 'episode-123'])).toEqual({
       command: 'memory', action: 'show', args: ['episode-123'],
     })
@@ -276,6 +279,9 @@ describe('parseArgs — memory continuity commands', () => {
     expect(parseArgs(['memory', 'candidates', 'unexpected'])).toMatchObject({ command: 'error' })
     expect(parseArgs(['memory', 'review', 'not-an-id', 'promote'])).toMatchObject({ command: 'error' })
     expect(parseArgs(['memory', 'review', '123e4567-e89b-42d3-a456-426614174000', 'forget'])).toMatchObject({ command: 'error' })
+    expect(parseArgs(['memory', 'forget'])).toMatchObject({ command: 'error' })
+    expect(parseArgs(['memory', 'forget', 'not-an-id'])).toMatchObject({ command: 'error' })
+    expect(parseArgs(['memory', 'forget', '123e4567-e89b-42d3-a456-426614174000', 'extra'])).toMatchObject({ command: 'error' })
     expect(parseArgs(['memory', 'show'])).toMatchObject({ command: 'error' })
     expect(parseArgs(['memory', 'rebuild', '--unexpected'])).toMatchObject({ command: 'error' })
     expect(parseArgs(['memory', 'search', 'recent', '--project'])).toEqual({

@@ -20,7 +20,7 @@ export type SlashCommand =
   | { kind: 'compact' }
   | {
       kind: 'memory'
-      action?: 'status' | 'rebuild' | 'timeline' | 'search' | 'show' | 'rollup' | 'rank' | 'candidates' | 'review'
+      action?: 'status' | 'rebuild' | 'timeline' | 'search' | 'show' | 'rollup' | 'rank' | 'candidates' | 'review' | 'forget'
       value?: string
       projectId?: string
     }
@@ -71,8 +71,8 @@ export function parseSlash(
   if (cmd === 'memory') {
     if (rest.length === 0) return { kind: 'memory' }
     const action = rest[0]
-    if (!['status', 'rebuild', 'timeline', 'search', 'show', 'rollup', 'rank', 'candidates', 'review'].includes(action!)) {
-      return { kind: 'error', value: 'Usage: /memory [status|rebuild|timeline [range]|search <query>|rank <query>|show <episode-id>|rollup [day|week|month|quarter|year]|candidates|review <memory-id> <promote|reject>]' }
+    if (!['status', 'rebuild', 'timeline', 'search', 'show', 'rollup', 'rank', 'candidates', 'review', 'forget'].includes(action!)) {
+      return { kind: 'error', value: 'Usage: /memory [status|rebuild|timeline [range]|search <query>|rank <query>|show <episode-id>|rollup [day|week|month|quarter|year]|candidates|review <memory-id> <promote|reject>|forget <memory-id>]' }
     }
     const valueParts: string[] = []
     let projectId: string | undefined
@@ -100,6 +100,11 @@ export function parseSlash(
       ) {
         return { kind: 'error', value: 'Usage: /memory review <memory-id> <promote|reject>' }
       }
+    }
+    if (action === 'forget' && (
+      projectId !== undefined || valueParts.length !== 1 || !SEMANTIC_MEMORY_ID.test(valueParts[0]!)
+    )) {
+      return { kind: 'error', value: 'Usage: /memory forget <memory-id>' }
     }
     if ((action === 'status' || action === 'rebuild') && value) {
       return { kind: 'error', value: `Usage: /memory ${action}` }

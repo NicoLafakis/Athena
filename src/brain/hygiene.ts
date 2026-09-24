@@ -45,6 +45,10 @@ function normalizedCandidateContent(content: string): string {
   return content.normalize('NFKC').toLowerCase().match(/[\p{L}\p{N}]+/gu)?.join(' ') ?? ''
 }
 
+export function semanticSourceIdentity(source: SourceRef): string {
+  return `${source.kind}\0${source.projectId ?? ''}\0${source.sessionId ?? ''}\0${source.recordId}`
+}
+
 export type CandidateUpsertOutcome = 'created' | 'updated' | 'unchanged'
 
 /**
@@ -238,6 +242,58 @@ export class MemoryHygieneStore {
     )
   }
 
+  /** Remove derived semantic text but keep source identities so scans cannot re-create it. */
+  forget(memoryId: string): ManagedSemanticMemory {
+    const current = this.require(memoryId)
+    if (
+      current.forgottenAt && current.content === '' &&
+      current.description === 'Forgotten semantic memory'
+    ) return current
+    const now = current.forgottenAt ?? this.now().toISOString()
+    const { projectId: _projectId, validFrom: _validFrom, validUntil: _validUntil, supersededBy: _supersededBy, ...record } = this.recordOf(current)
+    void _projectId
+    void _validFrom
+    void _validUntil
+    void _supersededBy
+    const sourceRefs = current.sourceRefs.map(({ lineDigest: _lineDigest, timeZone: _timeZone, ...source }) => {
+      void _lineDigest
+      void _timeZone
+      return source
+    })
+    return this.write(
+      {
+        ...record,
+        description: 'Forgotten semantic memory',
+        sourceRefs,
+        supportingEpisodeIds: [],
+        observedAt: now,
+        scope: 'global',
+        status: 'tombstoned',
+        confidence: 0,
+        speechAct: 'retracted',
+        supersedes: [],
+        createdAt: now,
+        updatedAt: now,
+        reviewedAt: now,
+        forgottenAt: now,
+      },
+      '',
+    )
+  }
+
+  /** Content-free source identities retained by forgotten records for rebuild suppression. */
+  forgottenSourceKeys(): Set<string> {
+    const scan = this.scanAll()
+    if (scan.malformedCount > 0) {
+      throw new Error(
+        `Cannot safely generate semantic candidates while ${scan.malformedCount} managed semantic record(s) are malformed; repair or remove them first.`,
+      )
+    }
+    return new Set(scan.records
+      .filter((memory) => memory.forgottenAt !== undefined)
+      .flatMap((memory) => memory.sourceRefs.map(semanticSourceIdentity)))
+  }
+
   private require(memoryId: string): ManagedSemanticMemory {
     const memory = this.get(memoryId)
     if (!memory) throw new Error(`No valid semantic memory ${memoryId}`)
@@ -255,12 +311,19 @@ export class MemoryHygieneStore {
     const memory = SemanticMemoryRecordSchema.parse(record)
     mkdirSync(this.semanticDir, { recursive: true })
     const file = join(this.semanticDir, `${memory.memoryId}.md`)
-    atomicWriteFileSync(file, serialize(memory, content))
+    const replacement = serialize(memory, content)
+    atomicWriteFileSync(file, replacement, (readBack) => {
+      if (readBack !== replacement) throw new Error(`Semantic memory replacement verification failed: ${memory.memoryId}`)
+    })
     return { ...memory, content, file }
   }
 
   private readAll(): ManagedSemanticMemory[] {
-    if (!existsSync(this.semanticDir)) return []
+    return this.scanAll().records
+  }
+
+  private scanAll(): { records: ManagedSemanticMemory[]; malformedCount: number } {
+    if (!existsSync(this.semanticDir)) return { records: [], malformedCount: 0 }
     const files: string[] = []
     const visit = (directory: string) => {
       for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -270,10 +333,15 @@ export class MemoryHygieneStore {
       }
     }
     visit(this.semanticDir)
-    return files
-      .map((file) => this.readFile(file))
-      .filter((memory): memory is ManagedSemanticMemory => memory !== null)
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.memoryId.localeCompare(b.memoryId))
+    const records: ManagedSemanticMemory[] = []
+    let malformedCount = 0
+    for (const file of files) {
+      const memory = this.readFile(file)
+      if (memory) records.push(memory)
+      else malformedCount++
+    }
+    records.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.memoryId.localeCompare(b.memoryId))
+    return { records, malformedCount }
   }
 
   private readFile(file: string): ManagedSemanticMemory | null {
@@ -289,7 +357,7 @@ export class MemoryHygieneStore {
       return { ...record, content: body, file }
     } catch (error) {
       this.onWarn(
-        `Skipped malformed semantic memory ${file}: ${(error as Error).message}. Repair or remove it, then run \`athena memory rebuild\`.`,
+        `Skipped malformed semantic memory ${file}: ${(error as Error).message}. Repair or remove it before running \`athena memory candidates\`; run \`athena memory rebuild\` to refresh the linked session index.`,
       )
       return null
     }

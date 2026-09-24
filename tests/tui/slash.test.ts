@@ -31,6 +31,12 @@ describe('parseSlash', () => {
     ['/memory review 123e4567-e89b-42d3-a456-426614174000 reject', {
       kind: 'memory', action: 'review', value: '123e4567-e89b-42d3-a456-426614174000 reject',
     }],
+    ['/memory forget 123e4567-e89b-42d3-a456-426614174000', {
+      kind: 'memory', action: 'forget', value: '123e4567-e89b-42d3-a456-426614174000',
+    }],
+    ['/memory forget not-an-id', {
+      kind: 'error', value: 'Usage: /memory forget <memory-id>',
+    }],
     ['/memory review 123e4567-e89b-42d3-a456-426614174000 forget', {
       kind: 'error', value: 'Usage: /memory review <memory-id> <promote|reject>',
     }],

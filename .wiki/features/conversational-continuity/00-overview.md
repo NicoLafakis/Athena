@@ -2,7 +2,7 @@
 
 - **Tier:** 3 — major / high trust impact
 - **Date:** 2026-09-23
-- **Status:** implementation in progress; local linked-episode catalog, CLI/slash inspection, source-verified semantic candidate generation/review, on-demand time rollups, explainable local ranking previews, persistent session delete/restore tombstones, Jev recall routing, source-linked Jev speech-act intake, and scoped answer-time history retrieval are implemented; semantic-memory forget, live-history dogfood, and live Jev quality evaluation remain open
+- **Status:** implementation in progress; local linked-episode catalog, CLI/slash inspection, source-verified semantic candidate generation/review/forget, on-demand time rollups, explainable local ranking previews, persistent session delete/restore tombstones, Jev recall routing, source-linked Jev speech-act intake, and scoped answer-time history retrieval are implemented; live-history dogfood and live Jev quality evaluation remain open
 - **Product owner:** Nico
 
 ## What was asked
@@ -131,11 +131,13 @@ candidates` / `/memory candidates`
 generate local review candidates only from repeated direct user claims in at least two
 distinct, digest-verified sessions; the bounded listing includes linked episode IDs.
 `athena memory review <id> <promote|reject>` and `/memory review ...` apply an explicit
-decision. Sensitive claims are excluded from inferred semantic storage; the original
-session remains canonical, and explicit remember is a separate user-directed path. Existing
-explicit or terminal decisions suppress duplicates. Session deletion persists a
-content-free tombstone that suppresses episodes and derived rollups across reads and
-rebuilds; `athena session restore <id>` explicitly restores the canonical source and
-reindexes it. Semantic-memory forget remains open; the source conversation will be preserved
-unless the user separately deletes its session. Synthetic quality and latency calibration
-is documented; representative live-history dogfood and live Jev quality remain open.
+decision. `athena memory forget <id>` and `/memory forget <id>` erase the semantic body and
+description while retaining content-free source identities that prevent candidate scans
+from regenerating the claim from those lines. Sensitive claims are excluded from inferred
+semantic storage; the original session remains canonical, and explicit remember is a
+separate user-directed path. Existing explicit or terminal decisions suppress duplicates.
+Session deletion persists a content-free tombstone that suppresses episodes and derived
+rollups across reads and rebuilds; `athena session restore <id>` explicitly restores the
+canonical source and reindexes it. Semantic-memory forget preserves that source for explicit
+historical recall. Synthetic quality and latency calibration is documented; representative
+live-history dogfood and live Jev quality remain open.

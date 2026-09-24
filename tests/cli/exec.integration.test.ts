@@ -139,6 +139,17 @@ describe('athena exec process contract', () => {
     expect(new MemoryHygieneStore(join(home, '.athena', 'memory')).listActive().map((item) => item.memoryId))
       .toContain(memoryId)
     expect(reviewed.stderr).not.toContain('Fixture model script exhausted')
+
+    const forgotten = run(['memory', 'forget', memoryId!])
+    expect(forgotten.status, forgotten.stderr).toBe(0)
+    expect(forgotten.stdout).toContain(`Semantic memory ${memoryId} forgotten.`)
+    const forgottenMemory = new MemoryHygieneStore(join(home, '.athena', 'memory')).get(memoryId!)!
+    expect(forgottenMemory).toMatchObject({ status: 'tombstoned', content: '', forgottenAt: expect.any(String) })
+    expect(readFileSync(forgottenMemory.file, 'utf8')).not.toContain('I prefer source-linked continuity candidates.')
+    expect(new MemoryHygieneStore(join(home, '.athena', 'memory')).forgottenSourceKeys().size).toBeGreaterThanOrEqual(2)
+    const rescanned = run(['memory', 'candidates'])
+    expect(rescanned.status, rescanned.stderr).toBe(0)
+    expect(rescanned.stdout).toContain('generated 0, updated 0, unchanged 0')
   })
 
   it('runs from an argument and emits one stable JSON envelope', () => {

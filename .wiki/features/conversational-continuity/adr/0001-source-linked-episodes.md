@@ -33,7 +33,10 @@ archive.
 - Source references require stable session-line IDs and project IDs, not filenames alone.
 - Rebuild and session delete-to-trash maintain persistent source-suppression tombstones.
   `athena session restore <id>` explicitly restores the source and reindexes it. Semantic
-  memory forget remains separate and awaits a source-retention decision.
+  memory forget is a separate action: it clears derived semantic text, removes secondary
+  source metadata, and retains only typed source identity plus minimal lifecycle metadata
+  to suppress regeneration, while leaving the canonical session available for explicit
+  historical recall.
 - The derived index can be discarded and reconstructed; the session history remains
   untouched.
 - Retrieval may need to fetch adjacent turns from source files; the latency budget must

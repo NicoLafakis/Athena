@@ -176,6 +176,45 @@ describe('source-verified semantic candidate generation', () => {
     expect(semanticStore.get(candidate.memoryId)).toMatchObject({ status: 'rejected' })
   })
 
+  it('does not recreate a forgotten claim from the same source lines after rebuild', () => {
+    addTurn('C:/projects/forgotten', 'I prefer memory decisions to stay source linked.')
+    addTurn('C:/projects/forgotten', 'I prefer memory decisions to stay source linked.')
+    continuityStore.rebuild(sessionsRoot)
+    generateSemanticCandidates(continuityStore, sessionsRoot, semanticStore)
+    const candidate = semanticStore.listAll()[0]!
+
+    semanticStore.forget(candidate.memoryId)
+    continuityStore.rebuild(sessionsRoot)
+    const result = generateSemanticCandidates(continuityStore, sessionsRoot, semanticStore)
+
+    expect(result).toMatchObject({ createdCount: 0, updatedCount: 0, unchangedCount: 0 })
+    expect(semanticStore.listAll()).toHaveLength(1)
+    expect(semanticStore.get(candidate.memoryId)).toMatchObject({
+      status: 'tombstoned',
+      content: '',
+      supportingEpisodeIds: [],
+      forgottenAt: expect.any(String),
+    })
+    expect(semanticStore.get(candidate.memoryId)?.sourceRefs.every((source) =>
+      !('lineDigest' in source) && !('timeZone' in source),
+    )).toBe(true)
+  })
+
+  it('fails closed when a semantic tombstone needed for forget suppression is malformed', () => {
+    addTurn('C:/projects/corrupt-forget', 'I prefer corrupted forget records to fail closed.')
+    addTurn('C:/projects/corrupt-forget', 'I prefer corrupted forget records to fail closed.')
+    continuityStore.rebuild(sessionsRoot)
+    generateSemanticCandidates(continuityStore, sessionsRoot, semanticStore)
+    const candidate = semanticStore.listAll()[0]!
+    semanticStore.forget(candidate.memoryId)
+    writeFileSync(candidate.file, 'not a managed semantic record', 'utf8')
+    continuityStore.rebuild(sessionsRoot)
+
+    expect(() => generateSemanticCandidates(continuityStore, sessionsRoot, semanticStore))
+      .toThrow(/cannot safely generate semantic candidates.*malformed/i)
+    expect(semanticStore.listAll()).toEqual([])
+  })
+
   it('does not create an inferred duplicate when an explicit active memory already states the claim', () => {
     addTurn('C:/projects/explicit', 'I prefer explicit memory to stay local and source-linked.')
     addTurn('C:/projects/explicit', 'I prefer explicit memory to stay local and source-linked.')

@@ -263,6 +263,8 @@ describe('continuity schemas', () => {
     expect(
       SemanticMemoryRecordSchema.safeParse({ ...memory, status: 'superseded' }).success,
     ).toBe(false)
+    expect(SemanticMemoryRecordSchema.safeParse({ ...memory, status: 'active', forgottenAt: stamp }).success).toBe(false)
+    expect(SemanticMemoryRecordSchema.safeParse({ ...memory, status: 'tombstoned', forgottenAt: stamp }).success).toBe(true)
   })
 
   it('validates rollup calendar bounds, timezone, digest, and unique coverage', () => {

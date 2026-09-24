@@ -98,8 +98,11 @@ history to a model.
   resurrect a tombstoned session. `athena session restore` clears the tombstone only after
   the original source is live again (including recovery from an interrupted delete), then
   reindexes from that source. Corrupt ledger
-  state fails closed and rebuild preserves it for recovery. Semantic-memory forget and its
-  source-retention policy are a separate pending decision.
+  state fails closed and rebuild preserves it for recovery. Semantic-memory forget clears
+  the derived content and retains typed source identities plus minimal lifecycle metadata
+  in a terminal record so the same source lines cannot regenerate it. Source digests,
+  timezones, supporting episode IDs, original observation/validity dates, and project scope
+  are removed; the canonical session remains available for explicit historical recall.
 - `Memory.read` for managed semantic records verifies each cited session file, stable line
   ID, timestamp, source kind, and user-authored message role before returning the memory
   text as tool output. A trashed or missing session, missing source line, mismatched
@@ -357,7 +360,7 @@ unstructured fact store.
 |---|---|---|---|
 | Session JSONL (`src/harness/sessions.ts`) | Session filename ID; each appended line gets a UUID and UTC timestamp. Schema version 3 adds optional top-level IANA timezone metadata; the reader accepts legacy lines without IDs or timezone. The project directory is `projectSlug(canonicalProjectPath)`, a local path-derived partition key. | Message/event appends are redacted. Checkpoint and rewind lines copy the reconstructed message array; a fork writes a checkpoint plus a `session-fork` event with source project/session/line identity. `athena session delete` writes a continuity tombstone and renames the file into project `.trash`; `athena session restore <id>` restores the source and reindexes it. | Canonical conversational source. Index message/event line IDs once; snapshots are reconstruction state, not duplicate episodes. Resolve nested fork ancestry through immutable boundaries. Skip `.trash`; persistent source tombstones prevent rebuild resurrection. For a legacy line without ID, derive the source key from physical line number and SHA-256 of the raw UTF-8 line. |
 | RunTrace (`src/harness/traces.ts`) | `runId` plus `sequence` and hash; traces are partitioned by a `projectId` derived from `cwd`. | Hash-chained JSONL append; writer closes with a final event. No user-facing deletion flow was found in the current CLI. | Operational evidence only. Link a trace event when useful to a conversation episode; do not use trace text as user-confirmed personal memory. |
-| User memory files (`src/tools/memory.ts`) | Legacy prose uses a relative file path; managed semantic records use a UUID and typed source references. `MEMORY.md` remains an index, not a record ID. | Legacy paths retain list/read/write/delete. Semantic records live under `memory/semantic/`; explicit remember, candidate generation/review, and correction/supersession use `MemoryHygieneStore`. Managed records are not included in the injected `MEMORY.md` index. | Semantic-memory forget remains planned pending its source-retention choice. User-memory deletion and source-session deletion remain distinct; session-source deletion uses the continuity tombstone ledger. |
+| User memory files (`src/tools/memory.ts`) | Legacy prose uses a relative file path; managed semantic records use a UUID and typed source references. `MEMORY.md` remains an index, not a record ID. | Legacy paths retain list/read/write/delete. Semantic records live under `memory/semantic/`; explicit remember, candidate generation/review, correction/supersession, and forget use `MemoryHygieneStore`. Managed records are not included in the injected `MEMORY.md` index. | `athena memory forget <id>`, `/memory forget <id>`, and the `Memory` tool clear the derived body and description; they drop source digests, timezones, support episode IDs, original observation/validity dates, and project scope. The terminal record keeps typed source identities plus required lifecycle metadata to suppress candidate regeneration from those lines. The original source remains available for explicit history recall. Source-session deletion remains distinct and uses the continuity tombstone ledger. |
 | Experience (`src/experience/`) | Schema record ID, `projectScope`, creation time, and `evidenceRefs`. The evidence-ref strings are not a typed session-message contract. | JSONL snapshots keyed by record ID; append is idempotent for identical records and guidance has explicit review transitions. | Existing project-scoped task-outcome guidance; optionally rank for “similar work,” but do not treat it as conversation history or semantic personal memory. |
 | Governed learning (`src/learning/`) | Claim/candidate IDs with source run IDs and trace hashes. | Append-updated claims use governed promotion/rejection/expiry and consolidation. | Keep its task-method claims and evaluation lifecycle separate from conversational semantic memory. |
 | Self-reflection journal | `BrainPaths` reserves a `journalDir`; the linked wiki describes a proposal, but no journal store/tool implementation was found in the current source. | No implemented entry lifecycle or restore/delete path to reuse yet. | Not an available Phase 1 source. Integrate only after a concrete journal schema and stable entry identity exist. |
@@ -463,9 +466,13 @@ added without changing session-line identity.
   is linked to the correction message; the prior statement and its source remain
   unchanged. Valid-time intervals are schema-validated, but automatic interval closure
   is not yet wired.
-- Semantic-memory forget remains open; it will suppress derived semantic material while
-  preserving the canonical session source, which remains deletable through the separate
-  session delete control.
+- `MemoryHygieneStore.forget` atomically writes a tombstoned record with an empty body and
+  generic description, and records `forgottenAt`. It removes digests, timezones, episode
+  IDs, original observation/validity dates, and project scope. Retained source IDs suppress
+  those exact lines from future inferred-candidate scans, including after rebuild/restart. A later
+  repeated claim from new, independent source lines can qualify as a new review candidate;
+  it is never auto-promoted. The canonical source remains available for explicit recall.
+  Session deletion remains the separate control for removing source episodes from recall.
   Source-session delete/restore is implemented through the persistent tombstone ledger;
   restore is explicit and reindexes only from the recovered source.
 
@@ -478,11 +485,12 @@ request; they never trigger hidden background provider calls.
 
 ## Interfaces
 
-The `Memory` tool provides explicit remember, review, and correct/supersede operations.
-The `athena memory` CLI and `/memory` provide status, rebuild, search, timeline by time
-range, source/context inspection, ranking previews, and explicit candidate generation and
-review. Semantic-memory forget remains open pending implementation. Session source deletion
-and restore use persistent continuity tombstones. Mutations validate targets. Do not
+The `Memory` tool provides explicit remember, review, correct/supersede, and user-requested
+forget operations. The `athena memory` CLI and `/memory` provide status, rebuild, search,
+timeline by time range, source/context inspection, ranking previews, candidate generation
+and review, and `forget <memory-id>`. Forget erases only the derived semantic record while
+preserving its source session and preventing the same source lines from regenerating it.
+Session source deletion and restore use persistent continuity tombstones. Mutations validate targets. Do not
 silently add continuity to every project prompt. Automatic source handoff occurs only in
 response to a routed historical-recall request and uses the documented local filters and
 payload caps.

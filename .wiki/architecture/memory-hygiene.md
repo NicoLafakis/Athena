@@ -57,7 +57,10 @@ sensitive wording at decision time. Semantic records stay out of automatically a
 provider prompts; only the verified `Memory.read` tool path returns permitted record content
 to the active conversation. Source-session forget/delete integration and citation-verification
 hooks for legacy free-text files remain unfinished. The user has not yet selected the
-source-retention behavior for a forget action, so no semantic forget command is exposed.
+semantic forget preserves the canonical session source while atomically clearing the
+managed derived body and description, removing secondary source metadata, and retaining
+typed source identities plus minimal lifecycle metadata to suppress candidate regeneration
+from those lines. Use `athena memory forget <id>` or `/memory forget <id>`.
 
 The [self-reflection journal](self-reflection-journal.md) remains operational evidence.
 Continuity may consume it when implemented, but it is neither a transcript archive nor a
@@ -174,7 +177,8 @@ Field notes:
   are not retrieved. See the [continuity lifecycle](../features/conversational-continuity/design.md).
 - Citation-state mutations never physically delete legacy memory files. The semantic
   store also preserves tombstoned bodies; generic `Memory delete` is blocked for managed
-  semantic paths. The separate source-session forget/delete behavior remains pending.
+  semantic paths. Source-session deletion remains a separate `athena session delete` action
+  and uses continuity tombstones; it is independent of semantic-memory forget.
 
 `MEMORY.md`'s per-entry index line gains a status marker so retrieval-time scanning is
 cheap without opening files:

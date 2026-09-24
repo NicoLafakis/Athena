@@ -45,17 +45,17 @@ scoped recall on 2026-09-23. Representative live-history dogfood remains a Phase
 
 ### Phase 3: semantic memory lifecycle
 
-Add source-linked explicit memories, inferred candidates, correction/supersession, and
-forgetting integrated with the existing memory tool/index. The initial schema/store and
-the `Memory` tool's explicit remember, review, and correction/supersession paths are in
-place. Explicit `athena memory candidates` / `/memory candidates` commands generate
-review-only semantic candidates from repeated direct user claims in distinct,
-source-digest-verified sessions; local bounded listings and `memory review` commands
-allow explicit promotion or rejection. Repeated sensitive claims are excluded from inferred
-semantic storage; a user-directed explicit remember request is a separate path. A
-single-session repetition is insufficient; every inferred source is verified again at
-promotion time. Forget/source deletion integration is still open pending the source-retention choice.
-Semantic records remain local and are not injected into provider prompts.
+The versioned semantic schema/store, explicit remember, review, correction/supersession,
+and forget controls are implemented through the existing memory tool/index. Explicit
+`athena memory candidates` / `/memory candidates` commands generate review-only candidates
+from repeated direct user claims in distinct, source-digest-verified sessions; local
+bounded listings and review commands allow explicit promotion or rejection. Repeated
+sensitive claims are excluded from inferred storage; explicit remember is a separate
+user-directed path. Promotion re-verifies every source. `athena memory forget <id>` and
+`/memory forget <id>` erase the derived body/description and keep source IDs only to prevent
+re-derivation from those exact lines; the canonical session remains available for explicit
+historical recall. Source-session deletion remains a distinct action. Semantic records are
+local and are not injected into provider prompts.
 
 **Exit:** tombstone/rebuild tests, correction tests, and sensitive-data review pass.
 
@@ -91,8 +91,8 @@ its scoped payload and false-positive/no-hit rate during dogfood.
   or accepts an already-live source left by an interrupted delete; it then clears the
   tombstone and reindexes from the live source. A corrupt tombstone ledger fails closed;
   rebuild refuses to overwrite it, preserving the state for recovery.
-- Semantic-memory forget and its source-retention behavior are separate and remain open.
-  Restoring a deleted session does not override a separate forget decision.
+- Semantic forget keeps a durable source-line suppression marker. Restoring a deleted
+  session does not override a separate semantic forget decision.
 - Schema upgrades rebuild derived data from source; they do not overwrite a working index
   before the replacement is verified.
 
@@ -120,7 +120,7 @@ continuity index only if its local state needs rebuilding. Existing content-free
 events remain in canonical session JSONL and continue to inform local indexing while their
 source lines verify. Session delete/restore tombstones remain governed by the local
 continuity store. This does not touch RunTrace, credentials, or learning records. Managed
-semantic memories retain their source links and currently support review and correction;
-forget controls are unfinished. A recall-scope incident requires reverting or correcting
+semantic memories retain their source links and support review, correction, and forget.
+Forget scrubs derived text while retaining the original session for historical recall. A recall-scope incident requires reverting or correcting
 the answer-time callback and rerunning the privacy and prompt-isolation gates before
 release; disabling Jev alone does not disable the explicit deterministic fallback.

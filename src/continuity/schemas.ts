@@ -282,6 +282,7 @@ export const SemanticMemoryRecordSchema = z
     createdAt: UtcInstantSchema,
     updatedAt: UtcInstantSchema,
     reviewedAt: UtcInstantSchema.optional(),
+    forgottenAt: UtcInstantSchema.optional(),
   })
   .strict()
   .superRefine((memory, ctx) => {
@@ -294,7 +295,7 @@ export const SemanticMemoryRecordSchema = z
     if (memory.validFrom && memory.validUntil && Date.parse(memory.validUntil) <= Date.parse(memory.validFrom)) {
       ctx.addIssue({ code: 'custom', path: ['validUntil'], message: 'validUntil must be later than validFrom' })
     }
-    if (memory.captureMode === 'inferred') {
+    if (memory.captureMode === 'inferred' && !memory.forgottenAt) {
       if (new Set(memory.supportingEpisodeIds).size < 2) {
         ctx.addIssue({
           code: 'custom',
@@ -328,6 +329,9 @@ export const SemanticMemoryRecordSchema = z
     }
     if (memory.status === 'superseded' && !memory.supersededBy) {
       ctx.addIssue({ code: 'custom', path: ['supersededBy'], message: 'Superseded memory requires a replacement ID' })
+    }
+    if (memory.forgottenAt && memory.status !== 'tombstoned') {
+      ctx.addIssue({ code: 'custom', path: ['forgottenAt'], message: 'Forgotten memory must be tombstoned' })
     }
     if (memory.status !== 'superseded' && memory.supersededBy) {
       ctx.addIssue({ code: 'custom', path: ['supersededBy'], message: 'Only superseded memory can link to a replacement' })

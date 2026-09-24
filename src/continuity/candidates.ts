@@ -1,4 +1,4 @@
-import { MemoryHygieneStore, type ManagedSemanticMemory } from '../brain/hygiene.js'
+import { MemoryHygieneStore, semanticSourceIdentity, type ManagedSemanticMemory } from '../brain/hygiene.js'
 import { redactSessionValue } from '../harness/sessions.js'
 import type { SourceRef, SpeechAct } from './schemas.js'
 import type { ContinuityStatus, ContinuityStore } from './store.js'
@@ -124,6 +124,7 @@ export function generateSemanticCandidates(
   )
   const contexts = loadEpisodeSourceContexts(sessionsRoot, episodes)
   const groups = new Map<string, Map<string, CandidateOccurrence>>()
+  const forgottenSourceKeys = semanticStore.forgottenSourceKeys()
 
   for (const context of contexts) {
     if (context.status !== 'ok' || context.truncated) continue
@@ -137,6 +138,8 @@ export function generateSemanticCandidates(
         (source) => source.kind === 'session-message' && source.recordId === message.sourceLineId,
       )
       if (!sourceRef?.projectId || sourceRef.projectId !== context.episode.projectId || !sourceRef.sessionId) continue
+      const sourceKey = semanticSourceIdentity(sourceRef)
+      if (forgottenSourceKeys.has(sourceKey)) continue
       const normalized = normalizeClaim(content)
       if (!normalized) continue
       const occurrence: CandidateOccurrence = {

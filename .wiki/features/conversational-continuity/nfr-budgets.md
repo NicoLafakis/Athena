@@ -37,6 +37,8 @@ sample; representative live-history performance remains unmeasured.
 - Optional index failure never blocks boot, non-memory requests, or project work.
 - Every surfaced memory result has valid source refs or is explicitly marked unverified.
 - Zero known forgotten/tombstoned records returned after rebuild.
+- A forgotten semantic record retains only typed source IDs needed to suppress its exact
+  source lines; its semantic body and user-authored description are absent from disk.
 
 ## Privacy and cost
 

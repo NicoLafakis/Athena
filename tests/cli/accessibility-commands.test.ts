@@ -251,5 +251,17 @@ describe('local accessibility commands', () => {
       .join('\n')
     expect(output).toContain(`Semantic memory ${memoryId} rejected.`)
     expect(new MemoryHygieneStore(paths.memoryDir).get(memoryId!)?.status).toBe('rejected')
+
+    handler(parseSlash(`/memory forget ${memoryId}`)!)
+    const forgetOutput = events
+      .filter((event): event is Extract<EngineEvent, { type: 'info' }> => event.type === 'info')
+      .map((event) => event.message)
+      .join('\n')
+    expect(forgetOutput).toContain(`Semantic memory ${memoryId} forgotten.`)
+    expect(new MemoryHygieneStore(paths.memoryDir).get(memoryId!)).toMatchObject({
+      status: 'tombstoned',
+      content: '',
+      forgottenAt: expect.any(String),
+    })
   })
 })

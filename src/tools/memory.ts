@@ -17,7 +17,7 @@ import { reviewSemanticCandidate } from '../continuity/candidates.js'
 import { semanticSourcesAvailable } from '../continuity/semantic-source.js'
 
 const MemoryInput = z.object({
-  op: z.enum(['list', 'read', 'write', 'delete', 'remember', 'review', 'supersede']),
+  op: z.enum(['list', 'read', 'write', 'delete', 'remember', 'review', 'supersede', 'forget']),
   path: z.string().optional(), // relative to memory dir; required for read/write/delete
   content: z.string().optional(), // required for write
   description: z.string().optional(), // index line annotation for write
@@ -72,7 +72,7 @@ function walk(dir: string): string[] {
 export const memoryTool: ToolDefinition<z.infer<typeof MemoryInput>> = {
   name: 'Memory',
   description:
-    'List, read, write, or delete Brain memory files. For current personal facts, use only semantic records marked active and within their valid dates; treat candidates as unconfirmed and superseded records as historical. The model-facing read action never returns candidate, flagged, rejected, or tombstoned semantic content; use local review controls for those records. Managed semantic reads verify that each cited session line is still available, unchanged, and user-authored, and reject sources suppressed by continuity tombstones; do not use a memory whose source is unavailable or changed. Use remember only when the user explicitly asks to retain a fact; questions and hypotheticals are not facts. Use review only after the user accepts or rejects a candidate; promotion revalidates every inferred source against the complete local continuity index and its current session lines. Supersede only when the user explicitly corrects an active memory. Source links come from persisted user messages. Writes and deletes keep MEMORY.md in sync.',
+    'List, read, write, or delete Brain memory files. For current personal facts, use only semantic records marked active and within their valid dates; treat candidates as unconfirmed and superseded records as historical. The model-facing read action never returns candidate, flagged, rejected, tombstoned, or forgotten semantic content. Managed semantic reads verify that each cited session line is still available, unchanged, and user-authored, and reject sources suppressed by continuity tombstones; do not use a memory whose source is unavailable or changed. Use remember only when the user explicitly asks to retain a fact; questions and hypotheticals are not facts. Use review only after the user accepts or rejects a candidate; promotion revalidates every inferred source against the complete local continuity index and its current session lines. Supersede only when the user explicitly corrects an active memory. Forget only when the user explicitly asks to forget a derived semantic memory, using its memoryId; this erases the derived text and keeps its original session available for historical recall. Source links come from persisted user messages. Writes and deletes keep MEMORY.md in sync.',
   schema: MemoryInput,
   readOnly: false,
   async execute(input, ctx) {
@@ -133,6 +133,15 @@ export const memoryTool: ToolDefinition<z.infer<typeof MemoryInput>> = {
         return { output: `Semantic memory ${memory.memoryId} reviewed: ${memory.status}.`, isError: false }
       } catch (error) {
         return { output: `Could not review semantic memory: ${(error as Error).message}`, isError: true }
+      }
+    }
+    if (input.op === 'forget') {
+      if (!input.memoryId) return { output: 'forget requires memoryId', isError: true }
+      try {
+        const forgotten = new MemoryHygieneStore(memDir).forget(input.memoryId)
+        return { output: `Semantic memory forgotten: ${forgotten.memoryId}. Its source session remains available for historical recall.`, isError: false }
+      } catch (error) {
+        return { output: `Could not forget semantic memory: ${(error as Error).message}`, isError: true }
       }
     }
     if (input.op === 'supersede') {
@@ -199,6 +208,12 @@ export const memoryTool: ToolDefinition<z.infer<typeof MemoryInput>> = {
           const memory = new MemoryHygieneStore(memDir).get(memoryId)
           if (!memory || memory.file.toLowerCase() !== abs.toLowerCase()) {
             return { output: `No managed semantic memory at ${rel}`, isError: true }
+          }
+          if (memory.forgottenAt) {
+            return {
+              output: 'Managed semantic memory was forgotten; its original source session remains available for historical recall.',
+              isError: true,
+            }
           }
           if (['candidate', 'flagged', 'rejected', 'tombstoned'].includes(memory.status)) {
             return {

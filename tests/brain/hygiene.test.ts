@@ -166,6 +166,34 @@ describe('MemoryHygieneStore', () => {
     expect(() => store.promote(memory.memoryId)).toThrow(/terminal/i)
   })
 
+  it('forgets semantic content while retaining source identities to suppress re-derivation', () => {
+    const store = new MemoryHygieneStore(join(root, 'memory'), { now: () => new Date(observedAt) })
+    const memory = store.create(explicitInput())
+    const forgotten = store.forget(memory.memoryId)
+    const persisted = readFileSync(memory.file, 'utf8')
+
+    expect(forgotten).toMatchObject({
+      memoryId: memory.memoryId,
+      status: 'tombstoned',
+      description: 'Forgotten semantic memory',
+      content: '',
+      sourceRefs: [{
+        kind: firstRef.kind,
+        projectId: firstRef.projectId,
+        sessionId: firstRef.sessionId,
+        recordId: firstRef.recordId,
+        timestamp: firstRef.timestamp,
+      }],
+      supportingEpisodeIds: [],
+      forgottenAt: observedAt,
+    })
+    expect(persisted).not.toContain('I prefer linked memory across projects.')
+    expect(persisted).not.toContain('Cross-project memory preference')
+    expect(store.listActive()).toEqual([])
+    expect(store.forgottenSourceKeys()).toContain('session-message\0project-one\0session-one\0line-one')
+    expect(store.forget(memory.memoryId)).toEqual(forgotten)
+  })
+
   it('skips malformed managed memory files with an actionable warning', () => {
     const warnings: string[] = []
     const memoryDir = join(root, 'memory')

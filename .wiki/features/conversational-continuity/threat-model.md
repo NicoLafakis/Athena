@@ -25,7 +25,7 @@ and source history vs. active semantic memories.
 | Secret propagation | Credential appears in a memory summary or search result | Existing redaction plus summary-specific redaction tests; never copy full transcripts |
 | Stale memory | Old decision is stated as current | Observed/valid time, supersession, freshness ranking, current source precedence |
 | Index poisoning | Model supplies a forged source path or ID | Server-authored identifiers; strict schema; resolve only under known local roots |
-| Forgotten data resurrection | Rebuild recreates deleted session episodes or a semantically forgotten memory | Session deletion is protected by persistent source tombstones across reads and rebuilds; semantic-memory forget is tracked separately and will suppress derived semantic data while preserving its source session. |
+| Forgotten data resurrection | Rebuild recreates deleted session episodes or a semantically forgotten memory | Session deletion is protected by persistent source tombstones. Semantic forget clears the semantic body/description, drops source digests and secondary context metadata, retains typed source identities plus minimal lifecycle metadata, and candidate scans skip those lines after rebuild; the source session remains available through history retrieval. |
 | Search side-channel | Query diagnostics leak private topic/content | Log counts, durations, index version, source IDs only; never query or result text |
 | Corrupt/hostile records | Malformed JSON or control characters enter context | Zod validation, bounds, safe text formatting, per-record isolation, atomic writes |
 | Unauthorized project setting | Project asks to add all history or sync it externally | Global user policy only; no network retrieval or project-controlled retention changes |
@@ -56,10 +56,13 @@ and source history vs. active semantic memories.
 - Candidate generation also skips a directly sourced message when the shared credential
   redactor would change it. This prevents old or manually edited unredacted credential text
   from being copied into a new semantic candidate.
-- Semantic-memory forget is not implemented yet. The selected behavior removes/suppresses
-  derived semantic content while preserving the original source session; deleting source
-  history remains the separate session delete action. Both paths must prevent rebuild
-  resurrection.
+- Semantic-memory forget clears its body and replaces its description with an empty/generic
+  terminal record; source digests, timezones, support episode IDs, original observation/
+  validity dates, and project scope are removed. Typed source identities plus minimal
+  lifecycle metadata suppress re-derivation from those exact lines. Candidate generation fails closed if any managed semantic record is
+  malformed, so a damaged suppression marker cannot be ignored. The source session remains
+  available for explicitly requested history; deleting source history remains the separate
+  session delete action. Tests cover suppression, corruption, and session preservation.
 - Jev is an additional network boundary, even though route and speech-act questions receive
   no historical context. Its result is untrusted advisory data: validate options and
   probability shapes locally, link persisted speech acts to exact user-line digests, keep
