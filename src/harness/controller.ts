@@ -18,7 +18,7 @@ import { ContextManager } from '../engine/context.js'
 import type { ToolContext, ToolDefinition, PermissionMode, SandboxMode, RunLimits } from '../engine/types.js'
 import { PermissionEngine } from './permissions.js'
 import { ProtectedPaths } from './protected-paths.js'
-import { ResourcePolicy } from './resource-policy.js'
+import { realPathForAccess, ResourcePolicy } from './resource-policy.js'
 import { HookRunner } from './hooks.js'
 import { McpManager } from './mcp.js'
 import { Session, SessionStore } from './sessions.js'
@@ -226,7 +226,18 @@ export class HarnessSessionController {
 
     ensureBrainScaffold(paths)
 
-    const protectedPaths = ProtectedPaths.from(settings.protectedPaths)
+    // Write checks resolve requested targets through existing symlinks and platform
+    // aliases. Normalize configured fence roots the same way, or `/var` versus `/private`
+    // on macOS and Win32 short versus long names can make the same path compare unequal.
+    const protectedPaths = ProtectedPaths.from(
+      settings.protectedPaths.map((root) => {
+        try {
+          return realPathForAccess(root, cwd)
+        } catch {
+          return root
+        }
+      }),
+    )
     const resourcePolicy = new ResourcePolicy(cwd, sandboxMode, [paths.brainDir], protectedPaths)
     const gate = new PermissionEngine({
       mode: permissionMode,
