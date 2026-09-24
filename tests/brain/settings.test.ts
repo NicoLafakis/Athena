@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { resolveBrainPaths } from '../../src/brain/paths.js'
-import { loadSettings, SettingsSchema, makeSettingsSchema } from '../../src/brain/settings.js'
+import { loadGlobalTimeZone, loadSettings, SettingsSchema, makeSettingsSchema } from '../../src/brain/settings.js'
 
 let home: string
 let project: string
@@ -138,6 +138,19 @@ describe('loadSettings', () => {
 
     expect(settings.timeZone).toBe('Europe/Paris')
     expect(warnings).toContain('Project settings cannot override the global user timezone; ignoring project timeZone.')
+  })
+
+  it('loads the continuity timezone without validating unrelated model settings', () => {
+    mkdirSync(join(home, '.athena'), { recursive: true })
+    writeFileSync(
+      join(home, '.athena', 'settings.json'),
+      JSON.stringify({ model: 'sol', timeZone: 'America/New_York' }),
+    )
+    const paths = resolveBrainPaths({ cwd: project, homeOverride: home })
+    const warnings: string[] = []
+
+    expect(loadGlobalTimeZone(paths, (warning) => warnings.push(warning))).toBe('America/New_York')
+    expect(warnings).toEqual([])
   })
 
   it('keeps Jev enablement global so an individual project cannot opt into provider calls', () => {

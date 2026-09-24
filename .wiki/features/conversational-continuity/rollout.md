@@ -81,8 +81,11 @@ its scoped payload and false-positive/no-hit rate during dogfood.
 
 - First use creates no mandatory data migration. `athena memory rebuild` constructs the
   index from existing session files.
-- Rebuild writes to a temporary sibling, validates record counts and source refs, then
-  atomically swaps the index. A failed rebuild preserves the last good index.
+- Rebuild writes a gzip+base64 envelope around the existing index schema to a temporary
+  sibling, validates record counts and source refs after bounded decompression, then
+  atomically swaps the index. A failed rebuild preserves the last good index. Legacy plain
+  JSON indexes remain readable under the original expanded-size limit and migrate on the
+  next successful rebuild or session update.
 - Existing sessions and user memory files are not rewritten during indexing.
 - Session deletion writes a versioned, content-free suppression tombstone before the
   source JSONL moves to the project’s `.trash` directory. Reads, rankings, rollups, and

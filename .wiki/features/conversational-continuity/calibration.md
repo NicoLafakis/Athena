@@ -126,14 +126,21 @@ establish equivalent accuracy on real-user language.
 
 ## Limited local-history spot-check
 
-A read-only search over the available local archive found no exact `Jev` topic match.
-The initial ranking preview still selected unrelated episodes because the generic word
-“model” counted as topical evidence. The shared ranker now removes recall/intent-only
-terms before subject matching and returns no candidate without a matching subject or
-bounded time window. Regression tests cover both an intent-only decision query and a
-specific but absent model name. The local archive was too small to establish representative
-multi-project usefulness, correction rates, or index-size ratio; those Phase 4.3 checks
-remain open.
+The earlier bounded review found a ranking false positive: a generic word such as “model”
+was treated as topical evidence. The ranker now removes recall/intent-only terms before
+subject matching and returns no candidate without a matching subject or bounded time
+window; regression tests cover both intent-only and specific-but-absent queries.
+The current host archive contains 8 session files and 29 indexed episodes across 2 project
+partitions, totaling 369,230 source bytes. The episode range is July 23–August 13, 2026,
+so the archive covers only two active months. Bounded local search and ranking found some
+useful retrieval within a concentrated August voice/permissions topic cluster, but this
+cannot establish cross-project breadth, correction rates, or day/week/month/quarter/year
+continuity quality.
+
+The compressed index is 30,833 bytes, or 8.35% of source bytes; its prior plain JSON form
+was 97,851 bytes, or 26.5%. The under-10% size target is met on this archive only. Neither
+this measurement nor the focused spot-check closes Phase 4.3's representative-history
+dogfood gate.
 
 ## Quality results
 
@@ -149,26 +156,27 @@ real user statements. No candidate is automatically promoted.
 
 ## Local performance sample
 
-Measured on 2026-09-23 on the development host with a synthetic, 10,000-episode,
-7,971,559-byte index. Ten warm calls per path were measured after one cold validated read
-using the checked-in benchmark script.
+Measured on 2026-09-24 on the development host with the checked-in benchmark script. The
+synthetic index contains 10,000 episodes: 11,321,587 bytes expanded and 394,873 bytes
+stored (3.49% of expanded size). Ten warm calls per path were measured after one cold
+validated read. All records were generated under a temporary directory; no user archive
+was read by this benchmark.
 
-- Cold index read, parse, and validation: **232.93 ms**.
-- Warm `ContinuityStore.listEpisodes()` plus `searchEpisodes()` median: **23.86 ms**;
-  observed range **20.43–45.67 ms**.
+- Cold compressed-index read, decompression, parse, and validation: **250.36 ms**.
+- Warm indexed search median: **13.72 ms**, observed range **12.16–21.25 ms**.
 - Grouped digest-verified source-context expansion for 5 episodes while enumerating
-  10,000 session files: median **24.99 ms**, observed range **21.04–28.95 ms**.
+  10,000 session files: median **29.34 ms**, observed range **22.33–43.58 ms**.
 - Warm shared `formatContinuitySearch()` path (search, index, source resolution, digest
-  checks, and bounded output) median **22.96 ms**, observed range **21.26–26.03 ms**. This
-  is below the 150 ms warm local search target in this synthetic sample.
-- Warm local ranking plus all five on-demand rollup granularities: median **270.33 ms**;
-  observed range **256.03–302.74 ms**. There is no separate ranking budget yet.
+  checks, and bounded output): median **45.27 ms**, observed range **38.16–48.02 ms**.
+- Warm local ranking plus all five on-demand rollup granularities: median **449.05 ms**;
+  observed range **323.66–462.96 ms**. There is no separate ranking budget yet.
 
-The indexed search and grouped source-verification budgets pass in this generated sample.
-It does not model disk contention, very large individual session files, TUI rendering, or
-long-lived real project distributions. Index-size ratio and live-history correction rates
-remain unmeasured, and subjective usefulness still requires representative-history
-dogfood before Phase 4.3 can be marked complete.
+Warm indexed search and grouped source expansion remain within their synthetic targets.
+The ranking measurement is recorded without a pass claim because no ranking budget exists.
+This sample does not model disk contention, very large individual session files, TUI
+rendering, or long-lived project distributions. Synthetic performance and the small local
+size ratio do not replace representative-history correction-rate and usefulness dogfood;
+Phase 4.3 remains open.
 
 ## Policy resulting from the review
 

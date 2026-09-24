@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { gunzipSync, gzipSync } from 'node:zlib'
 import { latestUserMessageSourceRef, readSessionLineRecords, sessionLineDigest, stableSessionLineId, SessionStore } from '../../src/harness/sessions.js'
 import { ContinuityStore } from '../../src/continuity/store.js'
 
@@ -122,6 +123,94 @@ describe('ContinuityStore', () => {
     expect(second).toEqual(first)
   })
 
+  it('persists a compressed index envelope and reads it back without losing linked episodes', () => {
+    const session = new SessionStore(sessionsRoot, 'C:/projects/compressed-index').create()
+    session.appendMessage({ role: 'user', content: 'A repeated source-linked phrase. '.repeat(40) })
+    session.appendEvent({ type: 'turn-done' })
+    const continuityRoot = join(root, 'continuity')
+    const store = new ContinuityStore(continuityRoot)
+
+    store.rebuild(sessionsRoot)
+
+    const indexFile = join(continuityRoot, 'index.json')
+    const persisted = JSON.parse(readFileSync(indexFile, 'utf8')) as {
+      format?: string
+      formatVersion?: number
+      encoding?: string
+      payload?: string
+    }
+    expect(persisted).toMatchObject({
+      format: 'athena-continuity-index',
+      formatVersion: 1,
+      encoding: 'gzip+base64',
+    })
+    const decoded = JSON.parse(gunzipSync(Buffer.from(persisted.payload!, 'base64')).toString('utf8'))
+    expect(decoded).toEqual(store.readIndex())
+    expect(persisted.payload).not.toContain('A repeated source-linked phrase.')
+    expect(Buffer.byteLength(readFileSync(indexFile, 'utf8'))).toBeLessThan(
+      Buffer.byteLength(JSON.stringify(decoded, null, 2) + '\n'),
+    )
+    expect(new ContinuityStore(continuityRoot).listEpisodes()).toEqual(store.listEpisodes())
+  })
+
+  it('reads a legacy plain JSON index and migrates it on rebuild', () => {
+    const session = new SessionStore(sessionsRoot, 'C:/projects/legacy-index').create()
+    session.appendMessage({ role: 'user', content: 'The legacy index remains readable.' })
+    session.appendEvent({ type: 'turn-done' })
+    const continuityRoot = join(root, 'continuity')
+    const initialStore = new ContinuityStore(continuityRoot)
+    initialStore.rebuild(sessionsRoot)
+    const expected = initialStore.listEpisodes()
+    const indexFile = join(continuityRoot, 'index.json')
+    writeFileSync(indexFile, JSON.stringify(initialStore.readIndex()), 'utf8')
+
+    const legacyStore = new ContinuityStore(continuityRoot)
+    expect(legacyStore.listEpisodes()).toEqual(expected)
+    legacyStore.rebuild(sessionsRoot)
+
+    const migrated = JSON.parse(readFileSync(indexFile, 'utf8')) as { format?: string }
+    expect(migrated.format).toBe('athena-continuity-index')
+    expect(new ContinuityStore(continuityRoot).listEpisodes()).toEqual(expected)
+  })
+
+  it('rejects a compressed index whose expanded JSON exceeds the configured byte limit', () => {
+    const continuityRoot = join(root, 'continuity')
+    mkdirSync(continuityRoot, { recursive: true })
+    const validIndex = JSON.stringify({
+      schemaVersion: 1,
+      generatedAt: '2026-09-23T00:00:00.000Z',
+      catalogComplete: true,
+      sessions: [],
+      episodes: [],
+    }) + ' '.repeat(100_000)
+    writeFileSync(join(continuityRoot, 'index.json'), JSON.stringify({
+      format: 'athena-continuity-index',
+      formatVersion: 1,
+      encoding: 'gzip+base64',
+      payload: gzipSync(Buffer.from(validIndex)).toString('base64'),
+    }), 'utf8')
+    const store = new ContinuityStore(continuityRoot, { maxIndexBytes: 512 })
+
+    expect(store.status().state).toBe('corrupt')
+    expect(store.listEpisodes()).toEqual([])
+  })
+
+  it('rejects a legacy JSON index above the expanded byte limit', () => {
+    const continuityRoot = join(root, 'continuity')
+    mkdirSync(continuityRoot, { recursive: true })
+    const validIndex = JSON.stringify({
+      schemaVersion: 1,
+      generatedAt: '2026-09-23T00:00:00.000Z',
+      catalogComplete: true,
+      sessions: [],
+      episodes: [],
+    }) + ' '.repeat(600)
+    writeFileSync(join(continuityRoot, 'index.json'), validIndex, 'utf8')
+    const store = new ContinuityStore(continuityRoot, { maxIndexBytes: 512 })
+
+    expect(store.status().state).toBe('corrupt')
+    expect(store.listEpisodes()).toEqual([])
+  })
   it('reuses immutable validated index snapshots and invalidates them when index bytes change', () => {
     const session = new SessionStore(sessionsRoot, 'C:/projects/snapshot-cache').create()
     session.appendMessage({ role: 'user', content: 'A source-linked snapshot.' })
@@ -140,7 +229,10 @@ describe('ContinuityStore', () => {
     }).toThrow()
 
     const indexFile = join(root, 'continuity', 'index.json')
-    const changed = JSON.parse(readFileSync(indexFile, 'utf8')) as {
+    const persisted = JSON.parse(readFileSync(indexFile, 'utf8')) as {
+      payload: string
+    }
+    const changed = JSON.parse(gunzipSync(Buffer.from(persisted.payload, 'base64')).toString('utf8')) as {
       episodes: Array<{ summary: string }>
     }
     changed.episodes[0]!.summary = 'Updated validated snapshot.'
@@ -163,7 +255,9 @@ describe('ContinuityStore', () => {
     session.appendMessage({ role: 'user', content: 'Rebuild should recover this session.' })
     store.rebuild(sessionsRoot)
     expect(store.listEpisodes()).toHaveLength(1)
-    expect(JSON.parse(readFileSync(join(root, 'continuity', 'index.json'), 'utf8')).schemaVersion).toBe(1)
+    expect(JSON.parse(readFileSync(join(root, 'continuity', 'index.json'), 'utf8')).format).toBe(
+      'athena-continuity-index',
+    )
   })
 
   it('isolates an interrupted turn when the next user prompt begins', () => {

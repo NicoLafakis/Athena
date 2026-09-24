@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { gzipSync } from 'node:zlib'
 import { ContinuityStore } from '../src/continuity/store.js'
 import { formatContinuitySearch } from '../src/continuity/presentation.js'
 import { rankContinuityLayers } from '../src/continuity/ranking.js'
@@ -72,7 +73,13 @@ try {
   const continuityDir = join(root, 'continuity')
   mkdirSync(continuityDir)
   const index = syntheticIndex()
-  const serialized = JSON.stringify(index)
+  const expandedIndex = JSON.stringify(index, null, 2) + '\n'
+  const serialized = JSON.stringify({
+    format: 'athena-continuity-index',
+    formatVersion: 1,
+    encoding: 'gzip+base64',
+    payload: gzipSync(Buffer.from(expandedIndex, 'utf8')).toString('base64'),
+  }) + '\n'
   writeFileSync(join(continuityDir, 'index.json'), serialized, 'utf8')
   const store = new ContinuityStore(continuityDir)
 
@@ -126,6 +133,9 @@ try {
     fixture: 'synthetic-local-index',
     episodes: EPISODE_COUNT,
     indexBytes: Buffer.byteLength(serialized, 'utf8'),
+    expandedIndexBytes: Buffer.byteLength(expandedIndex, 'utf8'),
+    storedToExpandedIndexPercent: Number((Buffer.byteLength(serialized, 'utf8') /
+      Buffer.byteLength(expandedIndex, 'utf8') * 100).toFixed(2)),
     samplesPerWarmPath: SAMPLE_COUNT,
     coldValidateMs,
     warmSearch,

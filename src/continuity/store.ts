@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { gunzipSync, gzipSync } from 'node:zlib'
+import { z } from 'zod'
 import { atomicWriteFileSync } from '../tools/files.js'
 import { redactSessionValue, sessionLineDigest, stableSessionLineId } from '../harness/sessions.js'
 import {
@@ -30,6 +32,53 @@ export interface ContinuityStoreOptions {
   maxEpisodes?: number
   maxIndexBytes?: number
   now?: () => Date
+}
+
+const ContinuityIndexEnvelopeSchema = z.object({
+  format: z.literal('athena-continuity-index'),
+  formatVersion: z.literal(1),
+  encoding: z.literal('gzip+base64'),
+  payload: z.string().regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),
+}).strict()
+
+function maxStoredIndexBytes(maxExpandedBytes: number): number {
+  return Math.ceil(maxExpandedBytes * 4 / 3) + Math.ceil(maxExpandedBytes / 1_000) + 1_024
+}
+
+function serializeContinuityIndex(index: ContinuityIndex, maxBytes: number): string {
+  const source = JSON.stringify(index, null, 2) + '\n'
+  const sourceBytes = Buffer.from(source, 'utf8')
+  if (sourceBytes.byteLength > maxBytes) {
+    throw new Error('Continuity rebuild exceeds the configured index size limit')
+  }
+  const content = JSON.stringify({
+    format: 'athena-continuity-index',
+    formatVersion: 1,
+    encoding: 'gzip+base64',
+    payload: gzipSync(sourceBytes).toString('base64'),
+  }) + '\n'
+  if (Buffer.byteLength(content, 'utf8') > maxStoredIndexBytes(maxBytes)) {
+    throw new Error('Continuity rebuild exceeds the configured index size limit')
+  }
+  return content
+}
+
+function parseStoredContinuityIndex(contentBytes: Buffer, maxBytes: number): ContinuityIndex {
+  if (contentBytes.byteLength > maxStoredIndexBytes(maxBytes)) throw new Error('index exceeds size limit')
+  const parsed: unknown = JSON.parse(contentBytes.toString('utf8'))
+  const envelope = ContinuityIndexEnvelopeSchema.safeParse(parsed)
+  if (!envelope.success) {
+    if (contentBytes.byteLength > maxBytes) throw new Error('index exceeds size limit')
+    return parseContinuityIndex(parsed)
+  }
+
+  const compressed = Buffer.from(envelope.data.payload, 'base64')
+  if (compressed.toString('base64') !== envelope.data.payload) {
+    throw new Error('index payload is not canonical base64')
+  }
+  const sourceBytes = gunzipSync(compressed, { maxOutputLength: maxBytes })
+  if (sourceBytes.byteLength > maxBytes) throw new Error('expanded index exceeds size limit')
+  return parseContinuityIndex(JSON.parse(sourceBytes.toString('utf8')) as unknown)
 }
 
 export interface ContinuityRebuildResult {
@@ -472,11 +521,9 @@ export class ContinuityStore {
     try {
       const statLimit = this.options.maxIndexBytes ?? 64 * 1024 * 1024
       const contentBytes = readFileSync(this.indexFile)
-      if (contentBytes.byteLength > statLimit) throw new Error('index exceeds size limit')
-      const content = contentBytes.toString('utf8')
       const contentDigest = createHash('sha256').update(contentBytes).digest('hex')
       if (contentDigest !== this.cachedIndexDigest) {
-        this.cachedIndex = parseContinuityIndex(JSON.parse(content) as unknown)
+        this.cachedIndex = parseStoredContinuityIndex(contentBytes, statLimit)
         this.cachedIndexDigest = contentDigest
         this.cachedVisibleKey = undefined
         this.cachedVisibleIndex = null
@@ -655,19 +702,16 @@ export class ContinuityStore {
   }
 
   private writeIndex(index: ContinuityIndex): void {
-    const content = JSON.stringify(index, null, 2) + '\n'
-    if (Buffer.byteLength(content, 'utf8') > (this.options.maxIndexBytes ?? 64 * 1024 * 1024)) {
-      throw new Error('Continuity rebuild exceeds the configured index size limit')
-    }
+    const maxBytes = this.options.maxIndexBytes ?? 64 * 1024 * 1024
+    const content = serializeContinuityIndex(index, maxBytes)
     atomicWriteFileSync(this.indexFile, content, (replacement) => {
-      const verified = parseContinuityIndex(JSON.parse(replacement) as unknown)
+      const verified = parseStoredContinuityIndex(Buffer.from(replacement, 'utf8'), maxBytes)
       if (JSON.stringify(verified) !== JSON.stringify(index)) {
         throw new Error(`Continuity index ${this.indexFile} did not match its verified replacement`)
       }
     })
     const verifiedContentBytes = readFileSync(this.indexFile)
-    const verifiedContent = verifiedContentBytes.toString('utf8')
-    const verified = parseContinuityIndex(JSON.parse(verifiedContent) as unknown)
+    const verified = parseStoredContinuityIndex(verifiedContentBytes, maxBytes)
     if (JSON.stringify(verified) !== JSON.stringify(index)) {
       throw new Error(`Continuity index ${this.indexFile} did not match its verified replacement`)
     }

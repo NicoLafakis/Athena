@@ -28,6 +28,7 @@ and source history vs. active semantic memories.
 | Forgotten data resurrection | Rebuild recreates deleted session episodes or a semantically forgotten memory | Session deletion is protected by persistent source tombstones. Semantic forget clears the semantic body/description, drops source digests and secondary context metadata, retains typed source identities plus minimal lifecycle metadata, and candidate scans skip those lines after rebuild; the source session remains available through history retrieval. |
 | Search side-channel | Query diagnostics leak private topic/content | Log counts, durations, index version, source IDs only; never query or result text |
 | Corrupt/hostile records | Malformed JSON or control characters enter context | Zod validation, bounds, safe text formatting, per-record isolation, atomic writes |
+| Compressed-index expansion or malformed envelope | A tiny gzip payload expands beyond the configured memory budget, or invalid base64 hides corrupt bytes | Strict versioned envelope schema, canonical base64 check, stored-size bound, gzip output cap at the configured expanded limit, legacy JSON expanded-size limit, and fail-closed index validation |
 | Unauthorized project setting | Project asks to add all history or sync it externally | Global user policy only; no network retrieval or project-controlled retention changes |
 | Model overstates evidence | Response invents a source or claims certainty | Retrieval result includes validated refs; no-hit/conflict contract; tests assert source-backed context |
 

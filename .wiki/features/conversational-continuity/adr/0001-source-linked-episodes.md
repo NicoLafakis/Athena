@@ -39,5 +39,8 @@ archive.
   historical recall.
 - The derived index can be discarded and reconstructed; the session history remains
   untouched.
+- The derived catalog is persisted as a bounded gzip+base64 JSON envelope around the
+  existing index schema. Legacy plain JSON remains readable and is migrated only through
+  a validated atomic write; canonical session JSONL is unchanged.
 - Retrieval may need to fetch adjacent turns from source files; the latency budget must
   account for it.

@@ -17,7 +17,7 @@
 These are initial guardrails to validate on representative histories; tests use generous
 regression limits across CI hosts.
 
-The first synthetic 10,000-episode and 10,000-session-file measurements are recorded in
+The synthetic 10,000-episode and 10,000-session-file measurements are recorded in
 [the calibration snapshot](calibration.md). Warm indexed search, five-source context
 expansion, and the shared CLI/slash search presenter are within their targets in that
 sample; representative live-history performance remains unmeasured.
@@ -68,7 +68,9 @@ sample; representative live-history performance remains unmeasured.
   and input/output token counts.
 - Secret-shaped fixtures produce zero leaks in indexes, rollups, prompt context, or logs.
 - Local index size is measured on representative histories; an initial target is under
-  10% of source session size, excluding source files themselves.
+  10% of source session size, excluding source files themselves. The current host archive
+  is 30,833 bytes for 369,230 source bytes (8.35%), but contains only 29 episodes from 8
+  sessions across 2 projects over July 23–August 13, 2026; this is not representative.
 
 ## Accessibility
 

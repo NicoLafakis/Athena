@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { gunzipSync } from 'node:zlib'
 import { latestUserMessageSourceRef, SessionStore } from '../../src/harness/sessions.js'
 import { ContinuityStore } from '../../src/continuity/store.js'
 import { loadEpisodeSourceContext, loadEpisodeSourceContexts, searchEpisodes } from '../../src/continuity/retrieval.js'
@@ -189,7 +190,8 @@ describe('continuity retrieval', () => {
     expect(context.sourceRefs.every((sourceRef) => /^[a-f0-9]{64}$/.test(sourceRef.lineDigest ?? ''))).toBe(true)
 
     const indexFile = join(root, 'continuity', 'index.json')
-    const legacyIndex = JSON.parse(readFileSync(indexFile, 'utf8')) as {
+    const storedIndex = JSON.parse(readFileSync(indexFile, 'utf8')) as { payload: string }
+    const legacyIndex = JSON.parse(gunzipSync(Buffer.from(storedIndex.payload, 'base64')).toString('utf8')) as {
       episodes: Array<{ sourceRefs: Array<Record<string, unknown>> }>
     }
     for (const sourceRef of legacyIndex.episodes[0]!.sourceRefs) delete sourceRef.lineDigest

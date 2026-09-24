@@ -406,12 +406,18 @@ added without changing session-line identity.
   snapshots from canonical source lines, and resolves nested fork lineage. If a legacy or
   missing boundary cannot be verified, it returns an incomplete lineage rather than
   inventing inherited context.
-- `~/.athena/continuity/index.json` is a versioned local catalog. It stores a bounded,
-  deterministic redacted summary, normalized topics/speech acts, session/project IDs,
-  linked line IDs, source digest, and source-time metadata. It stores no absolute paths and
-  no full transcript archive. A full rebuild marks catalog coverage complete; live
-  `turn-done` events update only the owning session's entries and leave an unbuilt archive
-  explicitly partial. Source text is re-read and digest-checked before CLI/slash display.
+- `~/.athena/continuity/index.json` is a versioned JSON envelope
+  (`formatVersion: 1`, `gzip+base64`) around the unchanged versioned local catalog. It
+  stores a bounded, deterministic redacted summary, normalized topics/speech acts,
+  session/project IDs, linked line IDs, source digest, and source-time metadata; no
+  absolute paths or full transcript archive. Expanded JSON remains bounded by
+  `maxIndexBytes`; the stored envelope has a separate size bound, canonical base64
+  validation, and bounded gzip decompression. Legacy plain JSON is readable only within
+  the expanded limit and migrates when a rebuild or session update writes a replacement.
+  Temporary-file validation and post-write readback decode and compare the complete index
+  before it is accepted. A full rebuild marks catalog coverage complete; live `turn-done`
+  events update only the owning session's entries and leave an unbuilt archive explicitly
+  partial. Source text is re-read and digest-checked before CLI/slash display.
   Malformed JSONL positions and invalid timestamps are excluded from summary/source text;
   if a damaged line crosses a turn boundary, the valid remainder is marked `uncertain`.
 - `athena memory status|rebuild|timeline|search|show|rollup|rank|candidates|review` and the

@@ -135,9 +135,10 @@ full test suite pass on this implementation state; cross-platform CI is pending 
   - [x] Add a deterministic synthetic gold corpus for candidate precision, scoped/time
     relevance, temporal interpretation, and current-versus-historical correction behavior;
     see [calibration snapshot](calibration.md).
-  - [x] Profile a synthetic 10,000-episode index and cache only fully validated, immutable
-    index/episode values by exact file digest. Warm indexed search measured 34.77–54.96 ms
-    across 10 samples; see the checked-in benchmark script and report.
+  - [x] Profile a synthetic 10,000-episode index, cache only fully validated immutable
+    values by exact file digest, and measure the compressed envelope: 394,873 stored bytes
+    versus 11,321,587 expanded (3.49%); warm search median 13.72 ms. Ranking plus all
+    rollups measured 449.05 ms with no dedicated budget; see [calibration](calibration.md).
   - [x] Measure grouped source expansion and the shared CLI/slash search presenter against
     a synthetic 10,000-file session catalog; see [calibration snapshot](calibration.md).
   - [x] Run a bounded read-only spot-check against the available local archive. A query
@@ -146,6 +147,10 @@ full test suite pass on this implementation state; cross-platform CI is pending 
     strips generic recall/intent cues before subject matching; regression coverage requires
     a subject match or bounded time window. No session text or IDs are recorded in the
     calibration snapshot.
+  - [x] Measure compressed index/source ratio on the current host archive: 30,833 / 369,230
+    bytes = 8.35%, across 29 episodes, 8 sessions, and 2 projects from July 23–August 13,
+    2026. Record as a limited local measurement only; it does not satisfy representative
+    history coverage. Synthetic compressed index ratio is 3.49% at 10,000 episodes.
   - [ ] Dogfood representative live histories and review usefulness, correction rates, and
     index-size ratio before tuning recall beyond the exact repeated-claim policy. The
     available local archive is too small to close this gate.

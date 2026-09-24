@@ -9,6 +9,7 @@ import { render } from 'ink'
 import React from 'react'
 import { resolveBrainPaths } from './brain/paths.js'
 import {
+  loadGlobalTimeZone,
   loadSettings,
   readProjectSettingsCapabilities,
   SettingsSchema,
@@ -1621,7 +1622,7 @@ async function main(): Promise<void> {
 
       let timeZone: string | undefined
       try {
-        timeZone = loadSettings(paths, 'anthropic', (warning) => console.error(warning), { projectTrusted: false }).timeZone
+        timeZone = loadGlobalTimeZone(paths, (warning) => console.error(warning))
       } catch {
         console.error('The configured timezone could not be loaded; memory dates will use the inferred OS timezone.')
       }

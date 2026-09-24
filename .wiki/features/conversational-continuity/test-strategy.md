@@ -99,9 +99,10 @@
   threshold, 35/35 eligible persisted labels were exact (38.9% combined coverage). These
   results do not measure real-user language or history quality.
 - [`calibration.md`](calibration.md) records deterministic synthetic quality measures and
-  a 10,000-episode/10,000-session-file local performance sample, including the shared
-  search presenter and verified source expansion. These measurements do not claim TUI
-  rendering costs or subjective live-dogfood quality.
+  a 10,000-episode/10,000-session-file performance sample, including compressed-index
+  round trips, source expansion, and the shared search presenter. Store tests cover legacy
+  JSON reads/migration, the expanded-size ceiling, and bounded compressed decoding. These
+  measurements do not claim TUI rendering costs or subjective live-dogfood quality.
 
 ## Critical end-to-end scenarios
 

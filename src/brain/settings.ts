@@ -279,6 +279,28 @@ function readJsonIfExists(file: string): Record<string, unknown> {
   }
 }
 
+function sanitizeGlobalTimeZone(
+  global: Record<string, unknown>,
+  settingsFile: string,
+  onWarn?: (msg: string) => void,
+): string | undefined {
+  const value = global['timeZone']
+  if (value !== undefined && (typeof value !== 'string' || !isIanaTimeZone(value))) {
+    onWarn?.(`Global timezone in ${settingsFile} is invalid; OS local timezone will be inferred for continuity queries.`)
+    delete global['timeZone']
+  }
+  return typeof global['timeZone'] === 'string' ? global['timeZone'] : undefined
+}
+
+/** Read only the global timezone without validating provider-scoped model settings. */
+export function loadGlobalTimeZone(
+  paths: BrainPaths,
+  onWarn?: (msg: string) => void,
+): string | undefined {
+  const global = readJsonIfExists(paths.settingsFile)
+  return sanitizeGlobalTimeZone(global, paths.settingsFile, onWarn)
+}
+
 /** Cascade: global ~/.athena/settings.json <- project .athena/settings.json.
  *  Scalars: project wins. Rule/hook/protectedPaths arrays: concatenated global-first. Object maps
  *  (mcpServers): project wins wholesale via the base spread — a project that defines
@@ -299,10 +321,7 @@ export function loadSettings(
   const project = projectTrusted && paths.projectBrainDir
     ? readJsonIfExists(join(paths.projectBrainDir, 'settings.json'))
     : {}
-  if (global['timeZone'] !== undefined && (typeof global['timeZone'] !== 'string' || !isIanaTimeZone(global['timeZone']))) {
-    onWarn?.(`Global timezone in ${paths.settingsFile} is invalid; OS local timezone will be inferred for continuity queries.`)
-    delete global['timeZone']
-  }
+  sanitizeGlobalTimeZone(global, paths.settingsFile, onWarn)
   if (Object.prototype.hasOwnProperty.call(project, 'timeZone')) {
     onWarn?.('Project settings cannot override the global user timezone; ignoring project timeZone.')
     delete project['timeZone']
