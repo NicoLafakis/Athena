@@ -269,6 +269,11 @@ describe('voice through the real harness controller', () => {
     input.say('allow')
     await vi.waitFor(() =>
       expect(records().some((record) => record.event === 'permission.resolved')).toBe(true))
+    // A resolution acknowledges the decision before the harness resumes the tool. Wait
+    // for the real turn to finish before checking its filesystem effect, especially on
+    // slower CI runners where stopping the voice session can otherwise race the write.
+    await vi.waitFor(() =>
+      expect(records().some((record) => record.event === 'turn.completed')).toBe(true))
     input.stop()
     await session
     await controller.close()

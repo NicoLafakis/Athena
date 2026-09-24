@@ -41,6 +41,9 @@ describe('Windows local speech backend', () => {
       await expect(runPowerShell('[Console]::Out.Write($args[0])', ['athena-sentinel']))
         .resolves.toBe('athena-sentinel')
     },
+    // runPowerShell permits 45 seconds for a cold PowerShell startup; keep the test
+    // timeout above that contract so CI reports the subprocess result, not Vitest's cap.
+    60_000,
   )
 
   it('uses a real probe result instead of inferring support from the platform', async () => {
