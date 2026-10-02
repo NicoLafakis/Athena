@@ -3,11 +3,26 @@
 // running with nothing blocking it (busy && pending === null, mirroring InputBox's own
 // disabled condition), animate its spinner, count elapsed time without drifting or
 // resetting across a permission-dialog interruption, and never leak its interval.
-import { describe, it, expect, vi } from 'vitest'
-import { render } from 'ink-testing-library'
+import { afterEach, describe, it, expect, vi } from 'vitest'
+import { act } from 'react'
+import { cleanup, render as inkRender } from 'ink-testing-library'
 import { App, PermissionBridge } from '../../src/tui/App.js'
 import { EngineEventBus } from '../../src/engine/events.js'
 import { BusyIndicator, busyIndicatorText, formatElapsed } from '../../src/tui/components/BusyIndicator.js'
+
+afterEach(async () => {
+  try {
+    await act(async () => { cleanup() })
+  } finally {
+    vi.restoreAllMocks()
+  }
+})
+
+function render(tree: Parameters<typeof inkRender>[0]): ReturnType<typeof inkRender> {
+  let instance!: ReturnType<typeof inkRender>
+  act(() => { instance = inkRender(tree) })
+  return instance
+}
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -38,10 +53,9 @@ function makeHarness(onSubmit = vi.fn(() => new Promise<void>(() => {}))) {
 }
 
 async function type(stdin: { write: (s: string) => void }, text: string): Promise<void> {
-  stdin.write(text)
-  await delay(5)
-  stdin.write('\r') // return key must arrive as its own input event
-  await delay(10)
+  await act(async () => { stdin.write(text) })
+  // Commit the typed text before Return reads it, as separate real input events do.
+  await act(async () => { stdin.write('\r') })
 }
 
 describe('formatElapsed', () => {
@@ -103,32 +117,29 @@ describe('BusyIndicator (standalone)', () => {
   })
 
   it('clears its interval on unmount (no leaked timer)', async () => {
+    const setSpy = vi.spyOn(global, 'setInterval')
     const clearSpy = vi.spyOn(global, 'clearInterval')
     const { unmount } = render(<BusyIndicator startedAt={Date.now()} />)
-    await delay(0) // let React/Ink flush the mount effect that calls setInterval
+    await vi.waitFor(() => expect(setSpy).toHaveBeenCalledTimes(1))
     unmount()
-    await delay(0) // let the effect's cleanup (clearInterval) actually run
-    expect(clearSpy).toHaveBeenCalled()
-    clearSpy.mockRestore()
+    await vi.waitFor(() => expect(clearSpy).toHaveBeenCalledTimes(1))
+    expect(clearSpy).toHaveBeenCalledWith(setSpy.mock.results[0]!.value)
   })
 
   it('a fresh mount after unmount starts exactly one new interval, never stacking on the old one', async () => {
     const setSpy = vi.spyOn(global, 'setInterval')
     const clearSpy = vi.spyOn(global, 'clearInterval')
     const first = render(<BusyIndicator startedAt={Date.now()} />)
-    await delay(0)
-    expect(setSpy).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(setSpy).toHaveBeenCalledTimes(1))
     first.unmount()
-    await delay(0)
-    expect(clearSpy).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(clearSpy).toHaveBeenCalledTimes(1))
     const second = render(<BusyIndicator startedAt={Date.now()} />)
-    await delay(0)
-    expect(setSpy).toHaveBeenCalledTimes(2) // one new interval, not a second one stacked
+    await vi.waitFor(() => expect(setSpy).toHaveBeenCalledTimes(2)) // exactly one new interval
     second.unmount()
-    await delay(0)
-    expect(clearSpy).toHaveBeenCalledTimes(2)
-    setSpy.mockRestore()
-    clearSpy.mockRestore()
+    await vi.waitFor(() => expect(clearSpy).toHaveBeenCalledTimes(2))
+    expect(clearSpy.mock.calls.map(([timer]) => timer)).toEqual(
+      setSpy.mock.results.map((result) => result.value),
+    )
   })
 })
 
