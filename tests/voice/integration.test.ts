@@ -44,6 +44,7 @@ const controllers = new Set<HarnessSessionController>()
 const turns = new Set<Promise<unknown>>()
 const sessions = new Map<Promise<void>, DrivenInput>()
 const wakeInputs = new Set<WindowsPersistentWakeInput>()
+const attentionBridges = new Set<VoiceAttentionBridge>()
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'athena-voice-integration-'))
@@ -55,6 +56,9 @@ async function teardown(): Promise<void> {
   // Assertions (and CI retries) can leave a turn in flight. Its trace and ledger must
   // remain on disk until the harness, voice delivery, and trace queue have drained.
   for (const controller of controllers) controller.abort()
+  // Provider abort does not resolve askUser. Deny pending (and late) permissions
+  // before waiting for their harness turns, even when voice never attached.
+  for (const attention of attentionBridges) attention.close()
   const activeTurns = await Promise.allSettled(turns)
   for (const input of sessions.values()) input.shutdown()
   for (const wake of wakeInputs) wake.close()
@@ -69,6 +73,7 @@ async function teardown(): Promise<void> {
   controllers.clear()
   turns.clear()
   wakeInputs.clear()
+  attentionBridges.clear()
   if (errors.length) throw new AggregateError(errors.map((result) => result.reason), 'Voice fixture teardown failed')
   rmSync(root, { recursive: true, force: true })
 }
@@ -81,6 +86,12 @@ function startVoiceSession(options: VoiceSessionOptions & { input: DrivenInput }
   // Observe rejection immediately; teardown still awaits and reports it.
   void session.catch(() => {})
   return session
+}
+
+function makeAttention(telemetry: VoiceTelemetry): VoiceAttentionBridge {
+  const attention = new VoiceAttentionBridge({ cwd: root, telemetry })
+  attentionBridges.add(attention)
+  return attention
 }
 
 const defaultSettings: Settings = {
@@ -207,6 +218,78 @@ class DrivenInput implements VoiceCommandInput {
 }
 
 describe('voice through the real harness controller', () => {
+  it.each([true, false])('finishes teardown after an assertion fails with a permission still pending (voice attached: %s)', async (attachVoice) => {
+    const target = join(root, 'shutdown-denied.txt')
+    const model = new MockAnthropicClient([
+      { blocks: [toolUseBlock('write-1', 'Write', { file_path: target, content: PHRASE })], stopReason: 'tool_use' },
+      { blocks: [textBlock('The write was denied.')], stopReason: 'end_turn' },
+    ])
+    const { telemetry } = makeTelemetry()
+    const attention = makeAttention(telemetry)
+    const controller = await makeController(model, attention.askUser)
+    const input = new DrivenInput()
+    let session: Promise<void> | undefined
+    if (attachVoice) {
+      const { client } = realtime([
+        { toolCalls: [{ name: 'submit_turn', arguments: { text: 'write the file' } }] },
+        { transcript: 'I am on it.' },
+        { transcript: 'The write was denied.' },
+      ])
+      session = startVoiceSession({
+        apiKey: 'test-key', model: 'gpt-realtime-2.1-mini', input, client, controller,
+        attention, telemetry, play: async () => {}, speakFallback: async () => {}, onStatus: () => {},
+      })
+      input.say('write the file')
+    } else {
+      // Failure during startup must also release a bridge with no voice session owner.
+      void controller.submitTurn('write the file')
+    }
+    await vi.waitFor(() => expect(attention.pendingIds()).toEqual(['permission:write-1']))
+    controller.abort()
+    // Aborting the provider cannot resolve the permission promise.
+    expect(attention.pendingIds()).toEqual(['permission:write-1'])
+    const originalClose = controller.close.bind(controller)
+    const close = vi.spyOn(controller, 'close')
+    let traceClosedBeforeDeletion = false
+    let writeDeniedBeforeDeletion = false
+    close.mockImplementation(async () => {
+      await originalClose()
+      traceClosedBeforeDeletion = readFileSync(controller.trace.file, 'utf8').includes('run-finish')
+      writeDeniedBeforeDeletion = !existsSync(target)
+    })
+    let finished = false
+    let assertionFailure: unknown
+    const cleanup = (async () => {
+      try {
+        expect(attention.pendingIds(), 'simulated pending-permission assertion failure').toEqual([])
+      } finally {
+        await teardown()
+      }
+    })().then(
+      () => { finished = true },
+      (error: unknown) => { assertionFailure = error; finished = true },
+    )
+    try {
+      await vi.waitFor(() => expect(finished, 'teardown must release pending permissions').toBe(true), { timeout: 2_000 })
+      expect(assertionFailure).toBeInstanceOf(Error)
+      expect((assertionFailure as Error).message).toContain('simulated pending-permission assertion failure')
+      if (session) await expect(session).resolves.toBeUndefined()
+      expect(attention.pendingIds()).toEqual([])
+      expect(telemetry.counters()['permission.resolved/shutdown']).toBe(1)
+      if (attachVoice) expect(input.closed).toBe(true)
+      expect(traceClosedBeforeDeletion).toBe(true)
+      expect(writeDeniedBeforeDeletion).toBe(true)
+      expect(existsSync(target)).toBe(false)
+      expect(existsSync(root)).toBe(false)
+    } finally {
+      // Rescue the old ordering on a regression so its afterEach cannot hang the runner.
+      attention.close()
+      input.shutdown()
+      await cleanup
+      close.mockRestore()
+    }
+  })
+
   it('drains in-flight work and closes its trace before deleting files after an assertion fails', async () => {
     let started: () => void = () => {}
     const startedTurn = new Promise<void>((resolve) => { started = resolve })
@@ -350,7 +433,7 @@ describe('voice through the real harness controller', () => {
     const { telemetry, raw, records } = makeTelemetry()
     // The bridge is the only place that sees a wait begin, so the real one has to be the
     // instrumented one — the controller is built around it, not patched afterwards.
-    const attention = new VoiceAttentionBridge({ cwd: root, telemetry })
+    const attention = makeAttention(telemetry)
     const controller = await makeController(model, attention.askUser)
     const { client } = realtime([
       { toolCalls: [{ name: 'submit_turn', arguments: { text: `write ${PHRASE} using ${SECRET} to ${target}` } }] },
@@ -408,7 +491,7 @@ describe('voice through the real harness controller', () => {
       { blocks: [textBlock('The file is written.')], stopReason: 'end_turn' },
     ])
     const { telemetry, raw, records } = makeTelemetry()
-    const attention = new VoiceAttentionBridge({ cwd: root, telemetry })
+    const attention = makeAttention(telemetry)
     const controller = await makeController(model, attention.askUser)
     const { socket, client } = realtime([
       { toolCalls: [{ name: 'submit_turn', arguments: { text: `write ${PHRASE} to the forecast` } }] },
