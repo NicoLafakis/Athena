@@ -15,6 +15,7 @@ import {
   runVoiceSession,
   type VoiceCommand,
   type VoiceCommandInput,
+  type VoiceSessionOptions,
 } from '../../src/voice/daemon.js'
 import { RealtimeVoiceClient, RealtimeTransportError } from '../../src/voice/realtime.js'
 import {
@@ -39,6 +40,10 @@ const PHRASE = 'xylophone marmalade seventeen'
 
 let root: string
 let paths: BrainPaths
+const controllers = new Set<HarnessSessionController>()
+const turns = new Set<Promise<unknown>>()
+const sessions = new Map<Promise<void>, DrivenInput>()
+const wakeInputs = new Set<WindowsPersistentWakeInput>()
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'athena-voice-integration-'))
@@ -46,9 +51,37 @@ beforeEach(() => {
   mkdirSync(paths.brainDir, { recursive: true })
 })
 
-afterEach(() => {
+async function teardown(): Promise<void> {
+  // Assertions (and CI retries) can leave a turn in flight. Its trace and ledger must
+  // remain on disk until the harness, voice delivery, and trace queue have drained.
+  for (const controller of controllers) controller.abort()
+  const activeTurns = await Promise.allSettled(turns)
+  for (const input of sessions.values()) input.shutdown()
+  for (const wake of wakeInputs) wake.close()
+  const results = await Promise.allSettled(sessions.keys())
+  // A command already being interpreted can submit a turn during voice shutdown.
+  for (const controller of controllers) controller.abort()
+  const turnResults = await Promise.allSettled(turns)
+  const closes = await Promise.allSettled([...controllers].map((controller) => controller.close()))
+  const errors = [...activeTurns, ...results, ...turnResults, ...closes]
+    .filter((result) => result.status === 'rejected')
+  sessions.clear()
+  controllers.clear()
+  turns.clear()
+  wakeInputs.clear()
+  if (errors.length) throw new AggregateError(errors.map((result) => result.reason), 'Voice fixture teardown failed')
   rmSync(root, { recursive: true, force: true })
-})
+}
+
+afterEach(teardown)
+
+function startVoiceSession(options: VoiceSessionOptions & { input: DrivenInput }): Promise<void> {
+  const session = runVoiceSession(options)
+  sessions.set(session, options.input)
+  // Observe rejection immediately; teardown still awaits and reports it.
+  void session.catch(() => {})
+  return session
+}
 
 const defaultSettings: Settings = {
   permissionMode: 'normal',
@@ -70,11 +103,11 @@ const defaultSettings: Settings = {
   vmp: { enabled: false },
 }
 
-function makeController(
+async function makeController(
   client: ModelClient,
   askUser?: VoiceAttentionBridge['askUser'],
 ): Promise<HarnessSessionController> {
-  return HarnessSessionController.create({
+  const controller = await HarnessSessionController.create({
     paths,
     effectivePaths: paths,
     cwd: root,
@@ -85,6 +118,14 @@ function makeController(
     persistSession: true,
     ...(askUser ? { askUser } : {}),
   })
+  controllers.add(controller)
+  const submitTurn = controller.submitTurn.bind(controller)
+  controller.submitTurn = (prompt) => {
+    const turn = submitTurn(prompt)
+    turns.add(turn)
+    return turn
+  }
+  return controller
 }
 
 /** A real ledger file, so redaction is asserted against the artifact and not a spy. */
@@ -146,6 +187,11 @@ class DrivenInput implements VoiceCommandInput {
     this.push({ kind: 'text', text: 'exit' })
   }
 
+  shutdown(): void {
+    this.queue.length = 0
+    this.stop()
+  }
+
   async next(): Promise<VoiceCommand | null> {
     const queued = this.queue.shift()
     if (queued) return queued
@@ -161,6 +207,67 @@ class DrivenInput implements VoiceCommandInput {
 }
 
 describe('voice through the real harness controller', () => {
+  it('drains in-flight work and closes its trace before deleting files after an assertion fails', async () => {
+    let started: () => void = () => {}
+    const startedTurn = new Promise<void>((resolve) => { started = resolve })
+    let storageSurvivedAbort = false
+    let turnSettled = false
+    const blocking: ModelClient = {
+      async stream(params, _callbacks): Promise<StreamResult> {
+        started()
+        return new Promise<StreamResult>((_resolve, reject) => {
+          params.signal.addEventListener('abort', () => {
+            // Finish asynchronously, as a real provider does after receiving abort.
+            setTimeout(() => {
+              storageSurvivedAbort = existsSync(root) && existsSync(controller.trace.file)
+              turnSettled = true
+              reject(new DOMException('aborted', 'AbortError'))
+            }, 350)
+          }, { once: true })
+        })
+      },
+      async complete(): Promise<string> { return '' },
+    }
+    const controller = await makeController(blocking)
+    const { telemetry } = makeTelemetry()
+    const { client } = realtime([
+      { toolCalls: [{ name: 'submit_turn', arguments: { text: 'run the long job' } }] },
+      { transcript: 'I am on it.' },
+      { transcript: 'The job was aborted.' },
+    ])
+    const input = new DrivenInput()
+    const session = startVoiceSession({
+      apiKey: 'test-key', model: 'gpt-realtime-2.1-mini', input, client, controller,
+      telemetry, play: async () => {}, speakFallback: async () => {}, onStatus: () => {},
+    })
+    input.say('run the long job')
+    await startedTurn
+    const originalClose = controller.close.bind(controller)
+    const close = vi.spyOn(controller, 'close')
+    let traceClosedBeforeDeletion = false
+    close.mockImplementation(async () => {
+      await originalClose()
+      traceClosedBeforeDeletion = readFileSync(controller.trace.file, 'utf8').includes('run-finish')
+    })
+    try {
+      await expect((async () => {
+        try {
+          expect(turnSettled, 'simulated early assertion failure').toBe(true)
+        } finally {
+          await teardown()
+        }
+      })()).rejects.toThrow('simulated early assertion failure')
+      await expect(session).resolves.toBeUndefined()
+      expect(storageSurvivedAbort).toBe(true)
+      expect(input.closed).toBe(true)
+      expect(turnSettled).toBe(true)
+      expect(traceClosedBeforeDeletion).toBe(true)
+      expect(existsSync(root)).toBe(false)
+    } finally {
+      close.mockRestore()
+    }
+  })
+
   it('runs a spoken request in the real session and speaks its authoritative result', async () => {
     const model = new MockAnthropicClient([
       { blocks: [textBlock('Two tests fail in the parser suite.')], stopReason: 'end_turn' },
@@ -175,7 +282,7 @@ describe('voice through the real harness controller', () => {
     const input = new DrivenInput()
     const spoken: string[] = []
 
-    const session = runVoiceSession({
+    const session = startVoiceSession({
       apiKey: 'test-key',
       model: 'gpt-realtime-2.1-mini',
       input,
@@ -251,7 +358,7 @@ describe('voice through the real harness controller', () => {
     ])
     const input = new DrivenInput()
 
-    const session = runVoiceSession({
+    const session = startVoiceSession({
       apiKey: 'test-key',
       model: 'gpt-realtime-2.1-mini',
       input,
@@ -318,7 +425,7 @@ describe('voice through the real harness controller', () => {
     const input = new DrivenInput()
     const spoken: string[] = []
 
-    const session = runVoiceSession({
+    const session = startVoiceSession({
       apiKey: 'test-key',
       model: 'gpt-realtime-2.1-mini',
       input,
@@ -392,7 +499,7 @@ describe('voice through the real harness controller', () => {
     const input = new DrivenInput()
     const statuses: string[] = []
 
-    const session = runVoiceSession({
+    const session = startVoiceSession({
       apiKey: 'test-key',
       model: 'gpt-realtime-2.1-mini',
       input,
@@ -456,7 +563,7 @@ describe('voice through the real harness controller', () => {
     ])
     const input = new DrivenInput()
 
-    const session = runVoiceSession({
+    const session = startVoiceSession({
       apiKey: 'test-key',
       model: 'gpt-realtime-2.1-mini',
       input,
@@ -505,7 +612,7 @@ describe('voice through the real harness controller', () => {
     const input = new DrivenInput()
     const spoken: string[] = []
 
-    const session = runVoiceSession({
+    const session = startVoiceSession({
       apiKey: 'test-key',
       model: 'gpt-realtime-2.1-mini',
       input,
@@ -538,7 +645,7 @@ describe('voice lifecycle counters', () => {
     const { telemetry, records } = makeTelemetry()
     let clock = 0
     const input = new DrivenInput()
-    const session = runVoiceSession({
+    const session = startVoiceSession({
       apiKey: 'test-key',
       model: 'gpt-realtime-2.1-mini',
       input,
@@ -588,6 +695,7 @@ describe('voice lifecycle counters', () => {
       sleep: async () => {},
       telemetry,
     })
+    wakeInputs.add(wake)
     const pending = wake.next()
     pending.catch(() => {})
     processes[0]!.emitStdout('{"ready":true}\n')
@@ -626,7 +734,7 @@ describe('voice lifecycle counters', () => {
     const { telemetry } = makeTelemetry()
     const input = new DrivenInput()
     const spoken: string[] = []
-    const session = runVoiceSession({
+    const session = startVoiceSession({
       apiKey: 'test-key',
       model: 'gpt-realtime-2.1-mini',
       input,
