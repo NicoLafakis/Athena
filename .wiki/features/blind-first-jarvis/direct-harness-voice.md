@@ -388,9 +388,10 @@ probe. Rollback must never delete an Athena session, credential, trace, or usage
   path, and a distinctive phrase through the wake transcript, submitted text, provider
   usage, and the model's answer, then asserts none reach the ledger while the phrase DOES
   reach the run trace — so it cannot pass on an empty pipe.
-  The fixture aborts and awaits active harness turns, stops and awaits voice sessions,
-  and closes trace writers before deleting temporary storage, including after assertion
-  failures. An in-flight abort regression verifies that teardown ordering.
+  The fixture aborts controllers and closes permission bridges before awaiting active
+  harness turns, then stops and awaits voice sessions and closes trace writers before
+  deleting temporary storage, including after assertion failures. Regressions verify
+  in-flight aborts and pending permissions with or without an attached voice session.
 - [ ] **8. Live blind-first validation:** complete the acceptance script below with screen
   reader off, NVDA on, and Narrator on; record latency and provider usage.
   BLOCKED on real hardware and a human listener; it is the last open item. Executable
