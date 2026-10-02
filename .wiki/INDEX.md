@@ -19,6 +19,7 @@ links here for depth, this wiki explains it.
 - [Reliable transcript reading](features/transcript-reader/00-overview.md) - Fullscreen transcript paging with a stable reading position while output streams; active-session search remains separately planned.
 - [Memory hygiene / anti-rot](architecture/memory-hygiene.md) - Event-driven citation verification, correction capture, contradiction detection, and count-triggered consolidation for the free-text brain-memory surface, distinct from the existing governed-learning MemoryClaim pipeline. Never deletes: proposes via flag/supersede/tombstone, reviewed in seconds via /memory review.
 - [Environment staleness detection](architecture/environment-staleness.md) - Four filesystem/git signals (`stale-build`, `stale-deps`, `branch-behind`, `uncommitted-work`) that catch a stale `dist/` or `node_modules` running against fresh source on a two-machine workflow. Zero-subprocess boot checks versus git-backed doctor-only checks, the shared `VAULT_SPAWN_TIMEOUT_MS` and null-on-timeout lesson, and why every check degrades to `unknown` rather than ever blocking boot.
+- [3D walkthrough](features/walkthrough/00-overview.md) - Storybook cutaway house (Tour and Explore modes, one room per idea) that explains Athena to non-builders. Self-contained in `walkthrough/`, vendored three.js, live at athena-walkthrough.vercel.app. Copy lives in `content.js`; keep it in step with the mechanisms it describes.
 
 ## Cross-repo ops plans
 

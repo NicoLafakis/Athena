@@ -19,5 +19,5 @@ export default tseslint.config(
   // `dist/**` pattern above does not cover it: that dist sits at
   // `.claude/worktrees/<id>/dist/`, not at the root. Mirrors the `.claude/` entry in
   // `.gitignore`.
-  { ignores: ['dist/**', 'node_modules/**', '.claude/**'] },
+  { ignores: ['dist/**', 'node_modules/**', '.claude/**', 'walkthrough/vendor/**'] },
 )
