@@ -2,7 +2,7 @@
 
 **Tier:** 3 - audio, biometric profiles, attribution, permissions
 **Date:** 2026-10-06
-**Status:** DESIGN ONLY; implementation and real-hardware evaluation pending
+**Status:** Phase 0 synthetic contracts started; live integration and hardware evaluation pending
 **Product owner:** Nico
 
 ## Objective and boundary
@@ -13,8 +13,10 @@ separately consented enrolled profiles. A suggestion can be wrong and is never p
 identity or authorization to run a tool, approve a permission, access a project, or
 disclose another person's memory.
 
-This package authorizes no recording, installation, model download, enrollment, runtime
-change, or deployment. It prepares implementation. Existing single-user voice behavior
+The original paperwork authorized no recording, installation, model download, enrollment,
+runtime change, or deployment. Nico subsequently authorized merging it and beginning
+implementation. The [implementation status](implementation-status.md) tracks the synthetic
+first slice and remaining gates. Existing single-user voice behavior
 and its outstanding [live acceptance](../blind-first-jarvis/acceptance-runbook.md) remain
 separate from this feature's future acceptance.
 
