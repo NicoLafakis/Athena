@@ -12,6 +12,7 @@ export const AttributionLocalControlSchema = z.discriminatedUnion('action', [
     capture: z.boolean(), cloudTransfer: z.boolean(), transcriptPersistence: z.boolean(), profileMatching: z.boolean(),
   }).strict() }).strict(),
   Empty.extend({ action: z.literal('submit'), segmentId: Id,
+    captureSessionId: Id, streamEpoch: z.number().int().nonnegative().safe(),
     revision: z.number().int().nonnegative().safe(), utterance: z.number().int().nonnegative().safe(),
   }).strict(),
 ])
@@ -70,7 +71,8 @@ export class AttributionLocalControls {
             + `${state.queuedFrames} queued frames; ${state.pendingJobs} pending jobs. Identity is advisory.`] }
         }
         case 'submit': {
-          const admission = this.session.admit(action.segmentId, action.revision, action.utterance, true)
+          const admission = this.session.admit(action.segmentId, action.revision, action.utterance, true,
+            { captureSessionId: action.captureSessionId, streamEpoch: action.streamEpoch })
           return { lines: [admission.ok ? 'Transcript turn admitted to the existing voice ledger. Harness execution is the host’s next step.'
             : `Transcript turn refused: ${admission.reason}. Nothing was executed.`], admission }
         }

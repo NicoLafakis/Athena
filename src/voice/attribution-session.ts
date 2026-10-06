@@ -184,9 +184,13 @@ export class AttributionSession {
   snapshot(): ReturnType<AttributionPreview['snapshot']> { return this.preview.snapshot() }
 
   /** Future trusted local UI supplies this request, never a model/worker event. */
-  admit(segmentId: string, revision: number, utterance: number, operatorRequested: boolean): SessionAdmission {
+  admit(segmentId: string, revision: number, utterance: number, operatorRequested: boolean,
+    selection: { captureSessionId: string; streamEpoch: number }): SessionAdmission {
     if (!this.status().active) return { ok: false, reason: 'inactive' }
     if (!operatorRequested) return { ok: false, reason: 'not-explicit' }
+    if (selection.captureSessionId !== this.captureSessionId || selection.streamEpoch !== this.epoch) {
+      return { ok: false, reason: 'stale-segment' }
+    }
     Integer.parse(utterance)
     const segment = this.preview.snapshot().find(s => s.segmentId === segmentId && s.revision === revision && s.streamEpoch === this.epoch)
     if (!segment) return { ok: false, reason: 'stale-segment' }

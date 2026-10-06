@@ -63,18 +63,28 @@ describe('accessible local attribution controls', () => {
     const { controls, session, event } = setup()
     session.receive(event)
     expect(controls.handle({ action: 'review' })).not.toHaveProperty('admission')
-    const response = controls.handle({ action: 'submit', segmentId: 'seg-1', revision: 1, utterance: 1 })
+    const response = controls.handle({ action: 'submit', captureSessionId: 'cap-1', streamEpoch: 1, segmentId: 'seg-1', revision: 1, utterance: 1 })
     expect(response.admission?.ok).toBe(true)
     expect(response.lines[0]).toContain('Harness execution is the host')
-    expect(controls.handle({ action: 'submit', segmentId: 'seg-1', revision: 1, utterance: 2 }).admission)
+    expect(controls.handle({ action: 'submit', captureSessionId: 'cap-1', streamEpoch: 1, segmentId: 'seg-1', revision: 1, utterance: 2 }).admission)
       .toEqual({ ok: false, reason: 'already-admitted' })
+  })
+
+  it('requires selection scope and refuses a selection from another capture', () => {
+    const { controls, session, event } = setup()
+    session.receive(event)
+    expect(controls.handle({ action: 'submit', segmentId: 'seg-1', revision: 1, utterance: 1 }).lines)
+      .toEqual(['Invalid attribution control. Nothing changed.'])
+    expect(controls.handle({ action: 'submit', captureSessionId: 'another', streamEpoch: 1,
+      segmentId: 'seg-1', revision: 1, utterance: 1 }).admission)
+      .toEqual({ ok: false, reason: 'stale-segment' })
   })
 
   it.each([
     { action: 'allow', permissionId: 'permission-1' },
     { action: 'consent', participantId: 'person-1', consent: { capture: true } },
     { action: 'stop', permissionId: 'permission-1' },
-    { action: 'submit', segmentId: 'seg-1', revision: 1, utterance: 1, profileId: 'p' },
+    { action: 'submit', captureSessionId: 'cap-1', streamEpoch: 1, segmentId: 'seg-1', revision: 1, utterance: 1, profileId: 'p' },
   ])('rejects malformed/authority-bearing controls %j without state change', input => {
     const { controls, session } = setup()
     const before = session.status()

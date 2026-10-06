@@ -80,6 +80,22 @@ describe('bounded synthetic frames', () => {
 })
 
 describe('synthetic owning lifecycle and admission', () => {
+  it('refuses a delayed selection from an earlier epoch even when IDs and revisions are reused', () => {
+    const { session, epoch } = setup()
+    session.receive(segment(epoch))
+    const selection = { captureSessionId: 'cap-1', streamEpoch: epoch }
+    session.withdraw('person-1')
+    restart(session)
+    session.receive(segment(session.status().epoch, { text: 'Replacement command.' }))
+    expect(session.admit('seg-1', 1, 1, true, selection)).toEqual({ ok: false, reason: 'stale-segment' })
+  })
+
+  it('refuses whitespace/control-only transcript text without throwing', () => {
+    const { session, epoch } = setup()
+    session.receive(segment(epoch, { text: ' \t\u001b[31m\u001b[0m\n' }))
+    expect(() => session.admit('seg-1', 1, 1, true, { captureSessionId: 'cap-1', streamEpoch: epoch })).not.toThrow()
+    expect(session.admit('seg-1', 1, 1, true, { captureSessionId: 'cap-1', streamEpoch: epoch })).toEqual({ ok: false, reason: 'unsupported' })
+  })
   it('requires consent and actual adapter readiness before accepting events/frames', () => {
     const session = new AttributionSession('cap-1', 'harness-1', new VoiceTurnLedger())
     expect(session.start()).toBe(false)
@@ -148,24 +164,24 @@ describe('synthetic owning lifecycle and admission', () => {
   it('admits only current explicit final segments through the existing ledger once', () => {
     const { session, ledger, epoch } = setup()
     session.receive(segment(epoch))
-    expect(session.admit('seg-1', 1, 1, false)).toEqual({ ok: false, reason: 'not-explicit' })
-    expect(session.admit('seg-1', 0, 1, true)).toEqual({ ok: false, reason: 'stale-segment' })
-    const first = session.admit('seg-1', 1, 1, true)
+    expect(session.admit('seg-1', 1, 1, false, { captureSessionId: 'cap-1', streamEpoch: epoch })).toEqual({ ok: false, reason: 'not-explicit' })
+    expect(session.admit('seg-1', 0, 1, true, { captureSessionId: 'cap-1', streamEpoch: epoch })).toEqual({ ok: false, reason: 'stale-segment' })
+    const first = session.admit('seg-1', 1, 1, true, { captureSessionId: 'cap-1', streamEpoch: epoch })
     expect(first.ok).toBe(true)
     if (!first.ok) throw new Error('Expected admission')
     expect(first.record).toMatchObject({ text: 'Inspect the tests.', source: 'audio' })
     expect(first.record).not.toHaveProperty('profileId')
     ledger.settle(first.record.id, 'completed', 'harness-1')
     session.receive(segment(epoch, { eventSeq: 2, revision: 2, text: 'Changed text.' }))
-    expect(session.admit('seg-1', 2, 2, true)).toEqual({ ok: false, reason: 'already-admitted' })
+    expect(session.admit('seg-1', 2, 2, true, { captureSessionId: 'cap-1', streamEpoch: epoch })).toEqual({ ok: false, reason: 'already-admitted' })
     session.receive(segment(epoch, { eventSeq: 3, segmentId: 'seg-2' }))
-    expect(session.admit('seg-2', 1, 2, true).ok).toBe(true)
+    expect(session.admit('seg-2', 1, 2, true, { captureSessionId: 'cap-1', streamEpoch: epoch }).ok).toBe(true)
   })
 
   it.each([{ state: 'partial' }, { speakers: [] }, { overlap: true }])('refuses unsafe command attribution %j', patch => {
     const { session, epoch } = setup()
     session.receive(segment(epoch, patch))
-    expect(session.admit('seg-1', 1, 1, true)).toEqual({ ok: false, reason: 'unsupported' })
+    expect(session.admit('seg-1', 1, 1, true, { captureSessionId: 'cap-1', streamEpoch: epoch })).toEqual({ ok: false, reason: 'unsupported' })
   })
 
   it('stop and presentation failure cannot preserve active capture state', () => {
@@ -175,7 +191,7 @@ describe('synthetic owning lifecycle and admission', () => {
     session.stop()
     expect(session.status()).toMatchObject({ active: false, queuedFrames: 0 })
     expect(session.snapshot()).toEqual([])
-    expect(session.admit('seg-1', 1, 1, true)).toEqual({ ok: false, reason: 'inactive' })
+    expect(session.admit('seg-1', 1, 1, true, { captureSessionId: 'cap-1', streamEpoch: epoch })).toEqual({ ok: false, reason: 'inactive' })
     expect(() => session.disclose(['person-1'])).toThrow()
   })
 

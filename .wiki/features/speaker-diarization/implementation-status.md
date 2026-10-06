@@ -77,8 +77,9 @@ route it to the selected text/speech presentation. A broken
 notice sink cannot prevent cleanup, but output-failure reporting belongs to that future
 presentation. No real backend probe or accessible hardware acceptance is claimed.
 
-`admit()` returns existing ledger admission, not harness execution. It checks current
-stored segment/revision and explicit local intent, refuses partial/overlap/unknown input,
+`admit()` returns existing ledger admission, not harness execution. It requires the selected
+capture ID and epoch in addition to stored segment/revision and explicit local intent,
+refuses partial/overlap/unknown input,
 and marks admitted segments so later text revisions cannot run again. Caller-supplied
 utterance numbers must come from the shared voice utterance allocator. The full daemon
 must hand successful admission to its existing single controller and permission rails.
@@ -106,6 +107,18 @@ reported by `nvidia-smi`, driver 577.13; Python 3.12.10 installed. The inspected
 has no torch, nemo, speechbrain, whisper, faster_whisper or soundfile packages. No model
 compatibility/latency result is inferred; acquisition approval and ASR selection remain
 pending. No dependencies or models were acquired for these slices.
+
+## Post-merge admission review
+
+Two PR #10 reviewer claims were reproduced with failing synthetic regression tests:
+[delayed selection after reset](https://github.com/NicoLafakis/Athena/pull/10#discussion_r4198919162)
+could admit replacement text when the new epoch reused the segment ID/revision, and
+[whitespace/control-only text](https://github.com/NicoLafakis/Athena/pull/10#discussion_r4198919206)
+could throw after ledger sanitation. The follow-up requires selection capture/epoch
+scope and sanitizes then safely validates admission text, returning refusal for an empty
+result. Local submit controls require that scope; caller must retain the scope from the
+displayed selection rather than substituting the current status at click handling time.
+No live incident is claimed: these components remain dormant and synthetic.
 
 Nico subsequently authorized merging scoped implementation PRs after exact-head clean CI.
 This does not approve installation, acquisition, microphone capture, enrollment, new
