@@ -85,6 +85,8 @@ export class AttributionConsent {
     for (const id of this.participants.keys()) this.participants.set(id, null)
   }
 
+  pause(): void { if (this.state === 'active') this.state = 'paused' }
+
   status(): CaptureState { return this.state }
   canProcess(): boolean { return this.state === 'active' && this.permitted() }
 }

@@ -30,7 +30,7 @@ export const AttributionWorkerEventSchema = z.discriminatedUnion('type', [
 ])
 
 export type SessionNotice = 'disclosed' | 'waiting-consent' | 'waiting-worker' | 'ready'
-  | 'consent-paused' | 'gap' | 'overload' | 'worker-error' | 'stopped'
+  | 'consent-paused' | 'paused' | 'gap' | 'overload' | 'worker-error' | 'stopped'
 export type FrameResult = 'queued' | 'invalid' | 'inactive' | 'wrong-session' | 'stale' | 'gap' | 'overload'
 export type SessionAdmission = VoiceTurnAdmission | {
   ok: false; reason: 'inactive' | 'stale-segment' | 'not-explicit' | 'unsupported' | 'already-admitted'
@@ -118,6 +118,12 @@ export class AttributionSession {
     this.closed = true
     this.consent.stop()
     this.reset('stopped')
+  }
+
+  pause(): void {
+    if (this.closed) return
+    this.consent.pause()
+    this.reset('paused')
   }
 
   status(): { epoch: number; active: boolean; queuedFrames: number; pendingJobs: number } {

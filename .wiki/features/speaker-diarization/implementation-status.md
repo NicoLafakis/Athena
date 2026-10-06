@@ -1,10 +1,10 @@
 # Implementation status and next work
 
 **Date:** 2026-10-06
-**Branch:** `feat/speaker-attribution-contracts`
+**Branch:** `feat/speaker-alignment-controls` (follows merged PR #10)
 **Scope:** synthetic Phase 0 contracts and owner; no audio device/worker/storage integration
 
-The paperwork in PR #9 is merged. Product decisions SD-001 are still pending. Starting
+The paperwork in PR #9 and synthetic owner in PR #10 are merged. Product decisions SD-001 are still pending. Starting
 synthetic contracts does not approve hardware, retention, enrollment or acquisition.
 
 ## Implemented in this slice
@@ -22,6 +22,12 @@ synthetic contracts does not approve hardware, retention, enrollment or acquisit
   strict worker ready/error/stopped events, and `AttributionSession` owning consent,
   bounded frame queues, preview resets, pending-job aborts and current-segment admission
   through the injected existing `VoiceTurnLedger`. No worker subprocess is created.
+- Third slice: strict ASR word/activity batches and conservative source-time alignment,
+  preserving overlap and returning unknown on sequential speaker-boundary ambiguity.
+  Track metadata precedes diarization; it remains account/track provenance, not identity.
+- `AttributionLocalControls` provides strict participant disclosure/consent/join/withdraw,
+  start/pause/stop/status/review and explicit submission. Deterministic text can feed the
+  existing text/Braille/speech presentations; no model permission tools are added.
 
 The provisional policy defaults are local processing, observation mode, no persistence
 and no profile matching. Retention/expiry remain `null`; enabling those features requires
@@ -33,7 +39,7 @@ product decisions. No hardware is presumed usable.
 | Next slice | Dependency / boundary | Completion evidence |
 |---|---|---|
 | SD-002 remainder: worker IPC transport, words/mapping/revocation | Frame and basic ready/error/stopped contracts now implemented; multitrack/resampling and additional events remain | Strict IPC/malformed payload and timestamp fixture tests |
-| SD-003 remainder: accessible presentation and trusted local controls | Synthetic owner implemented; no live participant consent UI yet | Stop/error/consent notices wired to text/speech; trusted local admission integration |
+| SD-003 remainder: host presentation integration | Strict trusted local control seam and deterministic accessible text implemented; no live participant consent UI yet | Wire returned text/notice codes to host text/speech with one output owner; verify real screen readers |
 | Admission integration with live daemon/controller | Owner binds current epoch/revision and existing ledger; caller must supply monotonically allocated utterance IDs and explicit operator request | One production ledger/controller, no model-derived operator authority |
 | SD-001 decision record | Nico chooses mode/ASR, devices, budgets, retention/expiry | Explicit configured decisions; no invented benchmark targets |
 | SD-010/011/012 feasibility | Acquisition/environment approval and approved sources; no implicit WSL/system edits | License ledger, pinned versions, real hardware report |
@@ -59,14 +65,15 @@ their own epoch. Provider-only reconnect does not reset the owner by itself.
 Preview `capacity` is explicit overload rather than silent eviction. The owner clears its
 preview/queue, aborts jobs and emits an overload notice on capacity. Snapshot copies cannot mutate internal state.
 Event IDs are audit identifiers; ordering/revision checks, not event-ID retention, provide
-bounded replay handling. Identity revocation/mapping and word schemas remain pending.
+bounded replay handling. Identity revocation/mapping remain pending.
 Human-confirmed identity is not accepted in the first schema until a separate trusted
 correction/revocation interface is implemented. The synthetic owner rejects all suggested
 profiles and disallows cloud/persistent/profile policies until their adapters exist.
 
 Owner notice codes are deterministic (`ready`, `waiting-consent`, `consent-paused`, `gap`,
-`overload`, `worker-error`, `stopped`, etc.); no free-form worker error is announced. The
-future accessible presentation must turn them into understandable text/speech. A broken
+`overload`, `worker-error`, `stopped`, etc.); no free-form worker error is announced.
+`formatAttributionNotice` now maps these to stable plain language. The future host must
+route it to the selected text/speech presentation. A broken
 notice sink cannot prevent cleanup, but output-failure reporting belongs to that future
 presentation. No real backend probe or accessible hardware acceptance is claimed.
 
@@ -75,6 +82,30 @@ stored segment/revision and explicit local intent, refuses partial/overlap/unkno
 and marks admitted segments so later text revisions cannot run again. Caller-supplied
 utterance numbers must come from the shared voice utterance allocator. The full daemon
 must hand successful admission to its existing single controller and permission rails.
+
+Alignment uses monotonic source milliseconds; `sampleIntervalToMs` converts absolute
+source sample indices so equivalent resampled clocks align. Overlapping activity from
+the same speaker is unioned, not double counted. Simultaneous distinct speakers produce
+overlap; sequential distinct speakers inside one ASR word produce unknown. Single-speaker
+coverage defaults to 0.8 and is configurable; this heuristic is not measured quality or
+an identity probability. Intersecting track metadata suppresses biometric attribution,
+including abstention if metadata coverage is inadequate. Shared accounts still need
+individual consent. Batches have at most 256 ordered, nonoverlapping mono-ASR words,
+2,048 activity intervals, eight labels and 4,096 transcript characters. Multi-track ASR
+must normalize its source clocks and route tracks separately before this helper.
+
+Local controls return stable review text with unknown/overlap/provenance, stripping
+terminal control sequences through `plainBounded`. They are not model tools or worker
+RPCs and do not authenticate participants. Calling submit requires a trusted human UI
+and a shared utterance allocator. Pause retains consent but clears buffers/preview and
+requires explicit restart plus new worker readiness; stop clears consent permanently for
+that capture object. No production CLI or live consent collection is wired yet.
+
+Read-only Helios inventory on 2026-10-06: NVIDIA RTX 5070 Ti Laptop GPU, 12,227 MiB VRAM
+reported by `nvidia-smi`, driver 577.13; Python 3.12.10 installed. The inspected interpreter
+has no torch, nemo, speechbrain, whisper, faster_whisper or soundfile packages. No model
+compatibility/latency result is inferred; acquisition approval and ASR selection remain
+pending. No dependencies or models were acquired for these slices.
 
 Nico subsequently authorized merging scoped implementation PRs after exact-head clean CI.
 This does not approve installation, acquisition, microphone capture, enrollment, new
