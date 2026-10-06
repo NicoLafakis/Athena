@@ -14,7 +14,7 @@ const Identity = z.discriminatedUnion('status', [
     calibrationVersion: Id,
   }).strict(),
 ])
-const Envelope = z.object({
+export const AttributionEnvelopeSchema = z.object({
   schemaVersion: z.literal(1), eventId: Id, eventSeq: Integer,
   captureSessionId: Id, harnessSessionId: Id, streamEpoch: Integer,
   emittedAt: z.string().datetime(), modelRevision: Id, policyVersion: Id,
@@ -22,13 +22,13 @@ const Envelope = z.object({
 
 /** Internal attribution only: never accepted as submit_turn or permission arguments. */
 export const AttributionEventSchema = z.discriminatedUnion('type', [
-  Envelope.extend({
+  AttributionEnvelopeSchema.extend({
     type: z.literal('transcript.segment'), segmentId: Id, revision: Integer,
     startMs: z.number().finite().nonnegative(), endMs: z.number().finite().nonnegative(),
     text: z.string().min(1).max(4_096), state: z.enum(['partial', 'final']),
     speakers: z.array(Speaker).max(8), overlap: z.boolean(), identity: Identity,
   }).strict(),
-  Envelope.extend({ type: z.literal('capture.gap'), reason: Id }).strict(),
+  AttributionEnvelopeSchema.extend({ type: z.literal('capture.gap'), reason: Id }).strict(),
 ]).superRefine((event, ctx) => {
   if (event.type !== 'transcript.segment') return
   if (event.endMs <= event.startMs) ctx.addIssue({ code: 'custom', message: 'Invalid time interval' })
@@ -57,10 +57,12 @@ export class AttributionPreview {
     private readonly captureSessionId: string,
     private readonly harnessSessionId: string,
     private readonly maxSegments = 128,
+    initialEpoch = 0,
   ) {
     Id.parse(captureSessionId)
     Id.parse(harnessSessionId)
     z.number().int().min(1).max(1_024).parse(maxSegments)
+    this.epoch = Integer.parse(initialEpoch)
   }
 
   apply(input: unknown): AttributionResult {

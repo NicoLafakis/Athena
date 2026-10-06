@@ -3,7 +3,7 @@
 > [Overview](00-overview.md) | [Privacy](privacy.md) | [Acceptance/backlog](tasks.md)
 
 The full interfaces below remain the target design. A dormant synthetic subset now has
-strict contracts, an in-memory preview and consent/admission primitives; see
+strict contracts, an in-memory preview, bounded synthetic owner and consent/admission primitives; see
 [implementation status](implementation-status.md) for implemented and pending boundaries.
 No live runtime adapter is wired. Source audit baseline:
 `4c379a057f07e5a001ecc66c5b6bc8ae40291038` (2026-10-06).
