@@ -1,0 +1,177 @@
+{
+  "verified_utc_date": "2026-10-06",
+  "status": "proposal-only; metadata read; no artifact download or installation",
+  "models": [
+    {
+      "repo": "nvidia/Nemotron-3-Diarization",
+      "revision": "f667ed73aee57d40cc39428eb768b4fd87a0a29e",
+      "gated": false,
+      "declared_license": "openmdw-1.1",
+      "files": [
+        {
+          "path": "ASR_INTEGRATION_GUIDE.md",
+          "bytes": 16331,
+          "git_blob": "6d86ea88c0eebed10bd7c161878d9eaea00a7c2a",
+          "sha256": null
+        },
+        {
+          "path": "README.md",
+          "bytes": 43239,
+          "git_blob": "98045f8a7eda17cb99e48dfca4a7e9401811e6b1",
+          "sha256": null
+        },
+        {
+          "path": "config.json",
+          "bytes": 1458,
+          "git_blob": "d09665951c8d48abe9c74626cd39fbfd615297fe",
+          "sha256": null
+        },
+        {
+          "path": "model.safetensors",
+          "bytes": 396954592,
+          "git_blob": "e6354d288eb56c3db0cd7a78774039e8d4967104",
+          "sha256": "c074d86335b3b794f8fa5edc25594558f128bdb3914d27806a3a5a2e44963cb6"
+        },
+        {
+          "path": "processor_config.json",
+          "bytes": 623,
+          "git_blob": "5779fbbbb8401983be84e0b4f09a236ad8227dfe",
+          "sha256": null
+        }
+      ],
+      "bytes": 397016243
+    },
+    {
+      "repo": "openai/whisper-small",
+      "revision": "973afd24965f72e36ca33b3055d56a652f456b4d",
+      "gated": false,
+      "declared_license": "apache-2.0",
+      "files": [
+        {
+          "path": "README.md",
+          "bytes": 20153,
+          "git_blob": "0277360c2131c5d741658f7fe5d26c1377bcfb9a",
+          "sha256": null
+        },
+        {
+          "path": "added_tokens.json",
+          "bytes": 34604,
+          "git_blob": "e3d256c988462aa153dcabe2aa38b8e9b436c06f",
+          "sha256": null
+        },
+        {
+          "path": "config.json",
+          "bytes": 1967,
+          "git_blob": "113bb3efe3a7396f2ea629eef12637bd8085238d",
+          "sha256": null
+        },
+        {
+          "path": "generation_config.json",
+          "bytes": 3868,
+          "git_blob": "d3823179a367fa912e3b911b3d2e71ab2a028290",
+          "sha256": null
+        },
+        {
+          "path": "merges.txt",
+          "bytes": 493869,
+          "git_blob": "6038932a2a1f09a66991b1c2adae0d14066fa29e",
+          "sha256": null
+        },
+        {
+          "path": "model.safetensors",
+          "bytes": 966995080,
+          "git_blob": "b737d9fc4345d96e8f69b440ab742a269bf7e734",
+          "sha256": "1d7734884874f1a1513ed9aa760a4f8e97aaa02fd6d93a3a85d27b2ae9ca596b"
+        },
+        {
+          "path": "normalizer.json",
+          "bytes": 52666,
+          "git_blob": "dd6ae819ad738ac1a546e9f9282ef325c33b9ea0",
+          "sha256": null
+        },
+        {
+          "path": "preprocessor_config.json",
+          "bytes": 184990,
+          "git_blob": "c2048dfa9fd94a052e62e908d2c4dfb18534b4d2",
+          "sha256": null
+        },
+        {
+          "path": "special_tokens_map.json",
+          "bytes": 2194,
+          "git_blob": "bf69932dca4b3719b59fdd8f6cc1978109509f6c",
+          "sha256": null
+        },
+        {
+          "path": "tokenizer.json",
+          "bytes": 2480466,
+          "git_blob": "1e95340ff836fad1b5932e800fb7b8c5e6d78a74",
+          "sha256": null
+        },
+        {
+          "path": "tokenizer_config.json",
+          "bytes": 282683,
+          "git_blob": "d13b786c04765fb1a06492b53587752cd67665ea",
+          "sha256": null
+        },
+        {
+          "path": "vocab.json",
+          "bytes": 835550,
+          "git_blob": "d7016e21da8776c8a9d577d0f559600f09a240eb",
+          "sha256": null
+        }
+      ],
+      "bytes": 971388090
+    },
+    {
+      "repo": "speechbrain/spkrec-ecapa-voxceleb",
+      "revision": "0f99f2d0ebe89ac095bcc5903c4dd8f72b367286",
+      "gated": false,
+      "declared_license": "apache-2.0",
+      "files": [
+        {
+          "path": "README.md",
+          "bytes": 5377,
+          "git_blob": "6023cecccb30eba7ed77fea84a9e47d334dd3a6c",
+          "sha256": null
+        },
+        {
+          "path": "classifier.ckpt",
+          "bytes": 5534328,
+          "git_blob": "d6f70f222826ea5490bfad657373af3d6d2a08ba",
+          "sha256": "fd9e3634fe68bd0a427c95e354c0c677374f62b3f434e45b78599950d860d535"
+        },
+        {
+          "path": "config.json",
+          "bytes": 51,
+          "git_blob": "2e8b3b4d97ae58d7daa78954a5c7f5b8abb42934",
+          "sha256": null
+        },
+        {
+          "path": "embedding_model.ckpt",
+          "bytes": 83316686,
+          "git_blob": "8ba959669e5570dbbf8076bc6b8a79555a81d5c4",
+          "sha256": "0575cb64845e6b9a10db9bcb74d5ac32b326b8dc90352671d345e2ee3d0126a2"
+        },
+        {
+          "path": "hyperparams.yaml",
+          "bytes": 1919,
+          "git_blob": "70e4cd0beb74ca08a2df9de6bd79d938670a4d15",
+          "sha256": null
+        },
+        {
+          "path": "label_encoder.txt",
+          "bytes": 128619,
+          "git_blob": "72c6fa7b170cbfd169df5e09326cd97febdf086a",
+          "sha256": null
+        },
+        {
+          "path": "mean_var_norm_emb.ckpt",
+          "bytes": 1921,
+          "git_blob": "1978c5e7f20d5ffd14c8a932a7e85a09816f3da9",
+          "sha256": null
+        }
+      ],
+      "bytes": 88988901
+    }
+  ]
+}
