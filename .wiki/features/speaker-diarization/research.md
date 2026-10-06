@@ -43,7 +43,8 @@ unknown rate, label churn, false named matches, false rejects, and confidence in
 
 | Helios result | Status |
 |---|---|
-| Hardware inventory, worker compatibility, cold/warm startup | Not evaluated |
+| Hardware inventory | Inspected 2026-10-06; [implementation status](implementation-status.md) records GPU/VRAM/driver/Python |
+| Worker compatibility, cold/warm startup | Not evaluated |
 | Sustained streaming compute and full transcript delay | Not evaluated |
 | Diarization/ASR quality and identity calibration | Not evaluated |
 | Privacy/network-denial and deletion verification | Not evaluated |

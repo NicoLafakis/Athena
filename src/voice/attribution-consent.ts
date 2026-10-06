@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { plainBounded } from '../interaction/format.js'
 import type { AttributedSegment } from './attribution.js'
 import { AttributionEventSchema } from './attribution.js'
 import { VoiceTurnSubmissionSchema } from './schemas.js'
@@ -85,6 +86,8 @@ export class AttributionConsent {
     for (const id of this.participants.keys()) this.participants.set(id, null)
   }
 
+  pause(): void { if (this.state === 'active') this.state = 'paused' }
+
   status(): CaptureState { return this.state }
   canProcess(): boolean { return this.state === 'active' && this.permitted() }
 }
@@ -100,5 +103,6 @@ export function attributedTurn(
   const segment: AttributedSegment = parsed.data
   if (!consent.canProcess() || !operatorRequested || segment.state !== 'final'
     || segment.overlap || segment.speakers.length !== 1) return null
-  return VoiceTurnSubmissionSchema.parse({ text: segment.text })
+  const turn = VoiceTurnSubmissionSchema.safeParse({ text: plainBounded(segment.text, 4_096) })
+  return turn.success ? turn.data : null
 }

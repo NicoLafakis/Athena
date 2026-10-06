@@ -30,7 +30,7 @@ export const AttributionWorkerEventSchema = z.discriminatedUnion('type', [
 ])
 
 export type SessionNotice = 'disclosed' | 'waiting-consent' | 'waiting-worker' | 'ready'
-  | 'consent-paused' | 'gap' | 'overload' | 'worker-error' | 'stopped'
+  | 'consent-paused' | 'paused' | 'gap' | 'overload' | 'worker-error' | 'stopped'
 export type FrameResult = 'queued' | 'invalid' | 'inactive' | 'wrong-session' | 'stale' | 'gap' | 'overload'
 export type SessionAdmission = VoiceTurnAdmission | {
   ok: false; reason: 'inactive' | 'stale-segment' | 'not-explicit' | 'unsupported' | 'already-admitted'
@@ -120,6 +120,12 @@ export class AttributionSession {
     this.reset('stopped')
   }
 
+  pause(): void {
+    if (this.closed) return
+    this.consent.pause()
+    this.reset('paused')
+  }
+
   status(): { epoch: number; active: boolean; queuedFrames: number; pendingJobs: number } {
     return { epoch: this.epoch, active: !this.closed && this.ready && this.consent.canProcess(),
       queuedFrames: this.frames.length, pendingJobs: this.jobs.size }
@@ -178,9 +184,13 @@ export class AttributionSession {
   snapshot(): ReturnType<AttributionPreview['snapshot']> { return this.preview.snapshot() }
 
   /** Future trusted local UI supplies this request, never a model/worker event. */
-  admit(segmentId: string, revision: number, utterance: number, operatorRequested: boolean): SessionAdmission {
+  admit(segmentId: string, revision: number, utterance: number, operatorRequested: boolean,
+    selection: { captureSessionId: string; streamEpoch: number }): SessionAdmission {
     if (!this.status().active) return { ok: false, reason: 'inactive' }
     if (!operatorRequested) return { ok: false, reason: 'not-explicit' }
+    if (selection.captureSessionId !== this.captureSessionId || selection.streamEpoch !== this.epoch) {
+      return { ok: false, reason: 'stale-segment' }
+    }
     Integer.parse(utterance)
     const segment = this.preview.snapshot().find(s => s.segmentId === segmentId && s.revision === revision && s.streamEpoch === this.epoch)
     if (!segment) return { ok: false, reason: 'stale-segment' }
