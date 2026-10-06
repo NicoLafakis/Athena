@@ -2,9 +2,14 @@
 
 > [Overview](00-overview.md) | [Design](design.md) | [Privacy](privacy.md) | [Research](research.md)
 
-Every item is pending. Dependencies run in order; persistent matching is optional and
+Phase 0 is in progress; see [implementation status and remaining slices](implementation-status.md).
+No complete phase or live capability is claimed. Dependencies run in order; persistent matching is optional and
 must not delay a useful anonymous-only release. Runtime implementation must follow
 `AGENTS.md` exact staged-tree typecheck/lint/test/build and topic-branch CI requirements.
+
+SD-002 now includes transcript/gap, frame and basic worker lifecycle contracts with an
+ephemeral owner. SD-003 includes synthetic consent loss, frame/job cleanup and admission
+tests; accessible UI, real worker transport and production composition remain pending.
 
 ## Phase 0 - product decisions and synthetic contracts
 
