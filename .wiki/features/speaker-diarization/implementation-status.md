@@ -1,8 +1,8 @@
 # Implementation status and next work
 
 **Date:** 2026-10-06
-**Branch:** `feat/speaker-alignment-controls` (follows merged PR #10)
-**Scope:** synthetic Phase 0 contracts and owner; no audio device/worker/storage integration
+**Branch:** `docs/speaker-backend-acquisition` (follows merged PR #11)
+**Scope:** synthetic contracts, owner, alignment, local controls and dormant IPC; no audio device/model/storage integration
 
 The paperwork in PR #9 and synthetic owner in PR #10 are merged. Product decisions SD-001 are still pending. Starting
 synthetic contracts does not approve hardware, retention, enrollment or acquisition.
@@ -28,6 +28,11 @@ synthetic contracts does not approve hardware, retention, enrollment or acquisit
 - `AttributionLocalControls` provides strict participant disclosure/consent/join/withdraw,
   start/pause/stop/status/review and explicit submission. Deterministic text can feed the
   existing text/Braille/speech presentations; no model permission tools are added.
+- Fourth slice: `AttributionWorkerChannel` accepts an injected write/close port and
+  strict bounded NDJSON stdout. It handles fragmented UTF-8, one pending serialized
+  frame, backpressure, write deadlines, cleanup and owner epoch fencing. It launches
+  no process and creates no timer or device. Worker messages can only reach preview
+  and lifecycle contracts, never local consent or command admission.
 
 The provisional policy defaults are local processing, observation mode, no persistence
 and no profile matching. Retention/expiry remain `null`; enabling those features requires
@@ -36,9 +41,14 @@ product decisions. No hardware is presumed usable.
 
 ## Remaining task breakdown
 
+The [backend acquisition proposal](backend-acquisition.md) makes the next environment
+approval concrete, with a pinned [model manifest](backend-acquisition-manifest.json).
+It is documentation only; acquisition, transitive dependency locking and actual
+Windows/CUDA inference remain unperformed.
+
 | Next slice | Dependency / boundary | Completion evidence |
 |---|---|---|
-| SD-002 remainder: worker IPC transport, words/mapping/revocation | Frame and basic ready/error/stopped contracts now implemented; multitrack/resampling and additional events remain | Strict IPC/malformed payload and timestamp fixture tests |
+| SD-002 remainder: subprocess adapter, words/mapping/revocation | Dormant bounded NDJSON transport and synthetic port tests implemented; process supervision/timers, multitrack/resampling and additional events remain | Fake-process lifecycle tests, explicit worker ASR/activity contracts and timestamp fixtures |
 | SD-003 remainder: host presentation integration | Strict trusted local control seam and deterministic accessible text implemented; no live participant consent UI yet | Wire returned text/notice codes to host text/speech with one output owner; verify real screen readers |
 | Admission integration with live daemon/controller | Owner binds current epoch/revision and existing ledger; caller must supply monotonically allocated utterance IDs and explicit operator request | One production ledger/controller, no model-derived operator authority |
 | SD-001 decision record | Nico chooses mode/ASR, devices, budgets, retention/expiry | Explicit configured decisions; no invented benchmark targets |
