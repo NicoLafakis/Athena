@@ -91,3 +91,8 @@ The pattern across findings 1–9 is that v1 inherited the operating model's own
 ## 6. Sequencing rationale
 
 Phase 1 comes before Phase 2 because caching + accounting make every later phase measurably cheaper and measurable at all. Phase 2 comes before Phase 3 because it changes what Athena IS, not just how it feels. Phase 4 items are independent seams to pick off by appetite.
+
+
+## 7. Later voice planning package (2026-10-06)
+
+[Live speaker diarization and optional consented voice-to-name matching](../../../.wiki/features/speaker-diarization/00-overview.md) prepares a separate Tier 3 implementation. Start with [the phased backlog and acceptance gates](../../../.wiki/features/speaker-diarization/tasks.md). Anonymous attribution precedes optional enrolled profiles; identity never grants authorization. This is design-only, does not mark older roadmap items complete, and leaves acquisition, participant capture, numeric budgets and hardware evaluation pending.
