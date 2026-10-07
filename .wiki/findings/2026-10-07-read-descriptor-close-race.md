@@ -14,6 +14,9 @@ Read now closes the reader/destroys the stream in `finally` and awaits the strea
 close event on success, truncation, cancellation and failure. Input-stream errors
 close the reader and are returned as read errors. File hashing resolves or rejects
 only after descriptor closure and refuses an unexpected incomplete stream.
+Already-cancelled requests return before constructing a stream, avoiding Node 20's
+pending asynchronous open during immediate cancellation; the fresh CI regression
+isolated that remaining case after normal reads and hash guards passed.
 
 Regression coverage observes real streams and checks closure before tool completion,
 with and without the hash guard, plus cancellation and directory-read failure. This

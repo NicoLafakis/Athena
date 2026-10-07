@@ -27,6 +27,8 @@ export const readTool: ToolDefinition<z.infer<typeof ReadInput>> = {
       return { output: (err as Error).message, isError: true }
     }
     if (!existsSync(abs)) return { output: `File not found: ${abs}`, isError: true }
+    // In particular, never schedule an async open for an already-aborted request.
+    if (ctx.abortSignal.aborted) return { output: 'Read canceled before opening file.', isError: true }
     const offset = input.offset ?? 1
     const limit = input.limit ?? DEFAULT_LIMIT
     const lines: string[] = []

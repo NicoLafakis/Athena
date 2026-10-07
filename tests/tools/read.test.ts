@@ -39,7 +39,7 @@ describe('readTool', () => {
     const result = await readTool.execute({ file_path: join(dir, 'cancel.txt') },
       makeCtx(dir, { abortSignal: controller.signal }))
     expect(result.isError).toBe(true)
-    expect(observed.streams.every(stream => stream.closed)).toBe(true)
+    expect(observed.streams).toHaveLength(0)
   })
   it('closes failed directory reads instead of hanging or retaining a handle', async () => {
     const result = await readTool.execute({ file_path: dir }, makeCtx(dir))
