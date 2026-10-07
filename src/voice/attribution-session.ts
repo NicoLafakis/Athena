@@ -23,6 +23,7 @@ export type AttributionFrame = z.infer<typeof AttributionFrameSchema>
 
 export const AttributionWorkerEventSchema = z.discriminatedUnion('type', [
   AttributionEnvelopeSchema.extend({ type: z.literal('worker.ready') }).strict(),
+  AttributionEnvelopeSchema.extend({ type: z.literal('worker.heartbeat') }).strict(),
   AttributionEnvelopeSchema.extend({
     type: z.literal('worker.error'), reason: z.enum(['unavailable', 'overload', 'invalid-output']),
   }).strict(),
@@ -174,6 +175,10 @@ export class AttributionSession {
       return 'ready'
     }
     if (!this.ready) return 'inactive'
+    if (event.type === 'worker.heartbeat') {
+      this.sequence = event.eventSeq
+      return 'heartbeat'
+    }
     if (event.identity.status === 'suggested') return 'profile-matching-disabled'
     const result = this.preview.apply(event)
     if (result === 'capacity') { this.reset('overload'); return 'overload' }

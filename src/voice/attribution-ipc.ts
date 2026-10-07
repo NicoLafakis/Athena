@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { AttributionEventSchema } from './attribution.js'
 import { AttributionFrameSchema, AttributionSession, AttributionWorkerEventSchema } from './attribution-session.js'
+import { AttributionWorkerWordSchema, workerWordToSegment } from './attribution-worker-messages.js'
 
 /** A future subprocess adapter supplies this port. No process is launched here.
  * Completion releases the buffer; false means accepted, but wait for drain.
@@ -106,11 +107,13 @@ export class AttributionWorkerChannel {
       this.buffered = Buffer.alloc(0)
       const worker = AttributionWorkerEventSchema.safeParse(input)
       const event = AttributionEventSchema.safeParse(input)
-      if (!worker.success && !event.success) {
+      const word = AttributionWorkerWordSchema.safeParse(input)
+      if (!worker.success && !event.success && !word.success) {
         this.terminate('invalid-output', true)
         return [...results, 'invalid']
       }
-      const result = this.session.receive(worker.success ? worker.data : event.data)
+      const result = this.session.receive(worker.success ? worker.data
+        : word.success ? workerWordToSegment(word.data) : event.data)
       results.push(result)
       if (result === 'ready') this.diagnostic = 'connected'
       if (!this.current()) return results

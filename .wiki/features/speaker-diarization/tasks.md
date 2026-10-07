@@ -10,7 +10,9 @@ must not delay a useful anonymous-only release. Runtime implementation must foll
 SD-002 now includes transcript/gap, frame and basic worker lifecycle contracts with an
 ephemeral owner. SD-003 includes synthetic consent loss, frame/job cleanup and admission
 tests. Word-timestamp alignment and stable accessible local control text are implemented;
-host UI, real worker transport and production composition remain pending.
+trusted host presentation and fake-process supervision now have synthetic adapters.
+Actual worker/backend acquisition, production composition and participant acceptance
+remain pending; see [implementation status](implementation-status.md).
 
 ## Phase 0 - product decisions and synthetic contracts
 
