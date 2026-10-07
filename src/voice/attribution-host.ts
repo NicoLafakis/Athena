@@ -71,12 +71,12 @@ export class AttributionLocalHost {
     try {
       if (!this.present([
         'Local speaker attribution uses audio to create an anonymous speaker-tagged preview. Identity can be wrong and never authorizes Athena.',
-        'This session stores no transcript or voice profile and sends no audio to a cloud service. Enrollment and other uses need separate consent.',
+        'Audio and speaker-tagged transcript preview are held in memory for this session. Queued audio and preview are cleared on pause, withdrawal or stop; worker cleanup may still be completing. This feature persists no transcript or voice profile and sends no audio to a cloud service. Enrollment and other uses need separate consent.',
         `Participant ${participantId}: opt in only for yourself. Enter ${phrase} to allow local capture; every other response declines. Capture starts separately.`,
       ])) return false
       const answer = await this.presentation.prompt({ id: `attribution-consent-${participantId}`, label: 'Participant capture consent' })
       if (this.session.status().epoch !== epoch) return false
-      const accepted = answer.trim() === phrase
+      const accepted = answer === phrase
       const result = this.controls.handle({ action: 'consent', participantId, consent: {
         capture: accepted, cloudTransfer: false, transcriptPersistence: false, profileMatching: false,
       } })
