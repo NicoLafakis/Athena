@@ -1,12 +1,23 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { readTool } from '../../src/tools/read.js'
 import { makeCtx } from '../helpers/tool-ctx.js'
 
+const observed = vi.hoisted(() => ({ streams: [] as import('node:fs').ReadStream[] }))
+vi.mock('node:fs', async importOriginal => {
+  const fs = await importOriginal<typeof import('node:fs')>()
+  return { ...fs, createReadStream: (...args: Parameters<typeof fs.createReadStream>) => {
+    const stream = fs.createReadStream(...args)
+    observed.streams.push(stream)
+    return stream
+  } }
+})
+
 let dir: string
 beforeEach(() => {
+  observed.streams.length = 0
   dir = mkdtempSync(join(tmpdir(), 'athena-read-'))
 })
 afterEach(() => {
@@ -14,6 +25,27 @@ afterEach(() => {
 })
 
 describe('readTool', () => {
+  it.each([false, true])('releases descriptors before returning (hash guard %s)', async hashGuard => {
+    writeFileSync(join(dir, 'release.txt'), 'hello\n')
+    const result = await readTool.execute({ file_path: join(dir, 'release.txt') },
+      makeCtx(dir, hashGuard ? { fileReadHashes: new Map() } : {}))
+    expect(result.isError).toBe(false)
+    expect(observed.streams).toHaveLength(hashGuard ? 2 : 1)
+    expect(observed.streams.every(stream => stream.closed)).toBe(true)
+  })
+  it('closes on cancellation and reports the read error', async () => {
+    writeFileSync(join(dir, 'cancel.txt'), 'hello\n')
+    const controller = new AbortController(); controller.abort()
+    const result = await readTool.execute({ file_path: join(dir, 'cancel.txt') },
+      makeCtx(dir, { abortSignal: controller.signal }))
+    expect(result.isError).toBe(true)
+    expect(observed.streams.every(stream => stream.closed)).toBe(true)
+  })
+  it('closes failed directory reads instead of hanging or retaining a handle', async () => {
+    const result = await readTool.execute({ file_path: dir }, makeCtx(dir))
+    expect(result.isError).toBe(true)
+    expect(observed.streams.every(stream => stream.closed)).toBe(true)
+  })
   it('numbers lines cat -n style and registers the file in fileReadRegistry', async () => {
     writeFileSync(join(dir, 'a.txt'), 'alpha\nbeta\n')
     const ctx = makeCtx(dir)

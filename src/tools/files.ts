@@ -31,9 +31,17 @@ export async function fileSha256(file: string): Promise<string> {
   return await new Promise((resolvePromise, reject) => {
     const hash = createHash('sha256')
     const stream = createReadStream(file)
+    let failure: Error | undefined
+    let ended = false
     stream.on('data', (chunk) => hash.update(chunk))
-    stream.on('error', reject)
-    stream.on('end', () => resolvePromise(hash.digest('hex')))
+    stream.once('error', error => { failure = error })
+    stream.once('end', () => { ended = true })
+    // End means all bytes arrived, not that Windows released the descriptor.
+    stream.once('close', () => {
+      if (failure) reject(failure)
+      else if (!ended) reject(new Error('File hashing interrupted'))
+      else resolvePromise(hash.digest('hex'))
+    })
   })
 }
 

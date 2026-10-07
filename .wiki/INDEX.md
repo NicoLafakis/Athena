@@ -33,4 +33,6 @@ links here for depth, this wiki explains it.
 
 ## Findings (root cause analyses)
 
+- [Read descriptor-close race](findings/2026-10-07-read-descriptor-close-race.md) - Reproduced Windows CI cleanup failure: Read/hash completion preceded file-handle closure; completion now waits for close, including cancellation and error paths.
+
 - [RCA 2026-07-27: DPAPI boot abort on PowerShell 5.1 and the credential re-auth loop](findings/RCA-2026-07-27-athena-dpapi-boot-abort-and-credential-reauth-loop.md) - Critical. Commit 621dda3 made vault migration a fatal boot precondition; the Windows DPAPI one-liner does not load System.Security, so PowerShell 5.1 fails and Athena exits 1 before reading the key that is already on disk. See [Credential storage and the OS vault](architecture/credential-storage.md) for the resulting design.
