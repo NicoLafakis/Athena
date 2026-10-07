@@ -1,8 +1,8 @@
 # Implementation status and next work
 
 **Date:** 2026-10-06
-**Branch:** `docs/speaker-backend-acquisition` (follows merged PR #11)
-**Scope:** synthetic contracts, owner, alignment, local controls and dormant IPC; no audio device/model/storage integration
+**Branch:** `feat/speaker-worker-adapters` (follows merged PR #12)
+**Scope:** synthetic contracts, owner, alignment, supervised dormant IPC and trusted presentation adapters; no live device/model/storage integration
 
 The paperwork in PR #9 and synthetic owner in PR #10 are merged. Product decisions SD-001 are still pending. Starting
 synthetic contracts does not approve hardware, retention, enrollment or acquisition.
@@ -33,6 +33,17 @@ synthetic contracts does not approve hardware, retention, enrollment or acquisit
   frame, backpressure, write deadlines, cleanup and owner epoch fencing. It launches
   no process and creates no timer or device. Worker messages can only reach preview
   and lifecycle contracts, never local consent or command admission.
+- Fifth slice: injected fake-process supervisor with explicit start, startup/idle/write
+  deadlines, confirmed-exit fencing, bounded cleanup and no automatic restart. Scoped
+  monotonic heartbeat events sustain a silent worker without changing transcript preview.
+- Strict `worker.word` messages carry one revisable ASR word and source-time diarization
+  activity. Conservative alignment creates one preview event with the same sequence;
+  workers cannot claim participant-track provenance or suggested names in this path.
+- `AttributionLocalHost` routes controls, disclosure, participant-specific assent prompts
+  and asynchronous worker diagnostics through one existing `InteractivePresentation`.
+  Real `ScreenReaderPresentation` is exercised with fake input, without a speech device.
+  Consent renewal clears old assent first; stale/cancelled/failed prompts cannot retain
+  it. The calling host must establish that the actual participant is answering.
 
 The provisional policy defaults are local processing, observation mode, no persistence
 and no profile matching. Retention/expiry remain `null`; enabling those features requires
@@ -48,8 +59,8 @@ Windows/CUDA inference remain unperformed.
 
 | Next slice | Dependency / boundary | Completion evidence |
 |---|---|---|
-| SD-002 remainder: subprocess adapter, words/mapping/revocation | Dormant bounded NDJSON transport and synthetic port tests implemented; process supervision/timers, multitrack/resampling and additional events remain | Fake-process lifecycle tests, explicit worker ASR/activity contracts and timestamp fixtures |
-| SD-003 remainder: host presentation integration | Strict trusted local control seam and deterministic accessible text implemented; no live participant consent UI yet | Wire returned text/notice codes to host text/speech with one output owner; verify real screen readers |
+| SD-002 remainder: concrete worker process/backend and audio frontend | Fake-process supervision, heartbeat and single-word ASR/activity transport tested; real worker entrypoint, scheduled timers and multitrack/resampling remain | Approved installed backend, offline readiness probe and actual source-clock acceptance |
+| SD-003 remainder: production participant UI wiring | Trusted host adapter exercises existing screen-reader presentation and immediate supervisory revocation; not registered in boot/CLI/daemon | Actual participant consent, accessible host entrypoint and real screen-reader acceptance |
 | Admission integration with live daemon/controller | Owner binds current epoch/revision and existing ledger; caller must supply monotonically allocated utterance IDs and explicit operator request | One production ledger/controller, no model-derived operator authority |
 | SD-001 decision record | Nico chooses mode/ASR, devices, budgets, retention/expiry | Explicit configured decisions; no invented benchmark targets |
 | SD-010/011/012 feasibility | Acquisition/environment approval and approved sources; no implicit WSL/system edits | License ledger, pinned versions, real hardware report |
@@ -58,8 +69,9 @@ Windows/CUDA inference remain unperformed.
 
 ## Important integration limits
 
-These modules are dormant library primitives. `AttributionConsent` accepts consent supplied
-by a future trusted participant UI; it does not prove identity or collect consent itself.
+These modules are dormant library primitives. `AttributionLocalHost` implements a trusted
+presentation flow, but is not wired to a live host or participants. `AttributionConsent`
+accepts supplied consent; neither it nor the host prompt proves who is answering.
 The synthetic owner now clears queued frames/preview on consent loss, aborts queued adapter
 jobs and rejects old-epoch completion. A dequeued frame belongs to the future adapter,
 which must release its own copies on abort; zeroing this queue is not a promise of physical

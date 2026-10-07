@@ -27,6 +27,8 @@ export const readTool: ToolDefinition<z.infer<typeof ReadInput>> = {
       return { output: (err as Error).message, isError: true }
     }
     if (!existsSync(abs)) return { output: `File not found: ${abs}`, isError: true }
+    // In particular, never schedule an async open for an already-aborted request.
+    if (ctx.abortSignal.aborted) return { output: 'Read canceled before opening file.', isError: true }
     const offset = input.offset ?? 1
     const limit = input.limit ?? DEFAULT_LIMIT
     const lines: string[] = []
@@ -36,30 +38,40 @@ export const readTool: ToolDefinition<z.infer<typeof ReadInput>> = {
     let scanTruncated = false
     try {
       const stream = createReadStream(abs, { encoding: 'utf8', signal: ctx.abortSignal })
+      const closed = new Promise<void>(resolve => stream.once('close', resolve))
       stream.on('data', (chunk: string | Buffer) => {
         scannedBytes += Buffer.byteLength(chunk)
       })
       const reader = createInterface({ input: stream, crlfDelay: Infinity })
-      for await (const line of reader) {
-        lineNumber++
-        if (scannedBytes > MAX_SCAN_BYTES) {
-          scanTruncated = true
-          hasMore = true
-          reader.close()
-          stream.destroy()
-          break
+      let readError: Error | undefined
+      stream.once('error', error => { readError = error; reader.close() })
+      try {
+        for await (const line of reader) {
+          lineNumber++
+          if (scannedBytes > MAX_SCAN_BYTES) {
+            scanTruncated = true
+            hasMore = true
+            reader.close()
+            stream.destroy()
+            break
+          }
+          if (lineNumber < offset) continue
+          if (lines.length >= limit) {
+            hasMore = true
+            continue
+          }
+          lines.push(
+            line.length > MAX_LINE_CHARS
+              ? `${line.slice(0, MAX_LINE_CHARS)}…[line truncated]`
+              : line,
+          )
         }
-        if (lineNumber < offset) continue
-        if (lines.length >= limit) {
-          hasMore = true
-          continue
-        }
-        lines.push(
-          line.length > MAX_LINE_CHARS
-            ? `${line.slice(0, MAX_LINE_CHARS)}…[line truncated]`
-            : line,
-        )
+      } finally {
+        reader.close()
+        stream.destroy()
+        await closed
       }
+      if (readError) throw readError
     } catch (err) {
       return { output: `Cannot read ${abs}: ${(err as Error).message}`, isError: true }
     }
