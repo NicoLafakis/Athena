@@ -89,8 +89,11 @@ failed exit blocks replacement workers, keeping even noncooperative cleanup boun
 `AttributionLocalHost` uses the existing `InteractivePresentation` detail/prompt seam.
 It has one supervisory diagnostic sink, no separate TTS owner, and no worker/model
 entrypoint. Controls immediately revoke the supervisor when the owner epoch changes.
-The consent prompt withdraws prior assent, discloses local/ephemeral use, and accepts
+The consent prompt withdraws prior assent, explicitly discloses session audio and
+transcript preview in memory, clearing queued audio/preview on pause/withdrawal/stop,
+possible pending worker cleanup and no durable transcript/profile persistence. It accepts
 only `I CONSENT <participantId>` for that participant. Every other answer declines;
+the comparison is exact, including whitespace, with no trimming or normalization.
 cancellation/failure/stale epoch records no fallback assent. Start is separate.
 The host must establish that the actual participant is answering; the typed ID itself
 does not authenticate anyone. UI output failure cannot prevent cleanup. `close()`

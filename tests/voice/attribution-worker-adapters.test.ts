@@ -166,12 +166,15 @@ describe('trusted local host consent presentation', () => {
     const prompt = vi.fn(async () => 'I CONSENT p1')
     const host = new AttributionLocalHost(session, supervisor, { showDetails, prompt })
     expect(await host.requestCaptureConsent('p1')).toBe(true)
-    expect(showDetails.mock.calls.map(call => call[0].text).join(' ')).toContain('stores no transcript or voice profile')
+    const disclosure = showDetails.mock.calls.map(call => call[0].text).join(' ')
+    expect(disclosure).toContain('held in memory for this session')
+    expect(disclosure).toContain('cleared on pause, withdrawal or stop')
+    expect(disclosure).toContain('persists no transcript or voice profile')
     expect(factory).not.toHaveBeenCalled()
     host.operator({ action: 'start' })
     expect(factory).toHaveBeenCalledOnce()
   })
-  it.each(['yes', 'I CONSENT other', ''])('declines ambiguous or different participant answer %s', async answer => {
+  it.each(['yes', 'I CONSENT other', '', ' I CONSENT p1', 'I CONSENT p1 ', 'I CONSENT p1\n'])('declines non-exact participant answer %s', async answer => {
     const { supervisor, session, factory } = setup(false)
     const host = new AttributionLocalHost(session, supervisor, { showDetails() {}, prompt: async () => answer })
     expect(await host.requestCaptureConsent('p1')).toBe(false)
