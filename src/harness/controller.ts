@@ -7,7 +7,7 @@ import type { ProviderId, Effort } from '../brain/models.js'
 import { modelCapabilities } from '../brain/models.js'
 import type { Settings } from '../brain/settings.js'
 import { loadConstitution, loadMemoryIndex } from '../brain/loader.js'
-import { loadSkillsIndexWithPlugins, loadAgentsIndexWithPlugins } from '../brain/plugins.js'
+import { loadAgentsIndexWithPlugins } from '../brain/plugins.js'
 import { assembleSystemPrompt, findProjectContextFiles } from '../engine/prompt.js'
 import { ClientHolder } from '../engine/client-holder.js'
 import type { ModelClient } from '../engine/client.js'
@@ -48,7 +48,8 @@ import {
   webfetchTool,
   websearchTool,
 } from '../tools/index.js'
-import { makeSkillTool } from '../tools/skill.js'
+import { makeSkillTool, loadAvailableSkills } from '../tools/skill.js'
+import { makeInvestigationTool } from '../tools/investigation.js'
 import { makeAgentTool } from '../tools/agent.js'
 
 function gitBranch(cwd: string): string | null {
@@ -336,6 +337,7 @@ export class HarnessSessionController {
       registry.register(t as ToolDefinition<never>)
     }
     registry.register(makeSkillTool(effectivePaths) as ToolDefinition<never>)
+    registry.register(makeInvestigationTool(protectedPaths) as ToolDefinition<never>)
 
     // MCP: connect to configured servers and mount their tools into the BASE registry
     // BEFORE the orchestrator is built, so sub-agents inherit them under restriction.
@@ -348,8 +350,8 @@ export class HarnessSessionController {
       memoryIndex: loadMemoryIndex(effectivePaths),
       projectContext: projectTrust.trusted ? findProjectContextFiles(cwd) : [],
       toolGuidance:
-        'Use Read before Write/Edit. Prefer Grep/Glob over shell find. Keep tool outputs focused.',
-      skills: loadSkillsIndexWithPlugins(effectivePaths, (msg) => console.error(msg)),
+        'Use Read before Write/Edit. Prefer Grep/Glob over shell find. Keep tool outputs focused. For a bounded source investigation, load Skill source-investigation and use Investigation; only its verified literal predicates establish completion.',
+      skills: loadAvailableSkills(effectivePaths, (msg) => console.error(msg)),
       environment: {
         cwd,
         platform: process.platform,
@@ -569,7 +571,9 @@ export class HarnessSessionController {
       const snapshot = this.interactionService.snapshot(this.trace.runId)
       return {
         status: runResult.status === 'completed' ? 'completed' : runResult.status === 'aborted' ? 'aborted' : 'failed',
-        summary: outputText.trim() || `Turn finished with status: ${runResult.status}`,
+        summary: runResult.status === 'completed'
+          ? outputText.trim() || 'Turn completed'
+          : runResult.reason,
         output: outputText.trim(),
         sessionId: this.session.id,
         snapshot,

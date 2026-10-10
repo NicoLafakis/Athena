@@ -63,6 +63,20 @@ The standard Ink TUI remains the default. Set global
 for serialized append-only input/output that preserves native terminal scrollback and
 does not mount Ink.
 
+## Source investigations
+
+The bundled `source-investigation` skill is available through `/skills` and the
+`Skill` tool. Its `Investigation` workflow retains actual source reads, competing
+hypotheses, discriminating literal tests, counterevidence, and unknowns in a
+durable revision-linked ledger. Incomplete investigations fail the run's completion
+check even if assistant text claims success.
+
+This first layer verifies exact source-text predicates within declared files and
+line ranges. Behavior, unit-test, runtime, external, and binary providers are
+unsupported; changed source makes previous claims stale. The
+[contract, storage, and limits](.wiki/architecture/source-investigation.md) describe
+what a pass establishes and how to resume within the same canonical project.
+
 ## Vibe Monitor Plus cost reporting
 
 Athena can report its own model usage to Vibe Monitor Plus (VMP). Usage is recorded at

@@ -15,3 +15,16 @@ The GPT-6 provider lineup and pricing metadata were updated against the OpenAI A
 - Reconcile any new findings from that hardware run with the spec and implementation.
 
 The remote `main` already contains the automated voice work described in the spec; the local update adds the playback echo guard and keeps the status summary aligned with that implementation.
+
+## Bounded source investigation (2026-10-10)
+
+The local implementation adds a bundled investigation skill, strict structured
+result contract, versioned evidence/claim ledger, and engine completion checks.
+It uses the existing source Read tool, shared controller, traces, and durable
+children. Repeated evidence keeps its identity; changed source revisions stale
+claims; contradictory, missing, unsupported, and unresolved evidence cannot pass.
+
+The implemented provider checks literal source-text predicates. Behavior,
+runtime, external effects, binary analysis, automatic unknown resolution, and
+cross-worktree reloads remain deferred. The self-reflection journal is still
+a specification. See [the implemented contract and limits](.wiki/architecture/source-investigation.md).

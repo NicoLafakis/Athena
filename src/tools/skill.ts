@@ -5,6 +5,7 @@ import type { ToolDefinition } from '../engine/types.js'
 import type { BrainPaths } from '../brain/paths.js'
 import { parseFrontmatter } from '../brain/loader.js'
 import { loadSkillsIndexWithPlugins } from '../brain/plugins.js'
+import { investigationSkill } from '../investigation/skill.js'
 
 const SkillInput = z.object({
   name: z.string().min(1),
@@ -36,23 +37,27 @@ function listResources(root: string, instructionFile: string): string[] {
 }
 
 export function makeSkillTool(paths: BrainPaths): ToolDefinition<z.infer<typeof SkillInput>> {
-  const skills = loadSkillsIndexWithPlugins(paths)
+  const skills = loadAvailableSkills(paths)
   return {
     name: 'Skill',
     description:
       "Load a skill's instructions or one of its supporting resources. Skill results include the canonical root so relative scripts, references, and assets resolve correctly. Available skills: " +
       (skills.length > 0
-        ? skills.map((skill) => `${skill.name} (${skill.description}) [root ${skill.root}]`).join('; ')
+        ? skills.map((skill) => `${skill.name} (${skill.description}) [${'root' in skill ? `root ${skill.root}` : 'bundled'}]`).join('; ')
         : '(none defined)'),
     schema: SkillInput,
     readOnly: true,
     async execute(input) {
+      if (input.name === investigationSkill.name) {
+        if (input.resource) return { output: 'Bundled source-investigation has no separate resources; its contract is in the instructions and Investigation schema.', isError: true }
+        return { output: `Bundled Athena skill: ${investigationSkill.name}\n\n${investigationSkill.instructions}`, isError: false }
+      }
       const index = loadSkillsIndexWithPlugins(paths)
       const entry = index.find((skill) => skill.name === input.name)
       if (!entry) {
         return {
           output: `Unknown skill "${input.name}". Available: ${
-            index.map((skill) => skill.name).join(', ') || '(none defined)'
+            [investigationSkill.name, ...index.map((skill) => skill.name)].join(', ')
           }`,
           isError: true,
         }
@@ -98,4 +103,9 @@ export function makeSkillTool(paths: BrainPaths): ToolDefinition<z.infer<typeof 
       }
     },
   }
+}
+
+/** Shared discovery for the prompt, Skill tool, and user-facing /skills list. */
+export function loadAvailableSkills(paths: BrainPaths, warn?: (message: string) => void) {
+  return [investigationSkill, ...loadSkillsIndexWithPlugins(paths, warn).filter(skill => skill.name !== investigationSkill.name)]
 }

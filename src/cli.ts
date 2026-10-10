@@ -7,6 +7,7 @@ import { createInterface } from 'node:readline/promises'
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
 import { render } from 'ink'
 import React from 'react'
+import { loadAvailableSkills } from './tools/skill.js'
 import { resolveBrainPaths } from './brain/paths.js'
 import {
   loadSettings,
@@ -43,7 +44,6 @@ import { runAuthWizard, terminalIO } from './auth/wizard.js'
 import { ClientHolder } from './engine/client-holder.js'
 import { loadConstitution, loadMemoryIndex } from './brain/loader.js'
 import {
-  loadSkillsIndexWithPlugins,
   loadAgentsIndexWithPlugins,
   loadCommandsIndexWithPlugins,
   loadPluginRuntimeExtensions,
@@ -901,7 +901,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         info(loadMemoryIndex(paths) ?? '(no memory index)')
         break
       case 'skills': {
-        const skills = loadSkillsIndexWithPlugins(paths)
+        const skills = loadAvailableSkills(paths)
         info(
           skills.length > 0
             ? skills.map((s) => `${s.name} — ${s.description}`).join('\n')

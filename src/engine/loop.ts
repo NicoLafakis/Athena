@@ -556,6 +556,21 @@ export class Engine {
     // Push the fresh context fill to the status line before signalling turn-done; turn-done
     // stays the last event of the turn (tests and the TUI both key off that).
     bus.emit({ type: 'status', patch: { contextPct: Math.round(contextManager.usedFraction() * 100) } })
+    // Tool-owned proof checks run inside the same engine used by durable children.
+    // An assistant end_turn is not evidence that an investigation passed.
+    for (const tool of this.opts.registry.list()) {
+      if (!tool.completionCheck) continue
+      let reason: string | null
+      try {
+        reason = await tool.completionCheck({ ...this.opts.toolContext, abortSignal: signal })
+      } catch (error) {
+        reason = `${tool.name} completion check failed: ${(error as Error).message}`
+      }
+      if (reason && (!terminal || terminal.status === 'completed')) {
+        terminal = this.budget.failed(reason)
+        bus.emit({ type: 'error', message: reason, fatal: false })
+      }
+    }
     const result = terminal ?? this.budget.completed()
     bus.emit({ type: 'turn-done', usage: result.usage, result })
     return result

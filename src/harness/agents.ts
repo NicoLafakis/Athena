@@ -437,7 +437,7 @@ export class AgentOrchestrator {
         runId,
       }
     }
-    if (record.status === 'aborted' || record.status === 'limit') {
+    if (record.status === 'aborted' || record.status === 'limit' || record.status === 'failed') {
       return {
         output: `Agent ${def.name} ${record.status}: ${result.reason}`,
         isError: true,

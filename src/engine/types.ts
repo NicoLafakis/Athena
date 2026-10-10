@@ -171,6 +171,8 @@ export interface ToolDefinition<I = unknown> {
    * conflicts. Omitted means the tool's readOnly value. */
   concurrencySafe?: (input: unknown) => boolean
   execute(input: I, ctx: ToolContext): Promise<ToolOutput>
+  /** Optional proof gate for state produced by this tool in the current run/turn. */
+  completionCheck?: (ctx: ToolContext) => Promise<string | null>
 }
 
 export type PermissionMode = 'normal' | 'acceptEdits' | 'plan' | 'trusted'

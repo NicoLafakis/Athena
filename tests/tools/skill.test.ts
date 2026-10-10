@@ -78,14 +78,17 @@ describe('makeSkillTool', () => {
     const res = await tool.execute({ name: 'nope' }, makeCtx(project))
     expect(res.isError).toBe(true)
     expect(res.output).toContain('Unknown skill "nope"')
-    expect(res.output).toContain('Available: commit-flow')
+    expect(res.output).toContain('commit-flow')
   })
 
-  it('reports (none defined) in description and errors when no skills exist', async () => {
+  it('always exposes the bundled investigation skill and lists it for unknown skills', async () => {
     const tool = makeSkillTool(resolveBrainPaths({ cwd: project, homeOverride: home }))
-    expect(tool.description).toContain('(none defined)')
+    expect(tool.description).toContain('source-investigation')
     const res = await tool.execute({ name: 'anything' }, makeCtx(project))
     expect(res.isError).toBe(true)
-    expect(res.output).toContain('Available: (none defined)')
+    expect(res.output).toContain('Available: source-investigation')
+    const bundled = await tool.execute({ name: 'source-investigation' }, makeCtx(project))
+    expect(bundled.isError).toBe(false)
+    expect(bundled.output).toContain('hashes establish integrity only')
   })
 })

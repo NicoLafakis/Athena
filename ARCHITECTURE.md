@@ -77,6 +77,12 @@ and local slash-command handler.
   `local_control`, and `VoiceAttentionBridge`, the permission approver it hands to the
   shared controller. No default boot-time audio or network activity.
 - `src/learning/` — governed learning candidates, evaluation, promotion, and warehouse.
+- `src/investigation/` - bounded source-text evidence contracts, revision capture,
+  append-only ledgers, and deterministic verification. The bundled `source-investigation`
+  skill and `Investigation` tool use the existing controller, Read tool, traces, and
+  child-agent engine. Tool-owned completion checks prevent incomplete investigations
+  from producing a completed run. See
+  [the investigation contract and limits](.wiki/architecture/source-investigation.md).
 - `src/auth/` — interactive credential setup.
 
 ## Presentation and permission flow
