@@ -41,12 +41,15 @@ export interface ModelClient {
     prompt: string
     maxTokens: number
     signal?: AbortSignal
+    /** Bound physical attempts (including SDK retries); used by the journal's durable budget. */
+    maxAttempts?: number
   }): Promise<string>
   completeDetailed?(params: {
     model: string
     prompt: string
     maxTokens: number
     signal?: AbortSignal
+    maxAttempts?: number
   }): Promise<CompletionResult>
 }
 
@@ -170,6 +173,7 @@ export class AnthropicClient implements ModelClient {
     prompt: string
     maxTokens: number
     signal?: AbortSignal
+    maxAttempts?: number
   }): Promise<string> {
     return (await this.completeDetailed(params)).text
   }
@@ -179,11 +183,13 @@ export class AnthropicClient implements ModelClient {
     prompt: string
     maxTokens: number
     signal?: AbortSignal
+    maxAttempts?: number
   }): Promise<CompletionResult> {
     let lastError: unknown
     const logicalRequestId = newLogicalRequestId()
     const startedAt = new Date().toISOString()
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const maxAttempts = Math.max(1, Math.min(MAX_RETRIES, Math.floor(params.maxAttempts ?? MAX_RETRIES)))
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         const res = await this.sdk.messages.create(
           {
@@ -191,7 +197,7 @@ export class AnthropicClient implements ModelClient {
             max_tokens: params.maxTokens,
             messages: [{ role: 'user', content: params.prompt }],
           },
-          { signal: params.signal },
+          { signal: params.signal, ...(params.maxAttempts !== undefined ? { maxRetries: 0 } : {}) },
         )
         const text = res.content
           .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
@@ -216,7 +222,7 @@ export class AnthropicClient implements ModelClient {
         const outcome = aborted ? 'cancelled' : attemptOutcomeFromError(err)
         this.recordCompleteAttempt(logicalRequestId, attempt, startedAt, params.model, undefined, outcome)
         if (aborted) throw err
-        if (!retryable || attempt === MAX_RETRIES - 1) throw err
+        if (!retryable || attempt === maxAttempts - 1) throw err
         await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt))
       }
     }

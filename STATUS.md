@@ -26,5 +26,20 @@ claims; contradictory, missing, unsupported, and unresolved evidence cannot pass
 
 The implemented provider checks literal source-text predicates. Behavior,
 runtime, external effects, binary analysis, automatic unknown resolution, and
-cross-worktree reloads remain deferred. The self-reflection journal is still
-a specification. See [the implemented contract and limits](.wiki/architecture/source-investigation.md).
+cross-worktree reloads remain deferred. See
+[the implemented contract and limits](.wiki/architecture/source-investigation.md).
+
+## Optional journal lifecycle (2026-10-10, local implementation)
+
+The shared controller now owns optional trace capture, a bounded daily pass,
+subjective evidence-linked notes, durable provisional memory and relationships,
+and revalidated ephemeral project retrieval. Human enablement defaults to
+09:00 America/New_York; capture needs no model and synthesis allows at most two
+one-shot attempts per day. Persistence, reload, repetition, contradictions,
+rejection, source staleness/missingness, cancellation and malformed/provider-free
+cases have lifecycle coverage. See [controls and limits](.wiki/architecture/self-reflection-journal.md).
+
+The journal changes remain local for review. Closed-app scheduling, the full
+conversation timeline, legacy free-text hygiene and active-claim promotion are
+not implemented. Model interpretations remain inferred even when source integrity
+checks pass; the journal cannot satisfy investigation behavior-proof requirements.

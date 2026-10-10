@@ -84,6 +84,12 @@ and local slash-command handler.
   from producing a completed run. See
   [the investigation contract and limits](.wiki/architecture/source-investigation.md).
 - `src/auth/` — interactive credential setup.
+- `src/journal/` - optional canonical-trace capture, bounded daily consolidation,
+  versioned provisional memory/relationships and revalidated project retrieval.
+  The shared controller owns the in-app lifecycle; `Journal` authors subjective
+  notes and human `athena journal` commands own enablement and scheduling.
+  Generated `memory/journal/` views stay outside the system memory index and
+  active learning claims. See [the journal lifecycle](.wiki/architecture/self-reflection-journal.md).
 
 ## Presentation and permission flow
 

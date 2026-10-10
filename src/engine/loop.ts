@@ -62,6 +62,8 @@ export interface EngineOptions {
   askUser?: AskUserFn // TUI wires this; headless default denies
   abortController?: AbortController
   onMessagesChanged?: (messages: MessageParam[]) => void // session persistence seam (Task 11)
+  /** Fresh untrusted historical data in the outbound user message; never persisted or added to the system prompt. */
+  historicalContext?: (prompt: string) => string
   limits?: RunLimits
   preflightContext?: boolean
 }
@@ -71,6 +73,7 @@ export class Engine {
   private readonly opts: EngineOptions
   private abortController: AbortController
   private turnInFlight = false
+  private historicalQuery?: string
   private readonly budget: RunBudget
 
   constructor(opts: EngineOptions) {
@@ -169,6 +172,7 @@ export class Engine {
     } finally {
       if (deadlineTimer) clearTimeout(deadlineTimer)
       this.turnInFlight = false
+      this.historicalQuery = undefined
     }
   }
 
@@ -189,6 +193,7 @@ export class Engine {
       bus.emit({ type: 'turn-done', usage: result.usage, result })
       return result
     }
+    this.historicalQuery = userText
     const text = promptHook.addedContext
       ? `${userText}\n\n<hook-context>\n${promptHook.addedContext}\n</hook-context>`
       : userText
@@ -577,8 +582,7 @@ export class Engine {
   }
 
   private outboundMessages(): MessageParam[] {
-    if (supportsThinking(this.getProvider(), this.opts.model)) return this.messages
-    return this.messages
+    const messages = supportsThinking(this.getProvider(), this.opts.model) ? this.messages : this.messages
       .map((message) =>
         Array.isArray(message.content)
           ? {
@@ -590,6 +594,15 @@ export class Engine {
           : message,
       )
       .filter((message) => !Array.isArray(message.content) || message.content.length > 0)
+    const context = this.historicalQuery ? this.opts.historicalContext?.(this.historicalQuery) ?? '' : ''
+    if (!context) return messages
+    let index = messages.length - 1
+    while (index >= 0 && messages[index]!.role !== 'user') index--
+    // Revalidation happens for every request, including after tools change a source. The
+    // bundle never enters session history or compaction, so stale/rejected memories cannot
+    // survive through an old user message or become their own future journal evidence.
+    return messages.map((message, at) => at !== index ? message : { ...message, content: typeof message.content === 'string'
+      ? message.content + context : [...message.content, { type: 'text' as const, text: context }] })
   }
 
   private recordLimit(reason: string): RunResult {

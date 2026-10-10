@@ -18,6 +18,7 @@ import {
 import { FileLedgerStore } from './brain/vmp-ledger.js'
 import {
   normalizeModel,
+  modelCapabilities,
   modelLabel,
   modelKeys,
   supportsEffort,
@@ -105,6 +106,7 @@ import {
 } from './harness/diagnostics.js'
 import { stalenessBootWarnings } from './harness/staleness.js'
 import { configureVmp, getVmpStatus, printVmpReport, startVmpServer } from './harness/vmp.js'
+import { runJournalCommand } from './journal/cli.js'
 export type AccessibilityPresentation = 'standard' | 'screen-reader'
 export type VoiceModel = 'gpt-realtime-2.1-mini' | 'gpt-realtime-2.1'
 
@@ -119,6 +121,7 @@ export type CliCommand =
   | { command: 'exec-help' }
   | { command: 'version' }
   | { command: 'doctor'; json: boolean }
+  | { command: 'journal'; args: string[] }
   | {
       command: 'auth'
       sub: 'wizard' | 'status'
@@ -421,6 +424,7 @@ export function parseArgs(argv: string[]): CliCommand {
       ? { command: 'error', message: `Unknown doctor argument: ${unknown}` }
       : { command: 'doctor', json: argv.includes('--json') }
   }
+  if (argv[0] === 'journal') return { command: 'journal', args: argv.slice(1) }
   if (argv[0] === 'learn') {
     const action = argv[1] ?? 'candidates'
     const actions = new Set([
@@ -614,6 +618,8 @@ Usage:
   athena session list    manage durable sessions, checkpoints, rewind, and forks
   athena plugin list     manage installed plugins (install/update/enable/disable/remove/verify)
   athena learn candidates inspect governed learning candidates, held-out evals, canaries, and rollback
+  athena journal status  inspect opt-in daily reflection, source-linked memory, relationships and budgets
+  athena journal enable [--time 09:00] [--timezone America/New_York] [--no-model]  enable in-app capture/consolidation
   athena --help          this help
   athena --version       print the installed version
 
@@ -1184,6 +1190,23 @@ async function main(): Promise<void> {
         cmd.capabilities.length ? `; approved ${cmd.capabilities.join(', ')}` : ''
       }`,
     )
+    return
+  }
+  if (cmd.command === 'journal') {
+    try {
+      console.log(await runJournalCommand(paths, cwd, cmd.args, () => {
+        const credentials = loadCredentials(paths)
+        const provider = credentials.activeProvider
+        const settings = loadSettings({ ...paths, projectBrainDir: null }, provider)
+        const key = resolveApiKey(provider, credentials, process.env, createCredentialVault(paths), message => console.error(message))
+        if (!key) return undefined
+        const recorder = settings.vmp.enabled ? makeTelemetryRecorder(new FileLedgerStore(paths.vmpLedgerFile)) : undefined
+        return { client: makeClient(provider, key.key, recorder), model: modelCapabilities(provider, settings.model).id }
+      }))
+    } catch (error) {
+      console.error((error as Error).message)
+      process.exitCode = CLI_EXIT.usage
+    }
     return
   }
   ensureBrainScaffold(paths)

@@ -2,8 +2,9 @@
 
 Implemented locally in the shared harness as `Investigation` plus the bundled
 `Skill` named `source-investigation`. This is a finite source-text investigation
-MVP. The self-reflection journal remains a specification, not an implemented
-component of this feature.
+MVP. The separately implemented [self-reflection journal](self-reflection-journal.md)
+provides provisional historical interpretations; it cannot satisfy this feature's
+completion checks or supply missing behavioral providers.
 
 ## Workflow and contract
 

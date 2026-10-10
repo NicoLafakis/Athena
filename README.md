@@ -77,6 +77,23 @@ unsupported; changed source makes previous claims stale. The
 [contract, storage, and limits](.wiki/architecture/source-investigation.md) describe
 what a pass establishes and how to resume within the same canonical project.
 
+## Optional journal and provisional memory
+
+`athena journal enable` enables zero-model trace capture and bounded daily
+consolidation, defaulting to 09:00 America/New_York. Use `--time HH:mm --timezone
+IANA` to change the schedule, or `--no-model` for deterministic processing only.
+It runs while Athena is open, with one bounded catch-up at startup. Synthesis is
+limited to two one-shot attempts per day, each requesting at most 1,400 output
+tokens. The journal is disabled by default.
+
+Use `athena journal status`, `entries`, `memory` or `memory --global` to inspect
+the ledger and source availability; `reject <memory-id>` preserves a rejection
+and its audit trail, and `disable` stops future consolidation. Memories remain
+provisional with provenance, limitations and contradictions. Relevant project
+memory is revalidated for each request and supplied as temporary untrusted user
+data, outside saved history and the system prompt. See
+[the lifecycle, controls and limits](.wiki/architecture/self-reflection-journal.md).
+
 ## Vibe Monitor Plus cost reporting
 
 Athena can report its own model usage to Vibe Monitor Plus (VMP). Usage is recorded at

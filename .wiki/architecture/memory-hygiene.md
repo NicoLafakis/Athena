@@ -12,9 +12,31 @@ This page remains the narrower hygiene lifecycle for durable memory files; conti
 implementation must extend this lifecycle for source links and validity rather than add a
 competing durable-fact store.
 
-A separate self-reflection journal supplies operational evidence; see
-[its architecture page](self-reflection-journal.md). Conversational Continuity consumes
-that evidence where relevant but owns the user-facing cross-project conversation index.
+A separate implemented self-reflection journal supplies operational records and
+provisional memory; see [its architecture page](self-reflection-journal.md).
+Conversational Continuity remains the planning package for the broader user-facing
+cross-project conversation index.
+
+## Implemented journal boundary (2026-10-10)
+
+`src/journal/` now implements a bounded daily lifecycle after human enablement,
+defaulting to 09:00 America/New_York. It uses canonical run traces and the existing
+brain's `memory/journal/` namespace for rebuildable, source-linked provisional
+memory. Generated views never overwrite `MEMORY.md` or `LEARNED.md`, become future
+source inputs, or promote claims into the governed-learning active set.
+
+The implemented slice preserves versions, origin identities, limitations and
+contradictions; repeated assertions never boost confidence. Human rejection is
+terminal. Missing, stale, invalid, rejected or contradicted records are excluded
+from ephemeral project retrieval. Original trace metadata is reconstructed during
+validation, rather than trusted because a cited hash exists.
+
+This scheduled journal lifecycle supersedes count-triggered consolidation only
+for the generated journal namespace. The legacy free-text plan below remains
+unimplemented: frontmatter migration, citation/rename repair, correction hooks,
+flag/restore/supersede/expiry, `/memory review`, and the full conversational episode
+index. The manual-memory catalog reads only bounded top-level Markdown files; it
+does not repair, rewrite or grant truth to them.
 
 ## Is this new, or an extension of "governed learning"?
 
@@ -330,7 +352,8 @@ not a fullscreen modal workflow.
 - Cross-project hygiene (dedup/contradiction across project-scoped and global memory
   roots). v1 verifies each root independently.
 - A deprecated-flag/alias ledger for zero-false-positive flag renames.
-- Any journal-derived trigger — interface assumption only.
+- Journal-derived triggers for this legacy free-text hygiene plan remain an
+  interface assumption; the journal's own daily lifecycle is implemented above.
 - A standalone all-pairs LLM contradiction sweep; folded into consolidation instead.
 - User-configurable hygiene hooks. v1 is internal; letting a project override thresholds
   is a small additive follow-up.

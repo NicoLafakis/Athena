@@ -351,6 +351,7 @@ export class OpenAIClient implements ModelClient {
     prompt: string
     maxTokens: number
     signal?: AbortSignal
+    maxAttempts?: number
   }): Promise<string> {
     return (await this.completeDetailed(params)).text
   }
@@ -360,12 +361,14 @@ export class OpenAIClient implements ModelClient {
     prompt: string
     maxTokens: number
     signal?: AbortSignal
+    maxAttempts?: number
   }): Promise<CompletionResult> {
     let lastError: unknown
     const logicalRequestId = newLogicalRequestId()
     const startedAt = new Date().toISOString()
     const signal = params.signal ?? new AbortController().signal
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const maxAttempts = Math.max(1, Math.min(MAX_RETRIES, Math.floor(params.maxAttempts ?? MAX_RETRIES)))
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         const response = await this.post(
           this.buildBody(
@@ -396,7 +399,7 @@ export class OpenAIClient implements ModelClient {
         const retryable = status === undefined || status === 429 || status === 529 || status >= 500
         this.recordAttempt(logicalRequestId, attempt, startedAt, params.model, undefined, 'complete', aborted ? 'cancelled' : 'error')
         if (aborted) throw err
-        if (!retryable || attempt === MAX_RETRIES - 1) throw err
+        if (!retryable || attempt === maxAttempts - 1) throw err
         await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt))
       }
     }

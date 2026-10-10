@@ -75,6 +75,10 @@ export const memoryTool: ToolDefinition<z.infer<typeof MemoryInput>> = {
     const rel = relative(memDir, abs)
     // MEMORY.md is the index this tool maintains; direct writes/deletes would corrupt it.
     const isIndex = rel.replaceAll('\\', '/').toLowerCase() === 'memory.md'
+    const isJournal = rel.replaceAll('\\', '/').toLowerCase().split('/')[0] === 'journal'
+    if (isJournal && (input.op === 'write' || input.op === 'delete')) {
+      return { output: 'memory/journal is reserved generated data; review or reject with athena journal memory/reject', isError: true }
+    }
     if (isIndex && (input.op === 'write' || input.op === 'delete')) {
       return {
         output: 'MEMORY.md is the reserved index maintained by this tool; write facts to another file',

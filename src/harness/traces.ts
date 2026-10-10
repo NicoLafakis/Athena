@@ -44,6 +44,7 @@ export class RunTraceWriter {
   private queue: Promise<void> = Promise.resolve()
   private detach: (() => void) | null = null
   private closed = false
+  private readonly persistedListeners = new Set<(event: RunTraceEnvelope) => void>()
 
   private constructor(
     file: string,
@@ -86,8 +87,20 @@ export class RunTraceWriter {
     const envelope: RunTraceEnvelope = { ...base, hash }
     this.previousHash = hash
     const line = JSON.stringify(envelope) + '\n'
-    this.queue = this.queue.then(() => appendFile(this.file, line, 'utf8'))
+    this.queue = this.queue.then(async () => {
+      await appendFile(this.file, line, 'utf8')
+      for (const listener of this.persistedListeners) {
+        try { listener(envelope) } catch { /* Optional observers cannot break canonical trace writes. */ }
+      }
+    })
   }
+
+  onPersisted(listener: (event: RunTraceEnvelope) => void): () => void {
+    this.persistedListeners.add(listener)
+    return () => { this.persistedListeners.delete(listener) }
+  }
+
+  async flush(): Promise<void> { await this.queue }
 
   recordPrompt(prompt: string): void {
     this.append('user-prompt', { prompt })
