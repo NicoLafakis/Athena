@@ -376,6 +376,7 @@ export class HarnessSessionController {
 
     const clientHolder = new ClientHolder(client)
     const reflectionJournal: JournalRuntime = new JournalRuntime(paths, cwd, { ...journalOptions, client: clientHolder, model: (): string => engine.getModelId(), protectedPaths,
+      effort: () => engine.getProvider() === 'openai' ? engine.getEffort() : undefined,
       warn: message => bus.emit({ type: 'info', message }) })
     registry.register(makeJournalTool(reflectionJournal, trace) as ToolDefinition<never>)
     const orchestrator = new AgentOrchestrator({

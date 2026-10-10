@@ -7,7 +7,7 @@
 
 export type ProviderId = 'openai' | 'anthropic' | 'kimi' | 'kimi-code'
 export type ModelKey = string
-export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+export type Effort = 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 // Legacy `enabled` (budget_tokens) is kept in the union for completeness, but it MUST
 // NOT reach sonnet-5/opus-4-8/fable-5 — those speak `adaptive` only. resolveModelRequest
@@ -18,7 +18,8 @@ export type ThinkingParam =
   | { type: 'disabled' }
 
 export const PROVIDER_IDS: readonly ProviderId[] = ['openai', 'anthropic', 'kimi', 'kimi-code']
-export const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
+export const EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+const REASONING_EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
 export interface ProviderEntry {
   label: string
@@ -40,7 +41,7 @@ export const PROVIDERS: Record<ProviderId, ProviderEntry> = {
     label: 'OpenAI',
     baseURL: null,
     envVar: 'OPENAI_API_KEY',
-    defaultModel: 'sol',
+    defaultModel: 'sol-6.1',
     validationModel: 'luna',
     authMode: 'bearer',
     keyHint:
@@ -80,6 +81,8 @@ export interface ModelEntry {
   id: string
   label: string
   supportsEffort: boolean
+  /** Legal wire values; absent on legacy providers, which retain their non-none levels. */
+  supportedEfforts?: readonly Effort[]
   supportsThinking: boolean
   contextWindowTokens: number
   maxOutputTokens: number
@@ -98,9 +101,9 @@ export interface ModelEntry {
 // endpoint accepts the same ids as the OpenAI one.
 export const MODELS: Record<ProviderId, Record<ModelKey, ModelEntry>> = {
   // NOTE: OpenAI ids, reasoning-effort sets, and prices verified against
-  // https://developers.openai.com/api/docs/models on 2026-09-24.
-  // Sol and Luna take reasoning effort none..max; Astra takes low..max. Athena's Effort
-  // union maps 1:1 to their shared non-none levels. Effort is emitted by
+  // https://developers.openai.com/api/docs/models on 2026-10-10.
+  // GPT-6 Sol/Luna take none..max; GPT-6 Astra and GPT-6.1 Sol take low..max.
+  // These are per-model sets, not a provider-wide cross-product. Effort is emitted by
   // resolveModelRequest and translated to reasoning:{effort} inside OpenAIClient —
   // supportsThinking stays false: that flag drives Anthropic's thinking param, which has
   // no OpenAI counterpart.
@@ -109,6 +112,7 @@ export const MODELS: Record<ProviderId, Record<ModelKey, ModelEntry>> = {
       id: 'gpt-6-luna',
       label: 'GPT-6 Luna',
       supportsEffort: true,
+      supportedEfforts: EFFORTS,
       supportsThinking: false,
       contextWindowTokens: 1_050_000,
       maxOutputTokens: 128_000,
@@ -118,6 +122,7 @@ export const MODELS: Record<ProviderId, Record<ModelKey, ModelEntry>> = {
       id: 'gpt-6-sol',
       label: 'GPT-6 Sol',
       supportsEffort: true,
+      supportedEfforts: EFFORTS,
       supportsThinking: false,
       contextWindowTokens: 1_050_000,
       maxOutputTokens: 128_000,
@@ -127,10 +132,21 @@ export const MODELS: Record<ProviderId, Record<ModelKey, ModelEntry>> = {
       id: 'gpt-6-astra',
       label: 'GPT-6 Astra',
       supportsEffort: true,
+      supportedEfforts: REASONING_EFFORTS,
       supportsThinking: false,
       contextWindowTokens: 1_050_000,
       maxOutputTokens: 128_000,
       pricing: { inputPerMillionUsd: 10, outputPerMillionUsd: 50, cacheReadPerMillionUsd: 1, cacheWritePerMillionUsd: 12.5, metered: true, asOf: '2026-09-24' },
+    },
+    'sol-6.1': {
+      id: 'gpt-6.1-sol',
+      label: 'GPT-6.1 Sol',
+      supportsEffort: true,
+      supportedEfforts: REASONING_EFFORTS,
+      supportsThinking: false,
+      contextWindowTokens: 1_050_000,
+      maxOutputTokens: 128_000,
+      pricing: { inputPerMillionUsd: 2, outputPerMillionUsd: 10, cacheReadPerMillionUsd: 0.1, cacheWritePerMillionUsd: 2.5, metered: true, asOf: '2026-10-10' },
     },
   },
   anthropic: {
@@ -292,13 +308,37 @@ export function supportsEffort(provider: ProviderId, key: ModelKey): boolean {
   return entry(provider, key).supportsEffort
 }
 
+export function effortLevels(provider: ProviderId, key: ModelKey): readonly Effort[] {
+  const e = entry(provider, key)
+  return e.supportsEffort ? (e.supportedEfforts ?? REASONING_EFFORTS) : []
+}
+
+export function defaultEffort(provider: ProviderId): Effort {
+  return provider === 'openai' ? 'medium' : 'high'
+}
+
+/** Preserve compatible choices across a model switch; reset an incompatible choice. */
+export function compatibleEffort(provider: ProviderId, key: ModelKey, effort: Effort): Effort {
+  const levels = effortLevels(provider, key)
+  if (!levels.length) return effort === 'none' ? defaultEffort(provider) : effort
+  return levels.includes(effort) ? effort : defaultEffort(provider)
+}
+
+export function assertModelEffort(provider: ProviderId, key: ModelKey, effort: Effort): void {
+  const levels = effortLevels(provider, key)
+  if (!levels.length) throw new Error(`${modelLabel(provider, key)} does not support reasoning effort.`)
+  if (!levels.includes(effort)) {
+    throw new Error(`Unsupported effort '${effort}' for ${modelLabel(provider, key)} (valid: ${levels.join(', ')})`)
+  }
+}
+
 export function supportsThinking(provider: ProviderId, key: ModelKey): boolean {
   return entry(provider, key).supportsThinking
 }
 
 /** Accepts a model key (case-insensitive, trimmed) OR a legacy/full model id and maps
  *  it to a key WITHIN the given provider only. Exact key/id match first, then a
- *  longest-key substring pass so `claude-sonnet-4-5` -> sonnet stays working and, when
+ *  longest-key substring pass for legacy Anthropic/Kimi IDs, so `claude-sonnet-4-5` -> sonnet stays working and, when
  *  two keys share a prefix, the longer key wins. Returns null for anything
  *  unrecognized so callers can surface a clear error. */
 export function normalizeModel(provider: ProviderId, input: string): ModelKey | null {
@@ -308,6 +348,8 @@ export function normalizeModel(provider: ProviderId, input: string): ModelKey | 
   for (const k of keys) {
     if (s === k || s === MODELS[provider][k]!.id.toLowerCase()) return k
   }
+  // Versioned OpenAI IDs must match exactly: a new/unknown Sol must never select GPT-6 Sol.
+  if (provider === 'openai') return null
   for (const k of [...keys].sort((a, b) => b.length - a.length)) {
     if (s.includes(k)) return k
   }
@@ -326,7 +368,10 @@ export function resolveModelRequest(
 ): { model: string; effort?: Effort; thinking?: ThinkingParam } {
   const e = entry(provider, key)
   const req: { model: string; effort?: Effort; thinking?: ThinkingParam } = { model: e.id }
-  if (e.supportsEffort) req.effort = effort
+  if (e.supportsEffort) {
+    assertModelEffort(provider, key, effort)
+    req.effort = effort
+  }
   if (e.supportsThinking) req.thinking = { type: 'adaptive' }
   return req
 }

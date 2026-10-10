@@ -38,10 +38,18 @@ re-enabling advances it, excluding the disabled interval while keeping history.
 The in-app timer checks once per minute and performs at most one eligible local
 date on startup. It does not replay every missed date. Day keys handle DST gaps
 and repeated hours without repeating a completed pass. `run` requests today's
-pass immediately; a completed day remains idempotent. A scheduled pass can run
-only while Athena is open; after closure, the next startup performs one bounded
-catch-up. No OS task, background service, system file or credential change is
-involved.
+pass immediately; a completed day remains idempotent. The built-in timer runs
+while Athena is open; after closure, the next startup performs one bounded
+catch-up. The enable command does not install an OS task, background service,
+system file or credential change. An explicitly approved external scheduler can
+invoke the same runtime while the UI is closed; it shares the daily budget,
+consolidation lock, and completed-day checkpoint. Core status does not probe OS
+task registration.
+
+In-app OpenAI synthesis forwards the current engine model and reasoning effort.
+Manual `journal run` uses the global provider/model/effort. OpenAI's ordinary
+default is GPT-6.1 Sol medium; the approved machine-local background worker pins
+that same combination. Other providers retain their existing one-shot behavior.
 
 Each day has at most **two persisted one-shot provider attempts**, one per timer
 invocation, with at most 1,400 requested output tokens and a 30-second deadline
@@ -110,6 +118,22 @@ memory catalog each inspect at most 32 files per recovery pass (startup or a new
 eligible date within that runtime). Persisted cursors advance across restarts. The catalog
 excludes `MEMORY.md`, `LEARNED.md`, generated memory and nested directories.
 Global authored files are never implicitly assigned to a project.
+
+When model synthesis is enabled, selected source excerpts and their filenames,
+scope, origin/revision hashes and metadata go to the configured provider. The
+approved background worker uses OpenAI Responses. Each selected manual-memory
+file contributes a filtered excerpt of its first 1,600 characters, including
+eligible files that predate enablement; post-enable user-prompt excerpts have
+the same per-source bound. Original tool outputs are excluded by this extractor;
+it supplies reported-operation metadata. Up to eight earlier same-scope journal
+memory statements, each truncated to 300 characters, may provide context and
+contradictions within the total 16,000-character request bound.
+
+Credential/instruction filters and redaction do not comprehensively remove
+personal data. Names, household, health, relationship or work details can remain.
+OpenAI Responses requests set `store: false`; this does not establish zero provider retention.
+Local metadata logs omit excerpts, while the ledger and generated memory can
+retain provisional interpretations. `--no-model` keeps consolidation local.
 
 Deterministic processing links repeated origins, tool retry recovery and changed
 memory-file revisions. It can derive tentative memories from reported recovery
@@ -190,7 +214,7 @@ code/diff bodies and instruction-changing text; cleaned values are stored rather
 than the unfiltered inputs. These are bounded filters, not a guarantee that every
 possible sensitive string or adversarial statement will be recognized.
 
-Deferred: closed-app scheduling, cross-machine synchronization, a unified
+Deferred: a bundled cross-platform closed-app scheduler, cross-machine synchronization, a unified
 conversation index, legacy memory frontmatter repair/flag/supersede/expiry,
 automatic prediction resolution, runtime/binary investigation providers, active
 claim promotion, semantic truth verification, and a TUI journal viewer.
@@ -211,3 +235,34 @@ and re-enable cutoffs. `tests/engine/journal-budget.test.ts` checks one physical
 attempt and requested token bounds through the actual provider client adapters.
 Providers are scripted fixtures; these tests do not establish live-provider
 availability or model interpretation quality.
+
+A separate live synthetic GPT-6.1 Sol medium pass on 2026-10-10 used one physical
+Responses POST: request effort medium, response model GPT-6.1 Sol, HTTP 200,
+454 input / 304 output tokens including 73 reasoning tokens. The accepted
+reflection, derived/inferred provisional memories, reservation, reload and repeat
+were checked without changing the real profile or its daily attempt budget. See
+[model validation and limits](model-selection.md#live-validation-2026-10-10).
+
+An explicitly approved machine-local Windows task was also installed outside the
+bundled CLI. It invokes the same runtime with a hidden bounded launcher under an
+ordinary interactive account, at 09:00 Eastern with hourly due checks and logon
+catch-up. It requires the user logged on and the PC awake; no wake or logged-out
+execution is provided. It pins GPT-6.1 Sol medium and shares the open app's lock,
+two-attempt budget and completed-day checkpoint.
+
+Three actual registered-action demand starts returned result 0 while the UI was
+closed. They captured no eligible source, created/reused a metadata-only daily
+checkpoint and made zero model calls. Repeats preserved the ledger and attempt
+count; after the provider-setup metadata transition, log hashes were stable.
+A subsequent hourly check was observed without a manual launch: the recorded
+NextRunTime was 19:00 UTC and LastRunTime advanced to 19:00:01 UTC with result 0
+and the task ready. Its completed metadata-only checkpoint, ledger, logs and
+watched profile/manual-memory hashes stayed unchanged, with zero additional
+attempts or memories. No known Athena UI entrypoint process was found. The next
+check was 20:00 UTC. Operational history remains disabled; attribution uses
+NextRunTime/LastRunTime advancement, not a trigger-history event. These runs do
+not prove live task synthesis, the 09:00/logon trigger or sleep/resume behavior.
+
+One older oversized trace was preserved and excluded at the unchanged 2 MB bound;
+this deployment does not establish complete historical capture. Machine-local
+setup is separately authorized and is not installed by `journal enable`.

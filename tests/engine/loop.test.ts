@@ -816,6 +816,28 @@ describe('thinking-block sanitization for non-thinking targets', () => {
 })
 
 describe('Engine provider window', () => {
+  it('preserves valid effort and resets none when switching to GPT-6.1 Sol or Anthropic', () => {
+    const { engine } = makeEngine([], { provider: 'openai', model: 'sol', effort: 'none' })
+    engine.setModel('luna')
+    expect(engine.getEffort()).toBe('none')
+    engine.setModel('gpt-6.1-sol')
+    expect(engine.getModelId()).toBe('gpt-6.1-sol')
+    expect(engine.getEffort()).toBe('medium')
+    expect(() => engine.setEffort('none')).toThrow(/Unsupported effort/)
+    expect(engine.getEffort()).toBe('medium')
+    expect(() => engine.setModel('gpt-6.2-sol')).toThrow(/Unknown model/)
+    expect(engine.getModelId()).toBe('gpt-6.1-sol')
+    engine.setModel('sol')
+    engine.setEffort('none')
+    engine.setProvider('anthropic')
+    expect(engine.getEffort()).toBe('high')
+    engine.setModel('haiku')
+    expect(() => engine.setEffort('medium')).toThrow(/does not support/)
+  })
+
+  it('rejects an unsupported initial model/effort combination before execution', () => {
+    expect(() => makeEngine([], { provider: 'openai', model: 'sol-6.1', effort: 'none' })).toThrow(/Unsupported effort/)
+  })
   it('provider omitted defaults to anthropic', () => {
     const { engine } = makeEngine([])
     expect(engine.getProvider()).toBe('anthropic')

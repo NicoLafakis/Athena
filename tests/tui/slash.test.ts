@@ -9,6 +9,8 @@ describe('parseSlash', () => {
     ['/compact', { kind: 'compact' }],
     ['/model claude-opus-4-6', { kind: 'model', value: 'claude-opus-4-6' }],
     ['/effort xhigh', { kind: 'effort', value: 'xhigh' }],
+    ['/effort none', { kind: 'effort', value: 'none' }],
+    ['/effort minimal', { kind: 'error', value: 'Unknown effort: minimal' }],
     ['/effort bogus', { kind: 'error', value: 'Unknown effort: bogus' }],
     ['/mode plan', { kind: 'mode', value: 'plan' }],
     ['/tui fullscreen', { kind: 'tui', value: 'fullscreen' }],
@@ -43,7 +45,7 @@ describe('parseSlash', () => {
   it('errors on /effort with no argument', () => {
     expect(parseSlash('/effort')).toEqual({
       kind: 'error',
-      value: 'Usage: /effort <low|medium|high|xhigh|max>',
+      value: 'Usage: /effort <none|low|medium|high|xhigh|max> (model-specific)',
     })
   })
 

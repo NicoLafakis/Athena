@@ -482,9 +482,14 @@ export function App({
           })
           return
         }
+        const options = pickerOptions(barePickable, status.provider, status.modelKey)
+        if (!options.length) {
+          bus.emit({ type: 'info', message: `${status.model} does not support reasoning effort.` })
+          return
+        }
         setArgPicker({
           kind: barePickable,
-          index: currentOptionIndex(pickerOptions(barePickable, status.provider), currentValueFor(barePickable)),
+          index: currentOptionIndex(options, currentValueFor(barePickable)),
         })
         return
       }
@@ -637,7 +642,7 @@ export function App({
   // rendered height cannot drift apart; a tight budget shrinks the picker's visible window
   // (with its existing "… N more" notice) and, at the extreme, hides it outright.
   const showArgPicker = argPicker !== null && !dialogPendingFullscreen
-  const argPickerOptions = argPicker ? pickerOptions(argPicker.kind, status.provider) : []
+  const argPickerOptions = argPicker ? pickerOptions(argPicker.kind, status.provider, status.modelKey) : []
   const argPickerLayout =
     showArgPicker && argPicker
       ? popupLayout(
@@ -667,7 +672,7 @@ export function App({
   useInput(
     (_ch, key) => {
       if (!argPicker) return
-      const options = pickerOptions(argPicker.kind, status.provider)
+      const options = pickerOptions(argPicker.kind, status.provider, status.modelKey)
       if (key.escape) {
         setArgPicker(null)
         return

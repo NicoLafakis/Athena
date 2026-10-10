@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { atomicWriteFileSync } from '../tools/files.js'
 import type { HookEventName, PermissionMode, SandboxMode } from '../engine/types.js'
 import type { Effort, ProviderId } from './models.js'
-import { normalizeModel, modelKeys, PROVIDERS } from './models.js'
+import { normalizeModel, modelKeys, compatibleEffort, defaultEffort, EFFORTS, PROVIDERS, PROVIDER_IDS } from './models.js'
 import type { BrainPaths } from './paths.js'
 
 const HookEventSchema = z.enum([
@@ -210,7 +210,6 @@ export const VmpConnectorSchema = z.object({
 export type VmpConnectorSettings = z.infer<typeof VmpConnectorSchema>
 
 const baseShape = {
-  effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('high'),
   maxOutputTokens: z.number().int().positive().optional(),
   permissionMode: z.enum(['normal', 'acceptEdits', 'plan', 'trusted']).default('normal'),
   sandboxMode: z.enum(['read-only', 'workspace-write', 'unrestricted']).default('workspace-write'),
@@ -229,7 +228,7 @@ const baseShape = {
 }
 
 export function makeSettingsSchema(provider: ProviderId = 'anthropic') {
-  return z.object({ model: modelSchema(provider), ...baseShape })
+  return z.object({ model: modelSchema(provider), effort: z.enum(EFFORTS).default(defaultEffort(provider)), ...baseShape })
 }
 
 /** Anthropic-scoped schema — the default, and what pre-provider callers/tests use. */
@@ -321,11 +320,17 @@ export function loadSettings(
       `settings model '${merged['model']}' is not valid for provider '${provider}', using ${PROVIDERS[provider].defaultModel}`,
     )
     merged['model'] = PROVIDERS[provider].defaultModel
+    merged['effort'] = defaultEffort(provider)
   }
   const result = makeSettingsSchema(provider).safeParse(merged)
   if (!result.success) {
     const issues = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
     throw new Error(`Invalid settings (${paths.settingsFile}): ${issues}`)
+  }
+  const effort = compatibleEffort(provider, result.data.model, result.data.effort)
+  if (effort !== result.data.effort) {
+    onWarn?.(`settings effort '${result.data.effort}' is not valid for ${provider}/${result.data.model}, using ${effort}`)
+    result.data.effort = effort
   }
   return result.data
 }
@@ -354,6 +359,7 @@ export function readProjectSettingsCapabilities(paths: BrainPaths): ProjectSetti
  *  overwritten from here; this is for user-controlled global state such as the
  *  VMP connector configuration. */
 export function saveSettings(paths: BrainPaths, settings: Settings): void {
-  const parsed = SettingsSchema.parse(settings)
+  const provider = PROVIDER_IDS.find(p => normalizeModel(p, settings.model)) ?? 'anthropic'
+  const parsed = makeSettingsSchema(provider).parse(settings)
   atomicWriteFileSync(paths.settingsFile, JSON.stringify(parsed, null, 2) + '\n')
 }

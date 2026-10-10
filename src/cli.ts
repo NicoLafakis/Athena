@@ -22,6 +22,9 @@ import {
   modelLabel,
   modelKeys,
   supportsEffort,
+  effortLevels,
+  defaultEffort,
+  resolveModelRequest,
   EFFORTS,
   PROVIDERS,
   PROVIDER_IDS,
@@ -187,7 +190,7 @@ export interface ExecOptions {
   permissionMode: PermissionMode
   sandboxMode: SandboxMode
   model: string | null
-  effort: Effort
+  effort: Effort | null
   limits: RunLimits
 }
 
@@ -231,7 +234,7 @@ function parseExecArgs(argv: string[]): CliCommand {
     permissionMode: 'normal',
     sandboxMode: 'workspace-write',
     model: null,
-    effort: 'high',
+    effort: null,
     limits: {
       maxModelCalls: 50,
       maxToolCalls: 200,
@@ -765,7 +768,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
                 .join(', ')
             : ''
         info(
-          `Commands: /help /status /repeat /details /verbosity <concise|balanced|detailed> /clear /resume /compact /model <${modelKeys(engine.getProvider()).join('|')}> /effort <low|medium|high|xhigh|max> /provider <${PROVIDER_IDS.join('|')}> /mode <normal|acceptEdits|plan|trusted> /tui <fullscreen|classic> /memory /skills /agents /quit\n` +
+          `Commands: /help /status /repeat /details /verbosity <concise|balanced|detailed> /clear /resume /compact /model <${modelKeys(engine.getProvider()).join('|')}> /effort <${effortLevels(engine.getProvider(), engine.getModel()).join('|') || 'unavailable'}> /provider <${PROVIDER_IDS.join('|')}> /mode <normal|acceptEdits|plan|trusted> /tui <fullscreen|classic> /memory /skills /agents /quit\n` +
             '/clear clears the screen (transcript display only) — conversation context is unchanged; use /compact to shrink it.\n' +
             '/tui fullscreen switches to an alternate-screen buffer with a pinned input (like vim/htop); /tui classic returns to normal scrollback.\n' +
             '/model /provider /effort /mode /tui run with no argument open a picker to choose a value instead of requiring you to type one.' +
@@ -810,7 +813,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
           break
         }
         engine.setModel(key)
-        bus.emit({ type: 'status', patch: { model: modelLabel(provider, key), modelKey: key } })
+        bus.emit({ type: 'status', patch: { model: modelLabel(provider, key), modelKey: key, effort: engine.getEffort() } })
         info(
           supportsEffort(provider, key)
             ? `Model: ${modelLabel(provider, key)} (effort ${engine.getEffort()})`
@@ -862,7 +865,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         engine.setModel(PROVIDERS[p].defaultModel)
         bus.emit({
           type: 'status',
-          patch: { model: modelLabel(p, PROVIDERS[p].defaultModel), modelKey: PROVIDERS[p].defaultModel, provider: p },
+          patch: { model: modelLabel(p, PROVIDERS[p].defaultModel), modelKey: PROVIDERS[p].defaultModel, provider: p, effort: engine.getEffort() },
         })
         info(
           `Provider: ${PROVIDERS[p].label}, model ${modelLabel(p, PROVIDERS[p].defaultModel)} (session-only; \`athena auth\` changes the default).`,
@@ -870,7 +873,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         break
       }
       case 'effort': {
-        engine.setEffort(cmd.value)
+        try { engine.setEffort(cmd.value) } catch (error) { info((error as Error).message); break }
         bus.emit({ type: 'status', patch: { effort: cmd.value } })
         const provider = engine.getProvider()
         const key = engine.getModel()
@@ -1201,7 +1204,8 @@ async function main(): Promise<void> {
         const key = resolveApiKey(provider, credentials, process.env, createCredentialVault(paths), message => console.error(message))
         if (!key) return undefined
         const recorder = settings.vmp.enabled ? makeTelemetryRecorder(new FileLedgerStore(paths.vmpLedgerFile)) : undefined
-        return { client: makeClient(provider, key.key, recorder), model: modelCapabilities(provider, settings.model).id }
+        return { client: makeClient(provider, key.key, recorder), model: modelCapabilities(provider, settings.model).id,
+          effort: provider === 'openai' ? settings.effort : undefined }
       }))
     } catch (error) {
       console.error((error as Error).message)
@@ -1211,7 +1215,7 @@ async function main(): Promise<void> {
   }
   ensureBrainScaffold(paths)
   if (cmd.command === 'vmp') {
-    const settings = loadSettings(paths, 'anthropic')
+    const settings = loadSettings({ ...paths, projectBrainDir: null }, loadCredentials(paths).activeProvider)
     try {
       switch (cmd.sub) {
         case 'status': {
@@ -1874,7 +1878,7 @@ async function main(): Promise<void> {
   if (isExec) {
     settings.permissionMode = cmd.options.permissionMode
     settings.sandboxMode = cmd.options.sandboxMode
-    settings.effort = cmd.options.effort
+    settings.effort = cmd.options.effort ?? defaultEffort(provider)
     if (cmd.options.model) {
       const selected = normalizeModel(provider, cmd.options.model)
       if (!selected) {
@@ -1883,6 +1887,11 @@ async function main(): Promise<void> {
         return
       }
       settings.model = selected
+    }
+    try { resolveModelRequest(provider, settings.model, settings.effort) } catch (error) {
+      console.error((error as Error).message)
+      process.exitCode = CLI_EXIT.usage
+      return
     }
   }
   const presentationMode: AccessibilityPresentation = !isExec && 'accessibility' in cmd

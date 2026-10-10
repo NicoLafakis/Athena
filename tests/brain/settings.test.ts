@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { resolveBrainPaths } from '../../src/brain/paths.js'
-import { loadSettings, SettingsSchema, makeSettingsSchema } from '../../src/brain/settings.js'
+import { loadSettings, saveSettings, SettingsSchema, makeSettingsSchema } from '../../src/brain/settings.js'
 
 let home: string
 let project: string
@@ -109,6 +109,38 @@ describe('loadSettings', () => {
     expect(SettingsSchema.parse({}).model).toBe('sonnet')
     expect(SettingsSchema.parse({}).effort).toBe('high')
     expect(SettingsSchema.parse({ model: 'claude-opus-4-8' }).model).toBe('opus')
+  })
+
+  it('defaults OpenAI to GPT-6.1 Sol medium without changing other providers', () => {
+    const paths = resolveBrainPaths({ cwd: project, homeOverride: home })
+    expect(loadSettings(paths, 'openai')).toMatchObject({ model: 'sol-6.1', effort: 'medium' })
+    expect(makeSettingsSchema('openai').parse({ model: 'gpt-6.1-sol' })).toMatchObject({ model: 'sol-6.1', effort: 'medium' })
+    expect(loadSettings(paths, 'anthropic')).toMatchObject({ model: 'sonnet', effort: 'high' })
+    expect(loadSettings(paths, 'kimi')).toMatchObject({ model: 'kimi-k3', effort: 'high' })
+    expect(makeSettingsSchema('openai').safeParse({ effort: 'minimal' }).success).toBe(false)
+  })
+
+  it('persists an OpenAI settings update without applying the Anthropic model schema', () => {
+    const paths = resolveBrainPaths({ cwd: project, homeOverride: home })
+    mkdirSync(paths.brainDir, { recursive: true })
+    const settings = makeSettingsSchema('openai').parse({ model: 'gpt-6.1-sol', effort: 'medium', allow: ['Read(**)'] })
+    saveSettings(paths, { ...settings, vmp: { enabled: false } })
+    expect(JSON.parse(readFileSync(paths.settingsFile, 'utf8'))).toMatchObject({ model: 'sol-6.1', effort: 'medium', allow: ['Read(**)'] })
+    expect(loadSettings(paths, 'openai')).toMatchObject({ model: 'sol-6.1', effort: 'medium' })
+  })
+
+  it('warns and recovers incompatible persisted effort; preserves unrelated settings', () => {
+    mkdirSync(join(home, '.athena'), { recursive: true })
+    writeFileSync(join(home, '.athena', 'settings.json'), JSON.stringify({ model: 'gpt-6.1-sol', effort: 'none',
+      allow: ['Read(**)'], protectedPaths: ['C:/Preserved'], vmp: { enabled: false } }))
+    const warnings: string[] = []
+    const paths = resolveBrainPaths({ cwd: project, homeOverride: home })
+    expect(loadSettings(paths, 'openai', warning => warnings.push(warning))).toMatchObject({
+      model: 'sol-6.1', effort: 'medium', allow: ['Read(**)'], protectedPaths: ['C:/Preserved'], vmp: { enabled: false },
+    })
+    expect(warnings).toEqual(["settings effort 'none' is not valid for openai/sol-6.1, using medium"])
+    writeFileSync(join(home, '.athena', 'settings.json'), JSON.stringify({ model: 'gpt-6-sol', effort: 'none' }))
+    expect(loadSettings(paths, 'openai')).toMatchObject({ model: 'sol', effort: 'none' })
   })
 
   it('project settings override global scalars and concatenate rule arrays', () => {

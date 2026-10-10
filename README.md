@@ -19,7 +19,7 @@ athena
 ```
 
 On first interactive run, Athena asks for a provider and API key. It supports
-Anthropic, Kimi/Moonshot, and Kimi Code. Keys are validated, stored in the
+OpenAI, Anthropic, Kimi/Moonshot, and Kimi Code. Keys are validated, stored in the
 platform credential vault when available, and otherwise kept in an owner-only
 local credential file.
 
@@ -63,6 +63,25 @@ The standard Ink TUI remains the default. Set global
 for serialized append-only input/output that preserves native terminal scrollback and
 does not mount Ink.
 
+## Models and reasoning
+
+OpenAI defaults to **GPT-6.1 Sol at medium**. `/model` selects GPT-6 Luna (`luna`),
+GPT-6 Sol (`sol`), GPT-6 Astra (`astra`), or GPT-6.1 Sol (`sol-6.1`). Exact full IDs,
+including `gpt-6.1-sol`, also work. `sol` continues to mean GPT-6 Sol.
+
+`/effort` offers `low`, `medium`, `high`, `xhigh`, and `max`; GPT-6 Sol and Luna also
+offer `none`. Typed commands and provider requests reject unsupported combinations.
+A model switch preserves compatible effort or resets it to the provider default.
+For headless runs, `--effort` overrides the provider default: medium for OpenAI,
+high for the other providers. Existing supported non-OpenAI choices are retained.
+
+```sh
+athena exec "trace this feature" --provider openai --model gpt-6.1-sol --effort medium
+```
+
+The [model matrix and provider mapping](.wiki/architecture/model-selection.md)
+record the verified API capabilities and remaining limits.
+
 ## Source investigations
 
 The bundled `source-investigation` skill is available through `/skills` and the
@@ -82,9 +101,15 @@ what a pass establishes and how to resume within the same canonical project.
 `athena journal enable` enables zero-model trace capture and bounded daily
 consolidation, defaulting to 09:00 America/New_York. Use `--time HH:mm --timezone
 IANA` to change the schedule, or `--no-model` for deterministic processing only.
-It runs while Athena is open, with one bounded catch-up at startup. Synthesis is
+Its built-in timer runs while Athena is open, with one bounded catch-up at startup. Synthesis is
 limited to two one-shot attempts per day, each requesting at most 1,400 output
 tokens. The journal is disabled by default.
+
+The enable command does not install or probe an OS task. A separately approved
+machine-local Windows task can invoke the same bounded runtime while the UI is
+closed, sharing the daily checkpoint and attempt budget. The current Windows
+setup requires the user logged on and the PC awake. See the
+[deployment verification and limits](.wiki/architecture/self-reflection-journal.md#verification-coverage).
 
 Use `athena journal status`, `entries`, `memory` or `memory --global` to inspect
 the ledger and source availability; `reject <memory-id>` preserves a rejection

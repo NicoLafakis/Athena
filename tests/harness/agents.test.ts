@@ -240,6 +240,39 @@ describe('AgentOrchestrator + Agent tool', () => {
     expect(seen).toEqual(['claude-haiku-4-5', 'claude-sonnet-5'])
   })
 
+  it.each(['astra', 'sol-6.1'])('a %s child resets inherited GPT-6 Sol none to medium and completes durably', async model => {
+    const runStoreDir = mkdtempSync(join(tmpdir(), 'athena-child-model-'))
+    const seen: Array<Parameters<ModelClient['stream']>[0]> = []
+    const inner = new MockAnthropicClient([{ blocks: [textBlock('ok')], stopReason: 'end_turn' }])
+    const orchestrator = makeOrchestrator(() => ({ complete: async () => '', stream: async (params, callbacks) => {
+      seen.push(params)
+      return inner.stream(params, callbacks)
+    } }), { runStoreDir, defaultProvider: () => 'openai', defaultModel: () => 'sol', defaultEffort: () => 'none' })
+    try {
+      const result = await orchestrator.runAgent({ ...researcherDef(), model }, 'synthetic trace', makeCtx(process.cwd()))
+      expect(result.isError).toBe(false)
+      expect(seen).toHaveLength(1)
+      expect(seen[0]).toMatchObject({ model: model === 'astra' ? 'gpt-6-astra' : 'gpt-6.1-sol', effort: 'medium' })
+      const reloaded = makeOrchestrator(() => { throw new Error('Reload must not call a provider') }, { runStoreDir })
+      expect(JSON.parse((await reloaded.status(result.runId!)).output)).toMatchObject({ status: 'completed' })
+    } finally { rmSync(runStoreDir, { recursive: true, force: true }) }
+  })
+
+  it.each(['gpt-6.2-sol', 'GPT-6.2-sonnet'])('rejects unknown OpenAI child version %s before hooks, running records, isolation or provider creation', async model => {
+    let calls = 0
+    let hooks = 0
+    const orchestrator = makeOrchestrator(() => { calls++; throw new Error('Provider must not be constructed') }, {
+      defaultProvider: () => 'openai', defaultModel: () => 'sol-6.1', defaultEffort: () => 'medium',
+      hooks: { run: async () => { hooks++; return { allowed: true } } } as unknown as HookRunner,
+    })
+    const result = await orchestrator.runAgent({ ...researcherDef(), model, isolation: 'worktree' }, 'synthetic trace', makeCtx(process.cwd()))
+    expect(result).toMatchObject({ isError: true, output: expect.stringContaining('Unknown agent model') })
+    expect(result.runId).toBeUndefined()
+    expect(JSON.parse((await orchestrator.listRuns()).output)).toEqual([])
+    expect(calls).toBe(0)
+    expect(hooks).toBe(0)
+  })
+
   it('defaultProvider is a thunk: sub-agents spawn under the active provider, and anthropic-only frontmatter models fall back to defaultModel()', async () => {
     const seen: string[] = []
     const orchestrator = makeOrchestrator(

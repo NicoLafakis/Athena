@@ -209,6 +209,14 @@ describe('parseArgs — auth and --provider', () => {
     expect(parseArgs(['exec', '-h'])).toEqual({ command: 'exec-help' })
   })
 
+  it('leaves omitted exec effort to the provider default and accepts only canonical levels', () => {
+    expect(parseArgs(['exec', '--provider', 'openai'])).toMatchObject({ options: { effort: null } })
+    expect(parseArgs(['exec', '--provider', 'openai', '--model', 'gpt-6-sol', '--effort', 'none']))
+      .toMatchObject({ options: { model: 'gpt-6-sol', effort: 'none' } })
+    expect(parseArgs(['exec', '--effort', 'minimal'])).toMatchObject({ command: 'error' })
+    expect(parseArgs(['exec', '--effort', 'ultra'])).toMatchObject({ command: 'error' })
+  })
+
   it('accepts stdin mode and rejects malformed exec options', () => {
     expect(parseArgs(['exec'])).toMatchObject({
       command: 'exec',

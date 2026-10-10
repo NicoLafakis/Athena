@@ -50,6 +50,11 @@ of the armed text.
 Opened by typing one of those five command names bare (no trailing argument) and
 pressing Enter/Tab, or by selecting one from the `/`-menu.
 
+`/effort` shows only the selected model's supported levels. GPT-6 Sol/Luna include
+`none`; GPT-6 Astra and GPT-6.1 Sol start at `low`. Models without an effort dial
+report that limitation and leave the input active. See the
+[model capability matrix](../architecture/model-selection.md).
+
 | Key | Action |
 | --- | --- |
 | Up / Down arrow | Move highlighted value |

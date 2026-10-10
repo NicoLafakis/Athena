@@ -17,6 +17,8 @@ import { redactSessionValue } from '../harness/redaction.js'
 import {
   modelCapabilities,
   modelId,
+  assertModelEffort,
+  compatibleEffort,
   normalizeModel,
   resolveModelRequest,
   supportsThinking,
@@ -77,6 +79,7 @@ export class Engine {
   private readonly budget: RunBudget
 
   constructor(opts: EngineOptions) {
+    resolveModelRequest(opts.provider ?? 'anthropic', opts.model, opts.effort)
     this.opts = opts
     this.abortController = opts.abortController ?? new AbortController()
     this.budget = new RunBudget(opts.limits)
@@ -101,7 +104,11 @@ export class Engine {
   }
 
   setModel(key: ModelKey): void {
-    this.opts.model = key
+    const provider = this.getProvider()
+    const normalized = normalizeModel(provider, key)
+    if (!normalized) throw new Error(`Unknown model '${key}' for provider '${provider}'`)
+    this.opts.effort = compatibleEffort(provider, normalized, this.opts.effort)
+    this.opts.model = normalized
   }
 
   getModel(): ModelKey {
@@ -114,6 +121,7 @@ export class Engine {
     // outside the stream try/catch (process-killing unhandled rejection). Reset to the
     // new provider's default; callers that want a specific model call setModel after.
     if (!normalizeModel(p, this.opts.model)) this.opts.model = PROVIDERS[p].defaultModel
+    this.opts.effort = compatibleEffort(p, this.opts.model, this.opts.effort)
   }
 
   getProvider(): ProviderId {
@@ -121,6 +129,7 @@ export class Engine {
   }
 
   setEffort(e: Effort): void {
+    assertModelEffort(this.getProvider(), this.opts.model, e)
     this.opts.effort = e
   }
 

@@ -15,6 +15,8 @@ import type { AgentDef } from '../brain/loader.js'
 import {
   modelCapabilities,
   normalizeModel,
+  compatibleEffort,
+  PROVIDER_IDS,
   type ProviderId,
   type ModelKey,
   type Effort,
@@ -223,6 +225,21 @@ export class AgentOrchestrator {
     if (parentCtx.abortSignal.aborted) {
       return { output: `Agent ${def.name} aborted before start`, isError: true }
     }
+    // Resolve before hooks, durable running state, trace creation, or an isolated worktree.
+    // Unknown OpenAI versions must never silently inherit another model. Preserve
+    // legacy foreign-provider frontmatter fallback for existing agent definitions.
+    const provider = this.opts.defaultProvider?.() ?? 'anthropic'
+    const requestedModel = def.model || this.opts.defaultModel()
+    const selected = normalizeModel(provider, requestedModel)
+    const legacyForeignModel = def.model && !/^gpt-/i.test(def.model.trim()) &&
+      PROVIDER_IDS.some(p => p !== provider && normalizeModel(p, def.model!))
+    if (def.model && !selected && provider === 'openai' && !legacyForeignModel) {
+      return { output: `Unknown agent model '${requestedModel}' for provider '${provider}'`, isError: true }
+    }
+    const model = selected ?? normalizeModel(provider, this.opts.defaultModel())
+    if (!model) return { output: `Unknown agent model '${requestedModel}' for provider '${provider}'`, isError: true }
+    const capabilities = modelCapabilities(provider, model)
+    const effort = compatibleEffort(provider, model, this.opts.defaultEffort())
     const startHook = await this.opts.hooks.run('SubagentStart', {
       agent: def.name,
       isolation: def.isolation ?? 'shared',
@@ -288,9 +305,6 @@ export class AgentOrchestrator {
       if (event.type === 'agent-status-update') parentCtx.emit(event)
       if (event.type === 'error' && event.fatal) fatalError = event.message
     })
-    const provider = this.opts.defaultProvider?.() ?? 'anthropic'
-    const model = normalizeModel(provider, def.model ?? '') ?? this.opts.defaultModel()
-    const capabilities = modelCapabilities(provider, model)
     const trace = this.opts.traceRootDir
       ? await RunTraceWriter.create(this.opts.traceRootDir, {
           cwd: parentCtx.cwd,
@@ -366,7 +380,7 @@ export class AgentOrchestrator {
       },
       provider,
       model,
-      effort: this.opts.defaultEffort(),
+      effort,
       systemPrompt: `${this.opts.systemPromptBase}\n\n---\n\n# Agent: ${def.name}\n\n${def.systemPrompt}`,
       maxTokens: capabilities.maxOutputTokens,
       preflightContext: true,

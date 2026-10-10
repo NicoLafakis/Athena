@@ -4,6 +4,8 @@ import {
   PROVIDER_IDS,
   MODELS,
   EFFORTS,
+  effortLevels,
+  defaultEffort,
   modelKeys,
   modelId,
   modelLabel,
@@ -16,21 +18,25 @@ import {
 } from '../../src/brain/models.js'
 
 describe('provider registry', () => {
-  it('exposes exactly four providers and five efforts', () => {
+  it('exposes exactly four providers and the union of supported efforts', () => {
     expect([...PROVIDER_IDS]).toEqual(['openai', 'anthropic', 'kimi', 'kimi-code'])
-    expect([...EFFORTS]).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
+    expect([...EFFORTS]).toEqual(['none', 'low', 'medium', 'high', 'xhigh', 'max'])
   })
 
   it('openai uses the platform default URL, bearer auth, and the verified GPT-6 lineup', () => {
     expect(PROVIDERS.openai.baseURL).toBeNull()
     expect(PROVIDERS.openai.envVar).toBe('OPENAI_API_KEY')
     expect(PROVIDERS.openai.authMode).toBe('bearer')
-    expect(PROVIDERS.openai.defaultModel).toBe('sol')
+    expect(PROVIDERS.openai.defaultModel).toBe('sol-6.1')
+    expect(defaultEffort('openai')).toBe('medium')
+    expect(defaultEffort('anthropic')).toBe('high')
     expect(PROVIDERS.openai.validationModel).toBe('luna')
-    expect(modelKeys('openai')).toEqual(['luna', 'sol', 'astra'])
+    expect(modelKeys('openai')).toEqual(['luna', 'sol', 'astra', 'sol-6.1'])
     expect(modelId('openai', 'luna')).toBe('gpt-6-luna')
     expect(modelId('openai', 'sol')).toBe('gpt-6-sol')
     expect(modelId('openai', 'astra')).toBe('gpt-6-astra')
+    expect(modelId('openai', 'sol-6.1')).toBe('gpt-6.1-sol')
+    expect(normalizeModel('openai', ' GPT-6.1-SOL ')).toBe('sol-6.1')
     expect(normalizeModel('openai', 'gpt-6-astra')).toBe('astra')
     // Effort maps to reasoning.effort; thinking stays off (Anthropic-only param).
     expect(supportsEffort('openai', 'sol')).toBe(true)
@@ -139,6 +145,11 @@ describe('provider-scoped model registry', () => {
 })
 
 describe('normalizeModel (scoped to the active provider)', () => {
+  it.each(['gpt-6.2-sol', 'gpt-6.1-astra', 'sol-unknown', 'gpt-6-sol-unknown'])(
+    'rejects unknown OpenAI versions instead of selecting a model by substring: %s', input => {
+      expect(normalizeModel('openai', input)).toBeNull()
+    },
+  )
   it.each([
     ['haiku', 'haiku'],
     ['sonnet', 'sonnet'],
@@ -188,6 +199,34 @@ describe('normalizeModel (scoped to the active provider)', () => {
 })
 
 describe('resolveModelRequest (capability gating lives HERE, nowhere else)', () => {
+  const matrix = [
+    ['luna', ['none', 'low', 'medium', 'high', 'xhigh', 'max']],
+    ['sol', ['none', 'low', 'medium', 'high', 'xhigh', 'max']],
+    ['astra', ['low', 'medium', 'high', 'xhigh', 'max']],
+    ['sol-6.1', ['low', 'medium', 'high', 'xhigh', 'max']],
+  ] as const
+  it.each(matrix)('OpenAI %s exposes and resolves only its documented effort set', (key, levels) => {
+    expect(effortLevels('openai', key)).toEqual(levels)
+    for (const effort of levels) {
+      expect(resolveModelRequest('openai', key, effort)).toEqual({ model: modelId('openai', key), effort })
+    }
+    for (const invalid of ['none', 'minimal', 'ultra'] as const) {
+      if (!(levels as readonly string[]).includes(invalid)) {
+        expect(() => resolveModelRequest('openai', key, invalid as never)).toThrow(/Unsupported effort/)
+      }
+    }
+  })
+
+  it('keeps Anthropic non-none levels and rejects OpenAI-only none on reasoning models', () => {
+    expect(effortLevels('anthropic', 'sonnet')).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
+    expect(() => resolveModelRequest('anthropic', 'sonnet', 'none')).toThrow(/Unsupported effort/)
+  })
+
+  it('uses the GPT-6.1 Sol base tariff, including the distinct 5% cached-input rate', () => {
+    expect(usageCostUsd('openai', 'sol-6.1', {
+      inputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 1_000_000,
+    })).toBeCloseTo(14.6)
+  })
   it('anthropic haiku carries NO effort and NO thinking (both 400 on it)', () => {
     const req = resolveModelRequest('anthropic', 'haiku', 'high')
     expect(req).toEqual({ model: 'claude-haiku-4-5' })

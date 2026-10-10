@@ -5,7 +5,7 @@
 // counterpart (ArgPickerPopup.tsx). This is UI-only: it never touches parseSlash/dispatch
 // (slash.ts) or the engine — App.tsx is the one place that turns a picked option into an
 // actual onSlash() dispatch.
-import { modelKeys, modelLabel, PROVIDER_IDS, PROVIDERS, EFFORTS, type ProviderId } from '../brain/models.js'
+import { modelKeys, modelLabel, effortLevels, PROVIDER_IDS, PROVIDERS, type ProviderId, type ModelKey } from '../brain/models.js'
 
 export type PickableKind = 'model' | 'provider' | 'effort' | 'mode' | 'tui'
 
@@ -38,14 +38,14 @@ export const PICKABLE_KINDS: ReadonlySet<string> = new Set<PickableKind>([
 const MODE_VALUES: readonly string[] = ['normal', 'acceptEdits', 'plan', 'trusted']
 const TUI_VALUES: readonly string[] = ['classic', 'fullscreen']
 
-export function pickerOptions(kind: PickableKind, provider: ProviderId): ArgPickerOption[] {
+export function pickerOptions(kind: PickableKind, provider: ProviderId, model: ModelKey = PROVIDERS[provider].defaultModel): ArgPickerOption[] {
   switch (kind) {
     case 'model':
       return modelKeys(provider).map((k) => ({ value: k, label: modelLabel(provider, k) }))
     case 'provider':
       return PROVIDER_IDS.map((p) => ({ value: p, label: PROVIDERS[p].label }))
     case 'effort':
-      return EFFORTS.map((e) => ({ value: e, label: e }))
+      return effortLevels(provider, model).map((e) => ({ value: e, label: e }))
     case 'mode':
       return MODE_VALUES.map((v) => ({ value: v, label: v }))
     case 'tui':

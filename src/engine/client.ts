@@ -38,6 +38,7 @@ export interface ModelClient {
   /** One-shot non-streaming call used by the compactor. */
   complete(params: {
     model: string
+    effort?: Effort
     prompt: string
     maxTokens: number
     signal?: AbortSignal
@@ -46,6 +47,7 @@ export interface ModelClient {
   }): Promise<string>
   completeDetailed?(params: {
     model: string
+    effort?: Effort
     prompt: string
     maxTokens: number
     signal?: AbortSignal

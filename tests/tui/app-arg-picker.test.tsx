@@ -161,6 +161,31 @@ describe('App: bare pickable-command picker', () => {
     expect(props.onSlash).toHaveBeenCalledWith({ kind: 'effort', value: 'high' })
   })
 
+  it('the visible GPT-6.1 effort picker offers medium and excludes none', async () => {
+    const { props } = makeHarness()
+    const harness = render(<App {...props} status={{ ...props.status, provider: 'openai', model: 'GPT-6.1 Sol', modelKey: 'sol-6.1', effort: 'medium' }} />)
+    await delay(0)
+    await type(harness.stdin, '/effort')
+    expect(harness.lastFrame()).toContain('Select effort')
+    expect(harness.lastFrame()).toContain('medium')
+    expect(harness.lastFrame()).not.toMatch(/\bnone\b/)
+    harness.stdin.write('\r')
+    await delay(10)
+    expect(props.onSlash).toHaveBeenCalledWith({ kind: 'effort', value: 'medium' })
+    harness.unmount()
+  })
+
+  it('reports an unsupported effort without leaving an invisible picker armed', async () => {
+    const { props } = makeHarness()
+    const harness = render(<App {...props} status={{ ...props.status, model: 'Haiku 4.5', modelKey: 'haiku' }} />)
+    await delay(0)
+    await type(harness.stdin, '/effort')
+    expect(harness.lastFrame()).toContain('Haiku 4.5 does not support reasoning effort.')
+    expect(harness.lastFrame()).not.toContain('Select effort')
+    expect(props.onSlash).not.toHaveBeenCalled()
+    harness.unmount()
+  })
+
   it('/mode bare opens the mode picker and Enter dispatches onSlash({kind:"mode", value})', async () => {
     const { props } = makeHarness()
     const { stdin } = render(<App {...props} />)

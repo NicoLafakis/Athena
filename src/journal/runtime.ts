@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import type { BrainPaths } from '../brain/paths.js'
+import type { Effort } from '../brain/models.js'
 import type { ModelClient } from '../engine/client.js'
 import { ProtectedPaths } from '../harness/protected-paths.js'
 import { projectId } from '../harness/trust.js'
@@ -10,7 +11,7 @@ import { applySynthesis, deterministicConsolidation, synthesisPrompt } from './c
 import { JOURNAL_LIMITS, SynthesisSchema, digest, emptyChange, normalize, type JournalConfig, type JournalJob, type JournalMemory } from './types.js'
 
 export interface JournalRuntimeOptions {
-  client?: ModelClient; model?: () => string; now?: () => Date; pollMs?: number; callMs?: number;
+  client?: ModelClient; model?: () => string; effort?: () => Effort | undefined; now?: () => Date; pollMs?: number; callMs?: number;
   protectedPaths?: ProtectedPaths; warn?: (message: string) => void;
 }
 export interface JournalRunReport { status: 'disabled' | 'not-due' | 'busy' | 'complete' | 'failed'; job?: JournalJob; error?: string }
@@ -185,7 +186,7 @@ export class JournalRuntime {
     const timeout = setTimeout(() => controller.abort(), this.options.callMs ?? JOURNAL_LIMITS.callMs)
     try {
       // Exactly one physical provider attempt per durable reservation; no hidden SDK retry.
-      return await Promise.race([this.options.client!.complete({ model, prompt, maxTokens: JOURNAL_LIMITS.outputTokens, signal: controller.signal, maxAttempts: 1 }), aborted])
+      return await Promise.race([this.options.client!.complete({ model, effort: this.options.effort?.(), prompt, maxTokens: JOURNAL_LIMITS.outputTokens, signal: controller.signal, maxAttempts: 1 }), aborted])
     } finally { clearTimeout(timeout); if (this.activeCall === controller) this.activeCall = undefined }
   }
   memoryView(global = false): Array<JournalMemory & { sourceStatus: string[] }> {
@@ -234,6 +235,6 @@ export class JournalRuntime {
     return { config, storage: existsSync(this.store.file) ? 'read-verified' : 'not-created',
       sources: state.sources.size, entries: state.entries.size, memories: state.memories.size, relationships: state.relationships.size,
       pendingSources: [...state.sources.keys()].filter(id => !state.consumed.has(id)).length, recentJobs: [...state.jobs.values()].slice(-7),
-      scheduler: 'in-app; next startup performs one bounded catch-up; no work runs while Athena is closed', limits: JOURNAL_LIMITS }
+      scheduler: 'built-in timer runs while Athena is open; next startup performs one bounded catch-up', externalScheduler: 'not-probed', limits: JOURNAL_LIMITS }
   }
 }

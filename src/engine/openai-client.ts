@@ -6,6 +6,7 @@
 import type { Message, MessageParam, Tool } from '@anthropic-ai/sdk/resources/messages'
 import type { Provider } from '../../api-calculator/src/types.js'
 import type { TokenUsage } from './types.js'
+import { assertModelEffort, normalizeModel, type Effort } from '../brain/models.js'
 import type { CompletionResult, ModelClient, StreamCallbacks, StreamResult } from './client.js'
 import type { TelemetryRecorder } from './telemetry.js'
 import { newLogicalRequestId, openaiUsageMeters } from './telemetry.js'
@@ -249,7 +250,12 @@ export class OpenAIClient implements ModelClient {
     // OpenAI reasoning is effort-driven; Anthropic's `thinking` param has no counterpart
     // (resolveModelRequest keeps supportsThinking false for every OpenAI model, so
     // params.thinking never arrives here). Summaries feed the TUI's thinking channel.
-    if (params.effort) body.reasoning = { effort: params.effort, summary: 'auto' }
+    if (params.effort) {
+      const key = normalizeModel('openai', params.model)
+      if (!key) throw new Error(`Unknown OpenAI model '${params.model}' for reasoning effort`)
+      assertModelEffort('openai', key, params.effort)
+      body.reasoning = { effort: params.effort, ...(params.effort !== 'none' ? { summary: 'auto' } : {}) }
+    }
     return body
   }
 
@@ -277,6 +283,7 @@ export class OpenAIClient implements ModelClient {
     params: Parameters<ModelClient['stream']>[0],
     callbacks: StreamCallbacks,
   ): Promise<StreamResult> {
+    const body = this.buildBody(params, true)
     let lastError: unknown
     // Same discipline as AnthropicClient: only clean-slate failures are retried — once
     // any delta reached the caller, a retry would double-render text.
@@ -285,7 +292,7 @@ export class OpenAIClient implements ModelClient {
     const startedAt = new Date().toISOString()
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
-        const response = await this.post(this.buildBody(params, true), params.signal)
+        const response = await this.post(body, params.signal)
         if (!response.body) throw new Error('OpenAI returned no response body')
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
@@ -348,6 +355,7 @@ export class OpenAIClient implements ModelClient {
 
   async complete(params: {
     model: string
+    effort?: Effort
     prompt: string
     maxTokens: number
     signal?: AbortSignal
@@ -358,6 +366,7 @@ export class OpenAIClient implements ModelClient {
 
   async completeDetailed(params: {
     model: string
+    effort?: Effort
     prompt: string
     maxTokens: number
     signal?: AbortSignal
@@ -367,23 +376,12 @@ export class OpenAIClient implements ModelClient {
     const logicalRequestId = newLogicalRequestId()
     const startedAt = new Date().toISOString()
     const signal = params.signal ?? new AbortController().signal
+    const body = this.buildBody({ model: params.model, effort: params.effort, system: '',
+      messages: [{ role: 'user', content: params.prompt }], tools: [], maxTokens: params.maxTokens, signal }, false)
     const maxAttempts = Math.max(1, Math.min(MAX_RETRIES, Math.floor(params.maxAttempts ?? MAX_RETRIES)))
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        const response = await this.post(
-          this.buildBody(
-            {
-              model: params.model,
-              system: '',
-              messages: [{ role: 'user', content: params.prompt }],
-              tools: [],
-              maxTokens: params.maxTokens,
-              signal,
-            },
-            false,
-          ),
-          signal,
-        )
+        const response = await this.post(body, signal)
         const parsed = (await response.json()) as ResponsesObject
         const message = toAnthropicMessage(parsed, params.model)
         const text = message.content

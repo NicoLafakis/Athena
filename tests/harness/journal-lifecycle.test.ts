@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { resolveBrainPaths } from '../../src/brain/paths.js'
-import { SettingsSchema } from '../../src/brain/settings.js'
+import { makeSettingsSchema } from '../../src/brain/settings.js'
+import type { ProviderId } from '../../src/brain/models.js'
 import { HarnessSessionController } from '../../src/harness/controller.js'
 import { JournalRuntime } from '../../src/journal/runtime.js'
 import { JournalStore } from '../../src/journal/store.js'
@@ -52,10 +53,10 @@ function client(complete = vi.fn(async (params: Parameters<ModelClient['complete
   const mock = new MockAnthropicClient(Array.from({ length: 12 }, () => ({ blocks: [textBlock('Turn complete.')], stopReason: 'end_turn' as const })))
   return { stream: vi.fn((...args: Parameters<ModelClient['stream']>) => mock.stream(...args)), complete }
 }
-async function session(modelClient: ModelClient): Promise<HarnessSessionController> {
+async function session(modelClient: ModelClient, provider: ProviderId = 'anthropic'): Promise<HarnessSessionController> {
   const p = paths()
-  const controller = await HarnessSessionController.create({ paths: p, effectivePaths: p, cwd, provider: 'anthropic', client: modelClient,
-    settings: SettingsSchema.parse({ permissionMode: 'trusted' }), projectTrust: { trusted: true, allowProjectHooks: false, allowProjectMcp: false },
+  const controller = await HarnessSessionController.create({ paths: p, effectivePaths: p, cwd, provider, client: modelClient,
+    settings: makeSettingsSchema(provider).parse({ permissionMode: 'trusted' }), projectTrust: { trusted: true, allowProjectHooks: false, allowProjectMcp: false },
     journalOptions: { now: () => now, pollMs: 60_000, callMs: 1000 } })
   sessions.push(controller)
   await controller.reflectionJournal.tick()
@@ -68,6 +69,18 @@ function worker(options: ConstructorParameters<typeof JournalRuntime>[2] = {}): 
 }
 
 describe('automatic journal lifecycle in the shared harness', () => {
+  it('uses the selected OpenAI model and effort for in-app journal synthesis, with no repeat call', async () => {
+    enable()
+    const provider = client()
+    const controller = await session(provider, 'openai')
+    await controller.submitTurn('Prefer pnpm for synthetic project checks.')
+    now = due()
+    expect((await controller.reflectionJournal.tick()).job?.mode).toBe('model')
+    expect(provider.complete).toHaveBeenCalledTimes(1)
+    expect(provider.complete.mock.calls[0]![0]).toMatchObject({ model: 'gpt-6.1-sol', effort: 'medium', maxAttempts: 1, maxTokens: 1400 })
+    await controller.reflectionJournal.tick()
+    expect(provider.complete).toHaveBeenCalledTimes(1)
+  })
   it('defaults disabled and leaves ordinary turns available without capture or synthesis', async () => {
     const provider = client()
     const controller = await session(provider)

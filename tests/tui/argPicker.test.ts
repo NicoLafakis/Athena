@@ -6,7 +6,7 @@ import {
   pickerTitle,
   type PickableKind,
 } from '../../src/tui/argPicker.js'
-import { PROVIDER_IDS, PROVIDERS, modelKeys, modelLabel, EFFORTS, type ProviderId } from '../../src/brain/models.js'
+import { PROVIDER_IDS, PROVIDERS, modelKeys, modelLabel, type ProviderId } from '../../src/brain/models.js'
 
 describe('PICKABLE_KINDS', () => {
   it('contains exactly the 5 enumerable-argument commands', () => {
@@ -29,10 +29,20 @@ describe('pickerOptions', () => {
     for (const o of options) expect(o.label).toBe(PROVIDERS[o.value as ProviderId].label)
   })
 
-  it('effort: returns EFFORTS, label equal to the value itself', () => {
+  it('effort: retains the Anthropic non-none levels', () => {
     const options = pickerOptions('effort', 'anthropic')
-    expect(options.map((o) => o.value)).toEqual(EFFORTS)
+    expect(options.map((o) => o.value)).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
     for (const o of options) expect(o.label).toBe(o.value)
+  })
+
+  it('effort: filters by the selected model, including none only for GPT-6 Sol/Luna', () => {
+    expect(pickerOptions('effort', 'openai', 'sol').map(o => o.value)).toEqual(['none', 'low', 'medium', 'high', 'xhigh', 'max'])
+    expect(pickerOptions('effort', 'openai', 'luna').map(o => o.value)).toEqual(['none', 'low', 'medium', 'high', 'xhigh', 'max'])
+    for (const key of ['astra', 'sol-6.1']) {
+      expect(pickerOptions('effort', 'openai', key).map(o => o.value)).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
+    }
+    expect(pickerOptions('effort', 'anthropic', 'haiku')).toEqual([])
+    expect(pickerOptions('effort', 'kimi')).toEqual([])
   })
 
   it('mode: returns the 4 permission modes, label equal to the value itself', () => {
@@ -47,8 +57,8 @@ describe('pickerOptions', () => {
     for (const o of options) expect(o.label).toBe(o.value)
   })
 
-  it('provider is irrelevant to non-model kinds (same result regardless of which is passed)', () => {
-    for (const kind of ['provider', 'effort', 'mode', 'tui'] as PickableKind[]) {
+  it('provider is irrelevant to provider, mode and tui kinds', () => {
+    for (const kind of ['provider', 'mode', 'tui'] as PickableKind[]) {
       expect(pickerOptions(kind, 'anthropic')).toEqual(pickerOptions(kind, 'kimi'))
     }
   })

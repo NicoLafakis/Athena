@@ -72,7 +72,7 @@ export function parseSlash(
       ? { kind: 'provider', value: arg }
       : { kind: 'error', value: 'Usage: /provider <name>' }
   if (cmd === 'effort') {
-    if (!arg) return { kind: 'error', value: 'Usage: /effort <low|medium|high|xhigh|max>' }
+    if (!arg) return { kind: 'error', value: `Usage: /effort <${EFFORTS.join('|')}> (model-specific)` }
     if (!EFFORT_SET.has(arg)) return { kind: 'error', value: `Unknown effort: ${arg}` }
     return { kind: 'effort', value: arg as Effort }
   }

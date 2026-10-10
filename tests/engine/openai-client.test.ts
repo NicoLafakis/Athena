@@ -168,6 +168,35 @@ describe('OpenAI provider translation', () => {
 })
 
 describe('OpenAIClient', () => {
+  it.each(['gpt-6-sol', 'gpt-6-luna'])('sends none for %s without requesting a reasoning summary', async model => {
+    const fetchMock = vi.fn<typeof fetch>(async () => okResponse(sse([textDone('ok')])))
+    const client = new OpenAIClient('fixture-key', undefined, 'openai', undefined, fetchMock)
+    await client.stream({ model, effort: 'none', system: '', messages: [{ role: 'user', content: 'fixture' }],
+      tools: [], maxTokens: 32, signal: new AbortController().signal }, { onTextDelta: () => {}, onThinkingDelta: () => {} })
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body))
+    expect(body).toMatchObject({ model, reasoning: { effort: 'none' }, store: false })
+    expect(body.reasoning.summary).toBeUndefined()
+  })
+
+  it.each(['gpt-6.1-sol', 'gpt-6-astra'])('rejects none for %s before HTTP or retries', async model => {
+    const fetchMock = vi.fn<typeof fetch>()
+    const client = new OpenAIClient('fixture-key', undefined, 'openai', undefined, fetchMock)
+    await expect(client.complete({ model, effort: 'none', prompt: 'fixture', maxTokens: 32 })).rejects.toThrow(/Unsupported effort/)
+    await expect(client.stream({ model, effort: 'none', system: '', messages: [], tools: [], maxTokens: 32,
+      signal: new AbortController().signal }, { onTextDelta: () => {}, onThinkingDelta: () => {} })).rejects.toThrow(/Unsupported effort/)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('forwards GPT-6.1 Sol medium on a bounded journal-style completion', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ status: 'completed',
+      model: 'gpt-6.1-sol', output: [{ type: 'message', content: [{ type: 'output_text', text: 'fixture reflection' }] }],
+    })))
+    const client = new OpenAIClient('fixture-key', undefined, 'openai', undefined, fetchMock)
+    expect(await client.complete({ model: 'gpt-6.1-sol', effort: 'medium', prompt: 'fixture', maxTokens: 1400, maxAttempts: 1 })).toBe('fixture reflection')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]?.body))).toMatchObject({ model: 'gpt-6.1-sol',
+      reasoning: { effort: 'medium', summary: 'auto' }, store: false, stream: false, max_output_tokens: 1400 })
+  })
   it('streams text deltas and resolves the translated final message', async () => {
     const fetchMock = vi.fn(async () =>
       okResponse(sse([
