@@ -13,6 +13,7 @@ import { runJournalCommand } from '../../src/journal/cli.js'
 import { makeJournalTool } from '../../src/tools/journal.js'
 import { makeCtx } from '../helpers/tool-ctx.js'
 import { ProtectedPaths } from '../../src/harness/protected-paths.js'
+import { realPathForAccess } from '../../src/harness/resource-policy.js'
 
 let root: string
 let cwd: string
@@ -197,7 +198,9 @@ describe('journal contract and human controls', () => {
     symlinkSync(external, p.journalDir, process.platform === 'win32' ? 'junction' : 'dir')
     expect(() => new JournalStore(p).configure({ enabled: true })).toThrow('redirected')
     expect(readFileSync(join(external, 'sentinel'), 'utf8')).toBe('preserved')
-    const fenced = { ...p, brainDir: join(root, 'protected-brain') }
+    // CI temp roots can be aliases (/var on macOS and short names on Windows).
+    // Fence the same canonical location JournalStore uses, preserving the rejection.
+    const fenced = { ...p, brainDir: realPathForAccess(join(root, 'protected-brain'), root) }
     expect(() => new JournalStore(fenced, ProtectedPaths.from([fenced.brainDir])).configure({ enabled: true })).toThrow('protected')
   })
   it('excludes the disabled interval on re-enable and refuses cross-project tool reads', async () => {
