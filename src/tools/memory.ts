@@ -4,12 +4,12 @@ import {
   existsSync,
   mkdirSync,
   rmSync,
-  readdirSync,
-  statSync,
 } from 'node:fs'
-import { join, resolve, relative, dirname, sep } from 'node:path'
+import { join, relative, dirname } from 'node:path'
 import { z } from 'zod'
 import type { ToolDefinition } from '../engine/types.js'
+import { resolveMemoryAccess } from '../harness/memory-access.js'
+import { ResourcePolicy } from '../harness/resource-policy.js'
 
 const MemoryInput = z.object({
   op: z.enum(['list', 'read', 'write', 'delete']),
@@ -21,22 +21,12 @@ const MemoryInput = z.object({
 function memoryDirOf(brainDir: string): string {
   return join(brainDir, 'memory')
 }
-function indexFileOf(brainDir: string): string {
-  return join(memoryDirOf(brainDir), 'MEMORY.md')
-}
-
-function safeResolve(memDir: string, rel: string): string | null {
-  const abs = resolve(memDir, rel)
-  return abs === memDir || abs.startsWith(memDir + sep) ? abs : null
-}
-
 function updateIndex(
-  brainDir: string,
+  idx: string,
   rel: string,
   action: 'add' | 'remove',
   description: string,
 ): void {
-  const idx = indexFileOf(brainDir)
   const lines = existsSync(idx) ? readFileSync(idx, 'utf8').split('\n') : ['# Memory Index', '']
   const relPosix = rel.replaceAll('\\', '/')
   const marker = `](${relPosix})`
@@ -44,17 +34,6 @@ function updateIndex(
   if (action === 'add') filtered.push(`- [${relPosix}](${relPosix}) — ${description}`)
   mkdirSync(dirname(idx), { recursive: true })
   writeFileSync(idx, filtered.join('\n').trimEnd() + '\n', 'utf8')
-}
-
-function walk(dir: string): string[] {
-  if (!existsSync(dir)) return []
-  const out: string[] = []
-  for (const e of readdirSync(dir)) {
-    const full = join(dir, e)
-    if (statSync(full).isDirectory()) out.push(...walk(full))
-    else out.push(full)
-  }
-  return out
 }
 
 export const memoryTool: ToolDefinition<z.infer<typeof MemoryInput>> = {
@@ -65,26 +44,22 @@ export const memoryTool: ToolDefinition<z.infer<typeof MemoryInput>> = {
   readOnly: false,
   async execute(input, ctx) {
     const memDir = memoryDirOf(ctx.brainDir)
+    let access: ReturnType<typeof resolveMemoryAccess>
+    try {
+      access = resolveMemoryAccess(memDir, input)
+      // Memory has its own narrow root, not the ordinary workspace resolver.
+      // Keep read-only mode and the unconditional OS fence for direct execution too.
+      const policy = new ResourcePolicy(access.root, ctx.sandboxMode === 'read-only' ? 'read-only' : 'workspace-write')
+      for (const target of access.targets) policy.resolvePath(target, access.readOnly ? 'read' : 'write')
+    } catch (error) {
+      return { output: (error as Error).message, isError: true }
+    }
     if (input.op === 'list') {
-      const files = walk(memDir).map((f) => relative(memDir, f).replaceAll('\\', '/'))
+      const files = access.files.map((f) => relative(access.root, f).replaceAll('\\', '/'))
       return { output: files.length ? files.join('\n') : '(memory is empty)', isError: false }
     }
-    if (!input.path) return { output: `op ${input.op} requires path`, isError: true }
-    const abs = safeResolve(memDir, input.path)
-    if (!abs) return { output: `Path escapes memory dir: ${input.path}`, isError: true }
-    const rel = relative(memDir, abs)
-    // MEMORY.md is the index this tool maintains; direct writes/deletes would corrupt it.
-    const isIndex = rel.replaceAll('\\', '/').toLowerCase() === 'memory.md'
-    const isJournal = rel.replaceAll('\\', '/').toLowerCase().split('/')[0] === 'journal'
-    if (isJournal && (input.op === 'write' || input.op === 'delete')) {
-      return { output: 'memory/journal is reserved generated data; review or reject with athena journal memory/reject', isError: true }
-    }
-    if (isIndex && (input.op === 'write' || input.op === 'delete')) {
-      return {
-        output: 'MEMORY.md is the reserved index maintained by this tool; write facts to another file',
-        isError: true,
-      }
-    }
+    const abs = access.target
+    const rel = relative(access.root, abs)
     switch (input.op) {
       case 'read': {
         if (!existsSync(abs)) return { output: `No memory at ${rel}`, isError: true }
@@ -94,13 +69,13 @@ export const memoryTool: ToolDefinition<z.infer<typeof MemoryInput>> = {
         if (input.content === undefined) return { output: 'write requires content', isError: true }
         mkdirSync(dirname(abs), { recursive: true })
         writeFileSync(abs, input.content, 'utf8')
-        updateIndex(ctx.brainDir, rel, 'add', input.description ?? input.content.split('\n')[0] ?? '')
+        updateIndex(access.index!, rel, 'add', input.description ?? input.content.split('\n')[0] ?? '')
         return { output: `Memory written: ${rel} (index updated)`, isError: false }
       }
       case 'delete': {
         if (!existsSync(abs)) return { output: `No memory at ${rel}`, isError: true }
         rmSync(abs)
-        updateIndex(ctx.brainDir, rel, 'remove', '')
+        updateIndex(access.index!, rel, 'remove', '')
         return { output: `Memory deleted: ${rel} (index updated)`, isError: false }
       }
     }

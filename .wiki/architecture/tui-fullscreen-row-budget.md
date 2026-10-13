@@ -76,6 +76,18 @@ callers that don't need to budget any other sibling against the box's height —
 mode's shape, and focused `InputBox` unit tests. `App.tsx` does not use it; it calls
 `useInputBox` directly.
 
+The composer lays out physical rows at `columns - 2`, including prompt prefixes and
+the trailing cursor cell. `composerRows` segments complete graphemes and returns a
+cursor-following window bounded by `maxRows`; the full draft remains available for
+submission. Resizing recomputes that same window during render. Cursor motion,
+Backspace and Ctrl+D use grapheme boundaries, so combining accents, flags and ZWJ
+emoji are never split. Mention and slash menus own input only when their computed
+layout is visible; an invisible menu cannot intercept Enter, Tab or history keys.
+
+`DiffPreview.maxLines` is a physical content-row budget: prefixed diff text is wrapped
+before truncation. The caller still reserves the notice separately. This also bounds
+a single long changed line, which a logical-line count could not constrain.
+
 The anti-oscillation property from the precedence order above is unchanged and still
 structural: `inputMaxRows` (the ceiling handed *in* to `useInputBox`) must never be
 derived from `TodoPanel`/`ArgPickerPopup` (which are budgeted *out* of the height the hook
@@ -220,6 +232,30 @@ Scrolling is fullscreen-only — classic mode retains its separate terminal rend
 See `.wiki/reference/tui-keybindings.md` for the PageUp/PageDown/Ctrl+PageUp/
 Ctrl+PageDown bindings and `.wiki/reference/tui-platform-limits.md` for why Home/End
 aren't bound.
+## Permission and reader minimum sizes
+
+When measured permission chrome plus input, status and transcript minimum exceeds
+terminal height, `App` switches to the full-frame `CompactPermission`. Its summary
+and reason are bounded, its entire consent legend is reserved, and `d` opens the
+same pending request's details. At sizes too small for that legend, only Escape can
+deny; approval keys are inactive until the terminal is large enough to review.
+
+`DetailReader` reserves the physical height of its complete control legend before
+allocating content rows. If the legend plus title, notice and one content row cannot
+fit, it displays a resize notice and accepts only Escape to return. In permission
+readers, `n` always means next search match and `x` denies; granting remains a separate
+`a` control available only on the session-grant review screen. Escape is checked before
+Ink's modifier guard because Ink marks the Escape key itself as `meta`.
+
+`tests/tui/compact-permission.test.tsx` checks content signatures in every frame at
+40x12, 80x24 and 120x40, plus row resize and tiny-terminal denial. Reader tests cover
+resize disabling hidden grants and search/deny ownership.
+
+Reader search operates on sanitized logical text and maps matches back to physical
+rows, so hard wrapping cannot hide a retained substring. Diff omission notices count
+distinct source lines with omitted rows (including a partially shown line), while
+the preview's reserved height remains a physical-row budget.
+
 ## Source map
 
 - `src/tui/App.tsx` — the budget itself (see the large file-header comment there, which

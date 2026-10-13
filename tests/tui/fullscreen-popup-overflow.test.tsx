@@ -438,7 +438,7 @@ describe('fullscreen popup row budgeting', () => {
       stdout.emit('resize')
       await delay(30)
       expectEveryFrameSound(stdout, rows, from, beforeResize)
-      expect(lastFrame(stdout)).toContain('C:/proj') // pinned footer survives every step
+      expect(lastFrame(stdout)).toContain(rows < 8 ? 'Terminal too small' : 'C:/proj') // unsupported sizes show explicit fallback
     }
   })
 

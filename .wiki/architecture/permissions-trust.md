@@ -40,10 +40,56 @@ defaults because it is the headless contract):
 - Whenever the bootstrap changes anything it prints one sentence naming the effective
   mode and sandbox (degrade-loudly; silent escalation reads as a bug).
 
+Before the interactive trust question, the CLI previews the effective permission and
+sandbox modes using the same bootstrap function and merged settings. On Windows,
+the default preview explicitly discloses unrestricted shell execution with the user's
+account authority. It separately names instruction/extension loading, digest-bound
+approval for project settings hooks/MCP, persistent canonical-path trust, and the
+headless flag-driven exception. `athena trust` prints the same disclosure before
+storing its explicitly requested trust record; it does not add another confirmation.
+If untrusted project settings cannot be parsed or validated, the preview discloses
+that authority is unknown and still permits declining trust. After declining,
+authentication presentation and boot load only global settings. Parser error
+payloads are not printed because they may contain credentials.
+
 The escape hatches stay in force: `/mode` switches live per session, deny rules still
 deny, hooks still intercept, and `athena trust --revoke` removes the record.
 
 ## The protected-paths fence
+
+### Memory's explicit scope
+
+`Memory` resolves paths against the configured brain's `memory/` directory, not the
+session workspace. The controller supplies that exact root to `PermissionEngine`.
+`src/harness/memory-access.ts` supplies the canonical targets to authorization and
+execution; the engine pins a requested file to its resolved target before permission
+hooks and consent. Changing an alias during consent cannot redirect that request.
+This scope adds no permission to write elsewhere in the brain or to use ordinary
+file tools outside their existing sandbox roots.
+
+Read/list are read-only operations and work in plan/read-only mode. Write/delete
+remain mutations. Every mutation includes the implicit `MEMORY.md` index target;
+decisions combine as deny before ask before allow, so allowing only the fact does
+not implicitly approve an otherwise unapproved index write. Memory-relative rules
+are anchored at the resolved memory root; absolute rules resolve their literal
+directory prefix while preserving glob syntax. This keeps macOS directory aliases
+and Windows short paths in the same coordinate system as execution. Protected
+roots retain their lexical fence and add native resolved aliases on the host OS.
+Listing
+checks every returned entry against denies. An absent explicit memory root denies
+Memory calls.
+
+Lexical traversal, symlink/junction escapes, dangling links, redirected indexes and
+aliases into reserved generated journal/index data are rejected. Execution repeats
+the scope checks and retains the read-only sandbox and protected-directory write
+fence. The tool checks the index before mutating a fact. These are path checks, not
+an OS-level sandbox against concurrent external filesystem replacement; they do not
+grant authority to unmediated subprocesses or change the existing shell limitations.
+
+Tests: `tests/harness/memory-policy.test.ts`, `tests/engine/memory-policy.test.ts`,
+and `tests/tools/memory.test.ts`.
+
+### General filesystem enforcement
 
 `src/harness/protected-paths.ts`. An unconditional write fence over a small set of
 operating-system directories, enforced at two independent points:

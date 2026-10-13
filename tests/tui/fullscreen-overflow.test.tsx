@@ -18,8 +18,6 @@ import type { ReactNode } from 'react'
 import { render as inkRender } from 'ink'
 import { App, PermissionBridge } from '../../src/tui/App.js'
 import { EngineEventBus } from '../../src/engine/events.js'
-import { wrappedRowCount } from '../../src/tui/viewport.js'
-import { PERMISSION_HEADER_TEXT, PERMISSION_FOOTER_TEXT } from '../../src/tui/components/PermissionDialog.js'
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -92,7 +90,7 @@ class TtyStdin extends EventEmitter {
   }
 }
 
-function renderOnTty(node: ReactNode, rows: number, columns = 80): { stdout: TtyStdout } {
+function renderOnTty(node: ReactNode, rows: number, columns = 80): { stdout: TtyStdout; stdin: TtyStdin } {
   const stdout = new TtyStdout(columns, rows)
   const stdin = new TtyStdin()
   const stderr = new TtyStderr()
@@ -104,7 +102,7 @@ function renderOnTty(node: ReactNode, rows: number, columns = 80): { stdout: Tty
     exitOnCtrlC: false,
     patchConsole: false,
   })
-  return { stdout }
+  return { stdout, stdin }
 }
 
 /** The most recently written frame — the settled render, NOT the union of every frame
@@ -211,11 +209,11 @@ describe('fullscreen layout-corruption fix', () => {
     expect(frame).toContain('+4 more')
   })
 
-  it('narrow terminal (40 cols/16 rows) + a realistic long summary: header survives, diff truncates with a correct count', async () => {
+  it('narrow terminal (40 cols/16 rows) + a realistic long summary: header survives and the full diff remains locally reachable', async () => {
     const props = makeProps()
     const columns = 40
     const rowsTotal = 16
-    const { stdout } = renderOnTty(<App {...props} />, rowsTotal, columns)
+    const { stdout, stdin } = renderOnTty(<App {...props} />, rowsTotal, columns)
     await delay(10)
 
     // Mirrors summarize()'s real output shape (engine/loop.ts: `${toolName}(${input up to
@@ -244,43 +242,19 @@ describe('fullscreen layout-corruption fix', () => {
     // outside the truncatable budget entirely (see App.tsx: only diff lines shrink).
     expect(frame).toContain('Permission required')
 
-    // Independently reconstruct the expected diff budget using the SAME column-aware
-    // helper (and the SAME exported header/footer text) App.tsx uses, so this assertion
-    // tracks the real fix rather than a hand-counted magic number that could drift.
-    const HORIZONTAL_CHROME_COLS = 4 // border(2 cols) + paddingX(2 cols), see App.tsx
-    const effectiveCols = Math.max(columns - HORIZONTAL_CHROME_COLS, 1)
-    const dialogChromeRows =
-      2 + // border top+bottom
-      wrappedRowCount(PERMISSION_HEADER_TEXT, effectiveCols) +
-      wrappedRowCount(summary, effectiveCols) +
-      wrappedRowCount(reason, effectiveCols) +
-      wrappedRowCount(PERMISSION_FOOTER_TEXT, effectiveCols)
-    const STATUS_LINE_ROWS_EXPECTED = 1 // short status text easily fits one row even at 40 cols
-    const INPUT_ROWS_EXPECTED = 1
-    const MIN_TRANSCRIPT_ROWS_EXPECTED = 3
-    const maxDiffLines = Math.max(
-      rowsTotal - STATUS_LINE_ROWS_EXPECTED - INPUT_ROWS_EXPECTED - MIN_TRANSCRIPT_ROWS_EXPECTED - dialogChromeRows,
-      0,
-    )
-    const totalDiffLines = oldLines.length + newLines.length // 16, fully disjoint -> no LCS matches
-    const expectedShown = totalDiffLines <= maxDiffLines ? totalDiffLines : Math.max(maxDiffLines - 1, 0)
-    const expectedHidden = totalDiffLines - expectedShown
-
-    // (b) Every shown diff line is contiguous and correct: old lines are emitted before
-    // new lines for two fully disjoint sides (see diffLines' tie-break), so the leading
-    // `expectedShown` lines are exactly the first old lines, in order.
-    for (let i = 0; i < Math.min(expectedShown, oldLines.length); i++) {
-      expect(frame).toContain(`- ${oldLines[i]}`)
-    }
-    if (expectedHidden > 0) {
-      expect(frame).toContain(`+${expectedHidden} more lines truncated`)
-    } else {
-      expect(frame).not.toContain('more lines truncated')
-    }
-    // No diff line beyond what's expected ever silently appears -- a corrupted render
-    // would otherwise show a NON-contiguous subset (e.g. skip old-1 but show old-2).
-    for (let i = expectedShown; i < oldLines.length; i++) {
-      expect(frame).not.toContain(`- ${oldLines[i]}`)
-    }
+    // Full chrome no longer fits. The compact view preserves consent controls and
+    // routes to the same pending request's complete available diff.
+    expect(frame).toContain('d details')
+    expect(frame).toContain('n deny')
+    stdin.write('d')
+    await delay(30)
+    stdin.write('/')
+    await delay(20)
+    stdin.write('+ new-8')
+    await delay(20)
+    stdin.write('\r')
+    await delay(30)
+    expect(lastFrame(stdout)).toContain('+ new-8')
+    expect(lastFrame(stdout)).toContain('x deny')
   })
 })

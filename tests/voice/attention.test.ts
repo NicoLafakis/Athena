@@ -270,7 +270,7 @@ describe('VoiceAttentionBridge announcement routing', () => {
     const { speaker, presented } = recorder()
     bridge.attach(speaker)
 
-    bridge.announce(announcement({ priority: 'polite', category: 'phase', text: 'Completed: Work completed.' }))
+    bridge.announce(announcement({ priority: 'polite', category: 'phase', text: 'Completed: Turn finished.' }))
     bridge.announce(announcement())
     bridge.announce(announcement({ priority: 'blocking', category: 'phase', text: 'Attention: Work is blocked and needs you.' }))
 

@@ -47,6 +47,7 @@ export type PermissionAnswer = 'allow-once' | 'allow-always' | 'deny'
 export type EngineEvent =
   | { type: 'assistant-text'; delta: string }
   | { type: 'assistant-thinking'; delta: string }
+  | { type: 'tool-effective-input'; id: string; name: string; input: unknown }
   | { type: 'tool-request'; id: string; name: string; input: unknown }
   | { type: 'tool-progress'; id: string; name: string; delta: string }
   | { type: 'background-output'; taskId: string; delta: string }

@@ -11,9 +11,32 @@
 
 /** Clamps an arbitrary index into the valid cursor range for `text` — [0, length], where
  *  `length` itself is valid and means "after the last character". */
+const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
+export function graphemeSegments(text: string): { segment: string; index: number }[] {
+  return Array.from(segmenter.segment(text), ({ segment, index }) => ({ segment, index }))
+}
+
 export function clampCursor(text: string, index: number): number {
   if (!Number.isFinite(index)) return text.length
-  return Math.min(Math.max(Math.trunc(index), 0), text.length)
+  const bounded = Math.min(Math.max(Math.trunc(index), 0), text.length)
+  if (bounded === text.length || /^[\x00-\x7f]*$/.test(text)) return bounded
+  let boundary = 0
+  for (const part of segmenter.segment(text)) {
+    if (part.index > bounded) break
+    boundary = part.index
+  }
+  return boundary
+}
+
+export function previousGrapheme(text: string, index: number): number {
+  return clampCursor(text, Math.max(0, clampCursor(text, index) - 1))
+}
+
+export function nextGrapheme(text: string, index: number): number {
+  const at = clampCursor(text, index)
+  if (at === text.length) return at
+  return at + (segmenter.segment(text.slice(at))[Symbol.iterator]().next().value?.segment.length ?? 0)
 }
 
 const isSpace = (c: string | undefined): boolean => c !== undefined && /\s/.test(c)
@@ -24,20 +47,24 @@ const isSpace = (c: string | undefined): boolean => c !== undefined && /\s/.test
  *  counts as whitespace here (word motion crosses lines; only lineStart/lineEnd below
  *  treat it as a hard boundary). */
 export function prevWordBoundary(text: string, index: number): number {
-  let i = clampCursor(text, index)
-  while (i > 0 && isSpace(text[i - 1])) i -= 1
-  while (i > 0 && !isSpace(text[i - 1])) i -= 1
-  return i
+  const at = clampCursor(text, index)
+  const parts = graphemeSegments(text.slice(0, at))
+  let i = parts.length
+  while (i > 0 && isSpace(parts[i - 1]!.segment)) i--
+  while (i > 0 && !isSpace(parts[i - 1]!.segment)) i--
+  return parts[i]?.index ?? at
 }
 
 /** End of the whitespace-delimited word at or after `index` — the forward mirror of
  *  prevWordBoundary: skips whitespace ahead of the cursor, then the word characters after
  *  it, landing just past the end of that word (readline's forward-word). */
 export function nextWordBoundary(text: string, index: number): number {
-  let i = clampCursor(text, index)
-  while (i < text.length && isSpace(text[i])) i += 1
-  while (i < text.length && !isSpace(text[i])) i += 1
-  return i
+  const at = clampCursor(text, index)
+  const parts = graphemeSegments(text.slice(at))
+  let i = 0
+  while (i < parts.length && isSpace(parts[i]!.segment)) i++
+  while (i < parts.length && !isSpace(parts[i]!.segment)) i++
+  return parts[i] ? at + parts[i]!.index : text.length
 }
 
 /** Index just after the '\n' that precedes `index` (0 on the first line) — i.e. Ctrl+A
@@ -78,14 +105,15 @@ export function insertAt(text: string, cursor: number, chars: string): { value: 
 export function deleteBackward(text: string, cursor: number): { value: string; cursor: number } {
   const i = clampCursor(text, cursor)
   if (i === 0) return { value: text, cursor: 0 }
-  return { value: text.slice(0, i - 1) + text.slice(i), cursor: i - 1 }
+  const start = previousGrapheme(text, i)
+  return { value: text.slice(0, start) + text.slice(i), cursor: start }
 }
 
 /** Deletes the single character AT the cursor (forward delete). A no-op at end of text. */
 export function deleteForward(text: string, cursor: number): { value: string; cursor: number } {
   const i = clampCursor(text, cursor)
   if (i >= text.length) return { value: text, cursor: i }
-  return { value: text.slice(0, i) + text.slice(i + 1), cursor: i }
+  return { value: text.slice(0, i) + text.slice(nextGrapheme(text, i)), cursor: i }
 }
 
 /** Deletes from prevWordBoundary up to the cursor (Ctrl+W / Ctrl+Backspace). */

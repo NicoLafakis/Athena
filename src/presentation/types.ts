@@ -24,6 +24,8 @@ export interface AccessiblePermissionRequest {
   summary: string
   reason: string
   detailsCommand: string
+  details?: string
+  grantRule?: string
   diff?: PermissionDiffStats
 }
 

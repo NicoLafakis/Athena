@@ -1,4 +1,6 @@
-import { resolve } from 'node:path'
+import { permissionRevision } from '../harness/permission-revision.js'
+import { sessionGrantRule } from '../harness/permission-rule.js'
+import { join } from 'node:path'
 import type {
   MessageParam,
   Tool,
@@ -14,6 +16,7 @@ import { RunBudget } from './run.js'
 import type { ToolRegistry } from '../tools/registry.js'
 import type { HookRunner } from '../harness/hooks.js'
 import { redactSessionValue } from '../harness/redaction.js'
+import { memoryReadOnly, resolveMemoryAccess } from '../harness/memory-access.js'
 import {
   modelCapabilities,
   modelId,
@@ -45,6 +48,9 @@ export type AskUserFn = (req: {
   input: unknown
   summary: string
   reason: string
+  cwd?: string
+  grantRule?: string
+  targets?: string[]
 }) => Promise<PermissionAnswer>
 
 export interface EngineOptions {
@@ -198,7 +204,9 @@ export class Engine {
         message: `Prompt blocked by UserPromptSubmit hook: ${promptHook.reason ?? 'no reason given'}`,
         fatal: false,
       })
-      const result = this.budget.completed()
+      const result = this.budget.failed(
+        `Prompt blocked by UserPromptSubmit hook: ${promptHook.reason ?? 'no reason given'}`,
+      )
       bus.emit({ type: 'turn-done', usage: result.usage, result })
       return result
     }
@@ -657,11 +665,25 @@ export class Engine {
     if (!parsed.success) {
       return { output: `Invalid input for ${block.name}: ${parsed.error.message}`, isError: true }
     }
+    let targets: string[] | undefined
+    if (block.name === 'Memory') {
+      try {
+        const memory = resolveMemoryAccess(join(toolContext.brainDir, 'memory'), parsed.data)
+        targets = memory.targets
+        if ((parsed.data as { op: string }).op !== 'list') {
+          parsed.data = { ...(parsed.data as Record<string, unknown>), path: memory.target } as never
+        }
+      } catch (error) {
+        return { output: `Memory access denied: ${(error as Error).message}`, isError: true }
+      }
+    }
+    this.opts.bus.emit({ type: 'tool-effective-input', id: block.id, name: block.name, input: parsed.data })
     const effectiveBlock = { ...block, input: parsed.data } as ToolUseBlock
+    const readOnly = block.name === 'Memory' ? memoryReadOnly(parsed.data) : tool.readOnly
     const permissionHook = await hooks.run('PermissionRequest', {
       toolName: block.name,
       input: parsed.data,
-      readOnly: tool.readOnly,
+      readOnly,
     })
     if (!permissionHook.allowed) {
       return {
@@ -672,12 +694,13 @@ export class Engine {
     const decision = gate.check({
       toolName: block.name,
       input: parsed.data,
-      readOnly: tool.readOnly,
+      readOnly,
       summary: summarize(effectiveBlock),
     })
     let allowed = decision.decision === 'allow'
     let denyReason = decision.reason
     if (decision.decision === 'ask') {
+      const revision = permissionRevision(block.name, parsed.data, toolContext.cwd)
       const requestId = `permission:${block.id}`
       const summary = `${block.name} requires permission.`
       this.opts.bus.emit({
@@ -688,15 +711,21 @@ export class Engine {
         summary,
         reason: safePermissionReason(decision.reason),
       })
-      const answer = this.opts.askUser
+      const response = this.opts.askUser
         ? await this.opts.askUser({
             id: requestId,
             toolName: block.name,
-            input: parsed.data,
+            input: structuredClone(parsed.data),
+            cwd: toolContext.cwd,
+            grantRule: ruleFor(effectiveBlock, toolContext.cwd),
+            targets,
             summary: summarize(effectiveBlock),
             reason: decision.reason,
           })
         : ('deny' as const)
+      // A reply arriving after cancellation cannot authorize a tool or a session grant.
+      const revisionChanged = revision === null || revision !== permissionRevision(block.name, parsed.data, toolContext.cwd)
+      const answer = signal.aborted || revisionChanged ? 'deny' as const : response
       this.opts.bus.emit({
         type: 'permission-resolved',
         requestId,
@@ -705,6 +734,8 @@ export class Engine {
         answer,
         resolution: this.opts.askUser ? 'user' : 'headless-default',
       })
+      if (signal.aborted) return { output: 'Permission denied: turn cancelled while awaiting consent', isError: true }
+      if (revisionChanged) return { output: 'Permission denied: target changed during approval or its revision could not be read. Inspect and request approval again.', isError: true }
       if (answer === 'allow-always') {
         gate.grantSession(ruleFor(effectiveBlock, toolContext.cwd))
         allowed = true
@@ -796,15 +827,7 @@ function safePermissionReason(reason: string): string {
  *  session cwd, forward slashes) so the grant matches however the model spells
  *  the path on later calls. */
 export function ruleFor(block: ToolUseBlock, cwd: string): string {
-  const obj = (block.input ?? {}) as Record<string, unknown>
-  if (block.name === 'Bash' || block.name === 'PowerShell') {
-    const first = String(obj['command'] ?? '').trim().split(/\s+/)[0] ?? ''
-    return `${block.name}(${first}:*)`
-  }
-  if (typeof obj['file_path'] === 'string') {
-    return `${block.name}(${resolve(cwd, String(obj['file_path'])).replaceAll('\\', '/')})`
-  }
-  return block.name
+  return sessionGrantRule(block.name, block.input, cwd)
 }
 
 /**

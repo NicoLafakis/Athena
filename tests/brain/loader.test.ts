@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { resolveBrainPaths } from '../../src/brain/paths.js'
 import {
   parseFrontmatter,
+  parseAgentFile,
   loadConstitution,
   loadMemoryIndex,
   loadSkillsIndex,
@@ -183,5 +184,14 @@ describe('loadCommandsIndex', () => {
     expect(idx.map((c) => c.name)).toEqual(['ok'])
     expect(warnings).toHaveLength(1)
     expect(warnings[0]).toContain('help')
+  })
+})
+
+
+describe('agent limit validation', () => {
+  it.each(['max-turns: -1', 'max-turns: 1.5', 'max-tool-calls: -1', 'max-tokens: NaN', 'max-cost-usd: Infinity', 'timeout-ms: 0', 'max-tool-calls: '])('rejects invalid %s', (limit) => {
+    const file = join(home, 'agent.md')
+    writeFileSync(file, `---\nname: bounded\n${limit}\n---\nAgent`)
+    expect(() => parseAgentFile(file)).toThrow(/Invalid agent limit/)
   })
 })

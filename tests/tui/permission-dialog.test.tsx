@@ -25,6 +25,28 @@ function pendingFor(toolName: string, input: unknown): PendingPermission {
 }
 
 describe('PermissionDialog diff preview', () => {
+  it('redacts summary, reason and preview while retaining distinguishing safe context', () => {
+    const pending = pendingFor('Edit', { file_path: 'fixture', old_string: 'password="old-fixture"', new_string: '{"password":"new-fixture","mode":"distinguishing"}' })
+    pending.summary = 'Edit password="summary-fixture"'
+    pending.reason = 'token="reason-fixture" needs approval'
+    const { lastFrame, unmount } = render(<PermissionDialog pending={pending} cwd={dir} columns={120} />)
+    expect(lastFrame()).not.toMatch(/(?:old|new|summary|reason)-fixture/)
+    expect(lastFrame()).toContain('[REDACTED]')
+    expect(lastFrame()).toContain('distinguishing')
+    unmount()
+  })
+  it('ignores modified approval keys and opens details without deciding', async () => {
+    const pending = pendingFor('Bash', { command: 'echo hello' })
+    const inspect = vi.fn()
+    const { stdin, unmount } = render(<PermissionDialog pending={pending} cwd={dir} onInspect={inspect} />)
+    await new Promise(r => setTimeout(r, 10))
+    stdin.write('\u0001')
+    expect(pending.resolve).not.toHaveBeenCalled()
+    stdin.write('d')
+    expect(inspect).toHaveBeenCalledWith(false)
+    expect(pending.resolve).not.toHaveBeenCalled()
+    unmount()
+  })
   it('Write over an existing file shows removed and added lines', () => {
     writeFileSync(join(dir, 'f.txt'), 'old line', 'utf8')
     const pending = pendingFor('Write', { file_path: 'f.txt', content: 'new line' })
@@ -59,6 +81,15 @@ describe('PermissionDialog diff preview', () => {
     expect(lastFrame()).toMatch(/allow once/i)
     expect(lastFrame()).not.toContain('+ ')
     expect(lastFrame()).not.toContain('- ')
+  })
+
+  it('Escape denies even though Ink marks Escape as meta', async () => {
+    const pending = pendingFor('Bash', { command: 'echo hello' })
+    const { stdin, unmount } = render(<PermissionDialog pending={pending} cwd={dir} />)
+    await new Promise(r => setTimeout(r, 10))
+    stdin.write('\u001b')
+    expect(pending.resolve).toHaveBeenCalledWith('deny')
+    unmount()
   })
 
   it('answer keys still resolve', async () => {

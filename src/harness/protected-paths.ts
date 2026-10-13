@@ -1,4 +1,5 @@
-import { posix, win32 } from 'node:path'
+import { dirname, posix, relative, resolve, win32 } from 'node:path'
+import { existsSync, realpathSync } from 'node:fs'
 
 /**
  * An unconditional write fence over operating-system directories.
@@ -235,6 +236,7 @@ export class ProtectedPaths {
   private readonly platform: NodeJS.Platform
   private readonly env: NodeJS.ProcessEnv
   private readonly rootSegments: readonly string[][]
+  private readonly canonicalRootSegments: readonly (string[] | null)[]
 
   constructor(roots: readonly string[], options: ProtectedPathsOptions = {}) {
     this.platform = options.platform ?? process.platform
@@ -242,6 +244,18 @@ export class ProtectedPaths {
     const cleaned = roots.map((root) => root.trim()).filter((root) => root !== '')
     this.roots = cleaned
     this.rootSegments = cleaned.map((root) => this.segmentsFor(root, root))
+    // Retain the lexical fence as well as native identity. Never interpret a
+    // simulated platform's roots using the host filesystem in portable tests.
+    this.canonicalRootSegments = cleaned.map((root) => {
+      if (this.platform !== process.platform) return null
+      try {
+        const absolute = resolve(root)
+        let parent = absolute
+        while (!existsSync(parent) && dirname(parent) !== parent) parent = dirname(parent)
+        const canonical = resolve(realpathSync.native(parent), relative(parent, absolute))
+        return this.segmentsFor(canonical, canonical)
+      } catch { return null }
+    })
   }
 
   /** Environment-derived defaults for this process. Memoized; the environment
@@ -269,10 +283,11 @@ export class ProtectedPaths {
       return null
     }
     for (let i = 0; i < this.rootSegments.length; i++) {
-      const root = this.rootSegments[i]!
-      if (root.length === 0 || candidate.length < root.length) continue
-      if (root.every((segment, index) => this.segmentEquals(segment, candidate[index]!))) {
-        return this.roots[i]!
+      for (const root of [this.rootSegments[i]!, this.canonicalRootSegments[i]]) {
+        if (!root || root.length === 0 || candidate.length < root.length) continue
+        if (root.every((segment, index) => this.segmentEquals(segment, candidate[index]!))) {
+          return this.roots[i]!
+        }
       }
     }
     return null

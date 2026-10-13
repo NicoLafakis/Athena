@@ -55,6 +55,7 @@ import {
 import { importBrain } from './brain/import.js'
 import { ensureBrainScaffold } from './harness/bootstrap.js'
 import { PermissionEngine, resolveTrustBootstrap } from './harness/permissions.js'
+import { describeProjectTrust } from './harness/trust-disclosure.js'
 import { ProtectedPaths } from './harness/protected-paths.js'
 import { ResourcePolicy } from './harness/resource-policy.js'
 import {
@@ -91,7 +92,6 @@ import {
   ReadlineLineInput,
   ScreenReaderPresentation,
   createAccessiblePermissionRequest,
-  formatPermissionDiffDetail,
   permissionDiff,
   permissionDiffStats,
 } from './presentation/index.js'
@@ -769,6 +769,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
             : ''
         info(
           `Commands: /help /status /repeat /details /verbosity <concise|balanced|detailed> /clear /resume /compact /model <${modelKeys(engine.getProvider()).join('|')}> /effort <${effortLevels(engine.getProvider(), engine.getModel()).join('|') || 'unavailable'}> /provider <${PROVIDER_IDS.join('|')}> /mode <normal|acceptEdits|plan|trusted> /tui <fullscreen|classic> /memory /skills /agents /quit\n` +
+            'Ctrl+O opens retained tool results, including while busy. In the reader: PgUp/PgDn page, / searches, n finds next, [ and ] select tools, e exports safe text, Esc returns.\n' +
             '/clear clears the screen (transcript display only) — conversation context is unchanged; use /compact to shrink it.\n' +
             '/tui fullscreen switches to an alternate-screen buffer with a pinned input (like vim/htop); /tui classic returns to normal scrollback.\n' +
             '/model /provider /effort /mode /tui run with no argument open a picker to choose a value instead of requiring you to type one.' +
@@ -997,6 +998,22 @@ async function confirm(question: string): Promise<boolean> {
   }
 }
 
+function projectTrustDisclosure(paths: BrainPaths): string {
+  try {
+    const settings = loadSettings(paths, 'anthropic', undefined, {
+      projectTrusted: true, allowProjectHooks: false, allowProjectMcp: false,
+    })
+    return describeProjectTrust({ permissionMode: settings.permissionMode, sandboxMode: settings.sandboxMode })
+  } catch {
+    // Previewing untrusted project configuration must not prevent declining it.
+    // Do not print parser error values: malformed settings may contain credentials.
+    return 'Unable to preview project settings. Effective project permissions and sandbox authority are unknown. ' +
+      'Decline trust to continue with global settings, or repair the project .athena/settings.json before enabling it. ' +
+      'Trust enables project instructions and extensions; default interactive trust automatically approves mutating tools and may run the Windows shell unrestricted. ' +
+      'Project settings hooks and MCP configurations require separate approval.'
+  }
+}
+
 async function resolveProjectTrust(
   paths: BrainPaths,
   cwd: string,
@@ -1012,7 +1029,7 @@ async function resolveProjectTrust(
   let trusted = store.isTrusted(cwd)
   if (!trusted) {
     trusted = await confirm(
-      `Trust project ${canonicalProjectPath(cwd)}? Project instructions and extensions are ignored until trusted.`,
+      `${projectTrustDisclosure(paths)}\nTrust project ${canonicalProjectPath(cwd)}?`,
     )
     if (trusted) store.trust(cwd)
   }
@@ -1182,6 +1199,7 @@ async function main(): Promise<void> {
       console.log(store.revoke(cwd) ? `Revoked trust for ${canonicalProjectPath(cwd)}` : 'Project was not trusted.')
       return
     }
+    console.log(projectTrustDisclosure(paths))
     if (!store.isTrusted(cwd)) store.trust(cwd)
     const values = readProjectSettingsCapabilities(paths)
     for (const capability of cmd.capabilities) {
@@ -1803,7 +1821,7 @@ async function main(): Promise<void> {
     ? 'standard'
     : resolveAuthPresentation(
         cmd,
-        loadSettings(paths, provider).accessibility.presentation,
+        loadSettings(effectivePaths, provider).accessibility.presentation,
       )
   let resolved = resolveApiKey(provider, credentials, process.env, credentialVault, warnCredentials)
   if (!resolved && cmd.provider === undefined) {
@@ -1999,14 +2017,14 @@ async function main(): Promise<void> {
       : async (req) => {
           if (!screenPresentation) return bridge.ask(req)
           const diff = permissionDiff(req, cwd)
-          if (diff) {
-            permissionDetails.set(req.id, formatPermissionDiffDetail(diff))
-            if (permissionDetails.size > 100) permissionDetails.delete(permissionDetails.keys().next().value!)
-          }
-          return screenPresentation.requestPermission(createAccessiblePermissionRequest({
+          const accessible = createAccessiblePermissionRequest({
             ...req,
+            cwd,
             ...(diff ? { diff: permissionDiffStats(diff) } : {}),
-          }))
+          })
+          permissionDetails.set(req.id, accessible.details ?? 'No detail available.')
+          if (permissionDetails.size > 100) permissionDetails.delete(permissionDetails.keys().next().value!)
+          return screenPresentation.requestPermission(accessible)
         },
     onAnnouncement: (announcement) => {
       // The richer permission prompt immediately follows its semantic blocker; reading
@@ -2071,7 +2089,8 @@ async function main(): Promise<void> {
       await controller.endSession('exec-complete')
       await mcp.closeAll()
     }
-    const output = finalAssistantText(engine.getMessages())
+    // A blocked prompt never calls the model; resumed history is not this turn's output.
+    const output = result.usage.modelCalls === 0 ? '' : finalAssistantText(engine.getMessages())
     let outputValue: unknown
     let schemaErrors: string[] = []
     if (outputSchema !== null) {

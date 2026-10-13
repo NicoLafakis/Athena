@@ -8,7 +8,8 @@ import {
   ExperienceStore,
   GuidanceRecordSchema,
 } from '../../src/experience/index.js'
-import { projectId } from '../../src/harness/trust.js'
+import { projectId, ProjectTrustStore } from '../../src/harness/trust.js'
+import { SessionStore } from '../../src/harness/sessions.js'
 
 let root: string
 let home: string
@@ -56,7 +57,7 @@ describe('athena exec process contract', () => {
     expect(result.stdout).toContain('Status: Athena screen-reader mode is ready.')
     expect(result.stdout).toContain('ordinary assistant output\n')
     expect(result.stdout.match(/ordinary assistant output/g)).toHaveLength(1)
-    expect(result.stdout.match(/Completed: Work completed\./g)).toHaveLength(1)
+    expect(result.stdout.match(/Completed: Turn finished\./g)).toHaveLength(1)
     expect(result.stdout).toContain('You: ')
     expect(result.stdout).not.toMatch(/\u001b\[|\u001b\]|\u009b/)
   })
@@ -220,5 +221,60 @@ describe('athena exec process contract', () => {
       confidence: 0.9,
     })
     expect(result.stdout).not.toContain('Sensitive stored guidance')
+  })
+})
+
+
+describe('blocked prompt process results', () => {
+  it.each(['text', 'json', 'jsonl'])('returns non-success for %s output', (format) => {
+    mkdirSync(join(home, '.athena'))
+    writeFileSync(join(home, '.athena', 'settings.json'), JSON.stringify({ hooks: [{
+      event: 'UserPromptSubmit',
+      command: `"${process.execPath}" -e "console.error('policy blocked');process.exit(2)"`,
+    }] }))
+    writeFileSync(script, '[]')
+    const session = new SessionStore(join(home, '.athena', 'sessions'), project).create()
+    session.appendMessage({ role: 'user', content: 'earlier question' })
+    session.appendMessage({ role: 'assistant', content: 'STALE ANSWER MUST NOT RETURN' })
+    const result = run(['exec', 'blocked work', '--resume', session.id, '--output', format])
+    expect(result.status).not.toBe(0)
+    expect(result.stdout + result.stderr).toContain('policy blocked')
+    expect(result.stdout + result.stderr).not.toContain('Fixture model script exhausted')
+    expect(result.stdout).not.toContain('STALE ANSWER MUST NOT RETURN')
+    if (format === 'json') expect(JSON.parse(result.stdout)).toMatchObject({ status: 'error', output: '' })
+    if (format === 'jsonl') {
+      const done = result.stdout.trim().split('\n').map(line => JSON.parse(line)).find(line => line.event?.type === 'turn-done')
+      expect(done.event.result).toMatchObject({ status: 'error' })
+      const final = result.stdout.trim().split('\n').map(line => JSON.parse(line)).find(line => line.event?.type === 'exec-result')
+      expect(final.event).toMatchObject({ status: 'error', output: '', reason: expect.stringContaining('policy blocked') })
+      expect(final.event.exitCode).not.toBe(0)
+    }
+  })
+})
+
+
+describe('explicit trust disclosure', () => {
+  it('reports effective authority before the trust confirmation', () => {
+    mkdirSync(join(project, '.athena'))
+    const result = run(['trust'])
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain('Interactive permission mode: trusted')
+    expect(result.stdout).toContain(`sandbox: ${process.platform === 'win32' ? 'unrestricted' : 'workspace-write'}`)
+    expect(result.stdout.indexOf('Project settings hooks and MCP')).toBeLessThan(result.stdout.lastIndexOf('\nTrusted '))
+  })
+})
+
+
+describe('invalid untrusted project settings', () => {
+  it.each(['{ broken json', JSON.stringify({ sandboxMode: 'invalid-mode' })])('allows declining a project whose trust preview cannot load', (settings) => {
+    mkdirSync(join(project, '.athena'))
+    writeFileSync(join(project, '.athena', 'settings.json'), settings)
+    writeFileSync(script, '[]')
+    const result = run(['--accessibility', 'screen-reader'], 'n\n')
+    expect(result.status, result.stderr).toBe(0)
+    expect(new ProjectTrustStore(join(home, '.athena', 'trust.json')).isTrusted(project)).toBe(false)
+    expect(result.stdout).toContain('Unable to preview project settings')
+    expect(result.stdout).toContain('Trust project')
+    expect(result.stdout).toContain('Status: Athena screen-reader mode is ready.')
   })
 })

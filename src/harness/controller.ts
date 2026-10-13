@@ -257,6 +257,7 @@ export class HarnessSessionController {
       sandboxMode,
       resourcePolicy,
       protectedPaths,
+      memoryRoot: join(paths.brainDir, 'memory'),
     })
 
     const hooks = new HookRunner(settings.hooks)

@@ -1,0 +1,69 @@
+{
+  "baseline": "fd75be91f9428556e78c40060c3ac659ebe945ba",
+  "checks": [
+    {
+      "id": "typecheck",
+      "cmd": "pnpm typecheck",
+      "criteria": [
+        "AC-1",
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5",
+        "AC-6",
+        "AC-7",
+        "AC-8"
+      ],
+      "required": true,
+      "timeout": 900
+    },
+    {
+      "id": "lint",
+      "cmd": "pnpm lint",
+      "criteria": [
+        "AC-1",
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5",
+        "AC-6",
+        "AC-7",
+        "AC-8"
+      ],
+      "required": true,
+      "timeout": 900
+    },
+    {
+      "id": "test",
+      "cmd": "pnpm test",
+      "criteria": [
+        "AC-1",
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5",
+        "AC-6",
+        "AC-7",
+        "AC-8"
+      ],
+      "required": true,
+      "timeout": 900
+    },
+    {
+      "id": "build",
+      "cmd": "pnpm build",
+      "criteria": [
+        "AC-1",
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5",
+        "AC-6",
+        "AC-7",
+        "AC-8"
+      ],
+      "required": true,
+      "timeout": 900
+    }
+  ]
+}

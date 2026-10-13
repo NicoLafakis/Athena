@@ -42,7 +42,7 @@ describe('announcement policy', () => {
     expect(classify(event('phase-changed', { phase: 'completed' }))).toMatchObject({
       priority: 'polite',
       category: 'phase',
-      text: 'Completed: Work completed.',
+      text: 'Completed: Turn finished.',
       requiresAcknowledgement: false,
       provenance: [{ source: 'runtime', sequence: 1 }],
     })

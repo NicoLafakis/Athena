@@ -1,7 +1,8 @@
 // src/tui/components/DiffPreview.tsx
 import { Box, Text } from 'ink'
-import { truncateWithNotice, wrappedRowCount } from '../viewport.js'
+import { truncateWithNotice, wrappedRowCount, wrapToRows } from '../viewport.js'
 import { diffLines as sharedDiffLines } from '../../presentation/diff-lines.js'
+import { safeDetailText } from '../../presentation/action-details.js'
 
 export interface DiffLine {
   tag: '+' | '-' | ' '
@@ -83,29 +84,34 @@ export function DiffPreview({
 }: {
   oldText: string
   newText: string
-  /** Max diff CONTENT lines to render before truncating — a content-only budget; it does
+  /** Max diff physical CONTENT rows to render before truncating — a content-only budget; it does
    *  NOT need to leave room for the "+N more" notice itself (the caller already reserved
    *  that separately — see App.tsx). Defaults to DEFAULT_MAX_LINES when the caller hasn't
    *  computed a real layout budget. */
   maxLines?: number
   /** Terminal columns actually available to this component's own text (i.e. AFTER the
-   *  parent PermissionDialog's border/padding has already been subtracted) — used only to
-   *  pick the notice's full-vs-short form above. Defaults to 76 (an 80-column terminal
+   *  parent PermissionDialog's border/padding has already been subtracted) — used to
+   *  wrap content and pick the notice's full-vs-short form. Defaults to 76 (an 80-column terminal
    *  minus PermissionDialog's border+padding), matching the assumption DEFAULT_MAX_LINES
    *  itself is sized against. */
   columns?: number
 }) {
-  const lines = sharedDiffLines(oldText, newText)
-  const { shown, hiddenCount } = truncateWithNotice(lines, maxLines)
+  const lines = sharedDiffLines(safeDetailText(oldText), safeDetailText(newText)).flatMap((l, sourceLine) =>
+    wrapToRows(`${l.tag} ${l.line}`, columns).map(line => ({ tag: l.tag, line, sourceLine })),
+  )
+  const { shown } = truncateWithNotice(lines, maxLines)
+  // The budget counts physical rows, but the notice names source lines, including
+  // a partially visible source line whose remaining wrapped rows were omitted.
+  const hiddenCount = new Set(lines.slice(shown.length).map(line => line.sourceLine)).size
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" flexShrink={0}>
       {shown.map((l, idx) => (
         <Text
           key={idx}
           color={l.tag === '+' ? 'green' : l.tag === '-' ? 'red' : undefined}
           dimColor={l.tag === ' '}
         >
-          {l.tag} {l.line}
+          {l.line}
         </Text>
       ))}
       {hiddenCount > 0 && <Text dimColor>{diffNoticeText(hiddenCount, columns)}</Text>}

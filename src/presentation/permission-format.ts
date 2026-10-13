@@ -1,4 +1,6 @@
 import { plainBounded } from '../interaction/format.js'
+import { actionDetails } from './action-details.js'
+import { sessionGrantRule } from '../harness/permission-rule.js'
 import type { AccessiblePermissionRequest, PermissionDiffStats } from './types.js'
 
 export interface PermissionPresentationInput {
@@ -7,6 +9,9 @@ export interface PermissionPresentationInput {
   input: unknown
   summary: string
   reason: string
+  cwd?: string
+  grantRule?: string
+  targets?: string[]
   diff?: PermissionDiffStats
 }
 
@@ -50,6 +55,8 @@ export function createAccessiblePermissionRequest(
     summary: safe(input.summary, 1_024, `${toolName} requests permission.`),
     reason: safe(input.reason, 1_024, 'This operation requires user approval.'),
     detailsCommand: `/details permission ${id}`,
+    details: actionDetails(input),
+    grantRule: input.grantRule ?? sessionGrantRule(toolName, input.input, input.cwd ?? process.cwd()),
     ...(input.diff ? {
       diff: {
         addedLines: Math.max(0, Math.floor(input.diff.addedLines)),
@@ -91,6 +98,7 @@ export function formatAccessiblePermission(request: AccessiblePermissionRequest)
     `Permission: ${safe(request.toolName, 256, 'Tool')} requires a decision.`,
     `Target: ${safe(request.target, 512, 'current workspace operation')}`,
     `Consequence: ${safe(request.consequence, 1_024, 'Allow the requested operation.')}`,
+    `Action: ${request.toolName === 'Bash' || request.toolName === 'PowerShell' ? safe(request.summary, 1_024, 'Open details to inspect the action.') : 'Open details to inspect effective arguments.'}`,
     `Reason: ${safe(request.reason, 1_024, 'This operation requires user approval.')}`,
   ]
   if (request.diff) {
@@ -98,7 +106,7 @@ export function formatAccessiblePermission(request: AccessiblePermissionRequest)
   }
   lines.push(
     `Details: ${safe(request.detailsCommand, 512, `/details permission ${request.id}`)}`,
-    'Choices: [y] allow once; [a] always allow; [n] deny',
+    'Choices: [y] allow once; [a] review session grant; [n] deny; [d] details',
   )
   return lines.join('\n').slice(0, 4_095)
 }

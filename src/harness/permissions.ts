@@ -8,6 +8,7 @@ import type {
 } from '../engine/types.js'
 import { ProtectedPaths } from './protected-paths.js'
 import { realPathForAccess, type ResourcePolicy } from './resource-policy.js'
+import { resolveMemoryAccess } from './memory-access.js'
 
 export interface ParsedRule { tool: string; pattern: string | null }
 
@@ -122,6 +123,22 @@ export function matchesRule(
   return globToRegExp(rule.pattern).test(matchTarget(toolName, input))
 }
 
+/** Resolve only the literal directory prefix: glob syntax must survive realpath.
+ * Memory targets already use native filesystem identity, so their rules must use
+ * it too (macOS /var aliases and Windows short names are common at runtime). */
+function canonicalMemoryRule(rule: ParsedRule, root: string): ParsedRule {
+  if (rule.tool !== 'Memory' || rule.pattern === null) return rule
+  const pattern = canonicalizePattern(rule.pattern, root)
+  const wildcard = pattern.search(/[*?]/)
+  if (wildcard === -1) {
+    return { ...rule, pattern: realPathForAccess(pattern, root).replaceAll('\\', '/') }
+  }
+  const slash = pattern.lastIndexOf('/', wildcard)
+  const prefix = pattern.slice(0, slash + 1)
+  const suffix = pattern.slice(slash + 1)
+  return { ...rule, pattern: `${realPathForAccess(prefix, root).replaceAll('\\', '/').replace(/\/$/, '')}/${suffix}` }
+}
+
 const EDIT_TOOLS = new Set(['Write', 'Edit'])
 
 export interface PermissionEngineOptions {
@@ -133,6 +150,8 @@ export interface PermissionEngineOptions {
   cwd?: string
   sandboxMode?: SandboxMode
   resourcePolicy?: ResourcePolicy
+  /** The sole explicitly authorized Memory root, shared with ToolContext.brainDir. */
+  memoryRoot?: string
   /** Unconditional OS write fence. Defaults to the environment-derived roots so
    *  a caller that omits it is still fenced. */
   protectedPaths?: ProtectedPaths
@@ -147,6 +166,7 @@ export class PermissionEngine implements PermissionGate {
   private readonly sandboxMode: SandboxMode
   private readonly resourcePolicy?: ResourcePolicy
   private readonly protectedPaths: ProtectedPaths
+  private readonly memoryRoot?: string
 
   constructor(opts: PermissionEngineOptions) {
     this.mode = opts.mode
@@ -156,6 +176,7 @@ export class PermissionEngine implements PermissionGate {
     this.sandboxMode = opts.sandboxMode ?? 'unrestricted'
     this.resourcePolicy = opts.resourcePolicy
     this.protectedPaths = opts.protectedPaths ?? ProtectedPaths.defaults()
+    this.memoryRoot = opts.memoryRoot
   }
 
   setMode(mode: PermissionMode): void { this.mode = mode }
@@ -176,6 +197,26 @@ export class PermissionEngine implements PermissionGate {
   }
 
   check(req: PermissionRequest): PermissionDecision {
+    if (req.toolName === 'Memory') {
+      if (!this.memoryRoot) return { decision: 'deny', reason: 'Memory scope is not configured' }
+      try {
+        const access = resolveMemoryAccess(this.memoryRoot, req.input)
+        let primary: PermissionDecision | undefined
+        for (const target of access.targets) {
+          const result = this.checkResolved({ ...req, readOnly: access.readOnly,
+            input: { ...(req.input as Record<string, unknown>), path: target } }, access.root)
+          if (result.decision === 'deny') return result
+          if (!primary || result.decision === 'ask') primary = result
+        }
+        return primary!
+      } catch (error) {
+        return { decision: 'deny', reason: (error as Error).message }
+      }
+    }
+    return this.checkResolved(req)
+  }
+
+  private checkResolved(req: PermissionRequest, memoryRoot?: string): PermissionDecision {
     const input = (req.input ?? {}) as Record<string, unknown>
     const path =
       typeof input['file_path'] === 'string'
@@ -210,7 +251,7 @@ export class PermissionEngine implements PermissionGate {
         }
       }
     }
-    if (path !== null && this.resourcePolicy) {
+    if (path !== null && this.resourcePolicy && !memoryRoot) {
       const access = req.readOnly ? 'read' : 'write'
       if (!this.resourcePolicy.contains(path, access)) {
         return {
@@ -224,7 +265,7 @@ export class PermissionEngine implements PermissionGate {
     }
     // 1. Hard deny — no mode bypasses it.
     for (const rule of this.denyRules) {
-      if (matchesRule(rule, req.toolName, req.input, this.cwd)) {
+      if (matchesRule(memoryRoot ? canonicalMemoryRule(rule, memoryRoot) : rule, req.toolName, req.input, memoryRoot ?? this.cwd)) {
         return { decision: 'deny', reason: `Denied by rule ${rule.tool}(${rule.pattern ?? ''})` }
       }
     }
@@ -238,7 +279,7 @@ export class PermissionEngine implements PermissionGate {
     if (req.readOnly) return { decision: 'allow', reason: 'Read-only tool' }
     // 4. Explicit allow rules + session grants.
     for (const rule of [...this.allowRules, ...this.sessionGrants]) {
-      if (matchesRule(rule, req.toolName, req.input, this.cwd)) {
+      if (matchesRule(memoryRoot ? canonicalMemoryRule(rule, memoryRoot) : rule, req.toolName, req.input, memoryRoot ?? this.cwd)) {
         return { decision: 'allow', reason: `Allowed by rule ${rule.tool}(${rule.pattern ?? ''})` }
       }
     }

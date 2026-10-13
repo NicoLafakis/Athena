@@ -1,6 +1,13 @@
 // src/tui/App.tsx
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { Box, useApp, useInput, useStdout } from 'ink'
+import { Box, Text, useApp, useInput, useStdout } from 'ink'
+import { mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { CompactPermission } from './components/CompactPermission.js'
+import { DetailReader } from './components/DetailReader.js'
+import { redactSessionValue } from '../harness/redaction.js'
+import { actionDetails, safeDetailText } from '../presentation/action-details.js'
 import type { EngineEventBus } from '../engine/events.js'
 import type { EngineEvent, TodoItem, PermissionMode } from '../engine/types.js'
 import { Transcript, type TranscriptEntry } from './components/Transcript.js'
@@ -23,7 +30,7 @@ import {
 import { createFullscreenController } from './fullscreen.js'
 import { popupLayout } from './popupWindow.js'
 import type { ProviderId, Effort } from '../brain/models.js'
-import { estimateEntryRows, shiftAnchor, truncateRowsWithNotice, wrappedRowCount, type ScrollAnchor } from './viewport.js'
+import { estimateEntryRows, shiftAnchor, truncateTextToRows, truncateRowsWithNotice, wrappedRowCount, type ScrollAnchor } from './viewport.js'
 import {
   PERMISSION_HEADER_TEXT,
   PERMISSION_FOOTER_TEXT,
@@ -124,6 +131,9 @@ export type PermissionAnswer = 'allow-once' | 'allow-always' | 'deny'
 export interface PendingPermission {
   /** Engine requests carry a stable ID; optional for legacy/test callers of the Ink bridge. */
   id?: string
+  cwd?: string
+  grantRule?: string
+  targets?: string[]
   toolName: string
   input: unknown
   summary: string
@@ -143,15 +153,18 @@ export class PermissionBridge {
   }
 
   /** Passed to Engine as askUser. */
-  ask(req: { id?: string; toolName: string; input: unknown; summary: string; reason: string }): Promise<PermissionAnswer> {
+  ask(req: { id?: string; cwd?: string; grantRule?: string; targets?: string[]; toolName: string; input: unknown; summary: string; reason: string }): Promise<PermissionAnswer> {
     return new Promise((resolve) => {
       if (!this.setter) {
         resolve('deny') // headless: fail safe
         return
       }
+      let settled = false
       const pending: PendingPermission = {
         ...req,
         resolve: (a) => {
+          if (settled) return
+          settled = true
           this.current = this.queue.shift() ?? null
           this.setter?.(this.current)
           resolve(a)
@@ -324,6 +337,7 @@ export function App({
   )
   const [todos, setTodos] = useState<TodoItem[]>([])
   const [pending, setPending] = useState<PendingPermission | null>(null)
+  const [reader, setReader] = useState<{ kind: 'tool'; id: string } | { kind: 'permission'; pending: PendingPermission; grant: boolean } | null>(null)
   const [busy, setBusy] = useState(false)
   // Turn-start reference for BusyIndicator's elapsed-time counter: a ref (not state)
   // because it must be readable synchronously the moment `busy` flips true, and mutating
@@ -389,7 +403,7 @@ export function App({
   )
 
   useInput((_ch, key) => {
-    if (key.escape && busy) {
+    if (key.escape && busy && !reader && !pending) {
       onAbort()
       // No permission dialog may survive a dead turn (queued sub-agent asks included).
       permissionBridge.cancelAll()
@@ -622,7 +636,7 @@ export function App({
   // keystrokes while the picker owns Up/Down/Enter/Esc.
   const input = useInputBox({
     onSubmit: handleSubmit,
-    disabled: busy || pending !== null || argPicker !== null,
+    disabled: busy || pending !== null || argPicker !== null || reader !== null || (fullscreen && (rows < 8 || columns < 30)),
     cwd: status.cwd,
     commands,
     agents,
@@ -708,7 +722,7 @@ export function App({
         }
       }
     },
-    { isActive: argPickerLayout !== null },
+    { isActive: argPickerLayout !== null && reader === null },
   )
 
   // A picker that WANTS the screen but can't fit on it is cancelled outright rather than
@@ -764,8 +778,8 @@ export function App({
   const dialogChromeRows = pending
     ? DIALOG_BORDER_ROWS +
       wrappedRowCount(PERMISSION_HEADER_TEXT, dialogTextColumns) +
-      Math.min(wrappedRowCount(pending.summary, dialogTextColumns), DIALOG_SUMMARY_MAX_ROWS) +
-      Math.min(wrappedRowCount(pending.reason, dialogTextColumns), DIALOG_REASON_MAX_ROWS) +
+      Math.min(wrappedRowCount(safeDetailText(pending.summary), dialogTextColumns), DIALOG_SUMMARY_MAX_ROWS) +
+      Math.min(wrappedRowCount(safeDetailText(pending.reason), dialogTextColumns), DIALOG_REASON_MAX_ROWS) +
       wrappedRowCount(PERMISSION_FOOTER_TEXT, dialogTextColumns) +
       noticeReserveRows(diffNoticeText, DIFF_NOTICE_PLACEHOLDER_HIDDEN, dialogTextColumns)
     : 0
@@ -904,9 +918,53 @@ export function App({
         })
       }
     },
-    { isActive: fullscreen && argPicker === null },
+    { isActive: fullscreen && argPicker === null && pending === null && reader === null },
   )
 
+  useInput((ch, key) => {
+    if (key.ctrl && ch === 'o' && !pending && !reader) {
+      const last = [...entries].reverse().find(entry => entry.kind === 'tool')
+      if (last?.kind === 'tool') setReader({ kind: 'tool', id: last.id })
+    }
+  })
+  useEffect(() => {
+    if (reader?.kind === 'permission' && reader.pending !== pending) setReader(null)
+    if (reader?.kind === 'tool' && pending) setReader(null)
+  }, [reader, pending])
+  const exportDetail = async (text: string): Promise<string> => {
+    const directory = await mkdtemp(join(tmpdir(), 'athena-inspection-'))
+    const path = join(directory, 'inspection.txt')
+    await writeFile(path, safeDetailText(text), { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+    return path
+  }
+  if (reader?.kind === 'permission' && reader.pending === pending) {
+    return <DetailReader title={reader.grant ? 'Review session grant' : 'Permission details'}
+      text={actionDetails({ ...pending, cwd: pending.cwd ?? status.cwd })} rows={rows} columns={columns}
+      onClose={() => setReader(null)}
+      onGrant={reader.grant ? () => { pending.resolve('allow-always'); setReader(null) } : undefined}
+      onDeny={() => { pending.resolve('deny'); setReader(null) }} />
+  }
+  if (reader?.kind === 'tool' && !pending) {
+    const tools = entries.filter((entry): entry is Extract<TranscriptEntry, { kind: 'tool' }> => entry.kind === 'tool')
+    const index = tools.findIndex(entry => entry.id === reader.id)
+    const tool = tools[index]
+    if (tool) {
+      const state = tool.completed === false || tool.output === null ? 'running' : tool.isError ? 'failed' : 'finished'
+      const text = safeDetailText(`Tool: ${tool.name}\nState: ${state}\nWorking directory: ${status.cwd}\n${tool.effective ? 'Effective arguments' : 'Recorded proposed arguments (effective execution not recorded)'}:\n${JSON.stringify(redactSessionValue(tool.input), null, 2)}\nResult:\n${tool.output ?? '(waiting for output)'}${tool.omitted ? '\n[Earlier streamed output omitted by the 30,000 character presentation limit.]' : ''}`)
+      return <DetailReader key={tool.id} title={`Tool ${index + 1}/${tools.length}: ${tool.name}`} text={text}
+        rows={rows} columns={columns} onClose={() => setReader(null)} onExport={exportDetail}
+        onPrevious={() => { const entry = tools[Math.max(0, index - 1)]; if (entry) setReader({ kind: 'tool', id: entry.id }) }}
+        onNext={() => { const entry = tools[Math.min(tools.length - 1, index + 1)]; if (entry) setReader({ kind: 'tool', id: entry.id }) }} />
+    }
+  }
+  if (fullscreen && pending && (columns < 30 || rows < 8 ||
+      dialogChromeRows + statusLineRows + inputRows + MIN_TRANSCRIPT_ROWS > rows)) {
+    return <CompactPermission pending={pending} rows={rows} columns={columns}
+      onInspect={grant => setReader({ kind: 'permission', pending, grant })} />
+  }
+  if (fullscreen && (rows < 8 || columns < 30)) {
+    return <Box height={rows}><Text>{truncateTextToRows('Terminal too small. Resize to at least 30x8. Esc cancels active work.', columns, rows)}</Text></Box>
+  }
   return (
     <Box flexDirection="column" height={fullscreen ? rows : undefined}>
       {/* Fixed header row, fullscreen-only — reserved for full-session branding rather
@@ -937,7 +995,7 @@ export function App({
           included. */}
       {showTodoPanel && <TodoPanel todos={todos} maxRows={maxTodoRows} columns={columns} />}
       {pending && (
-        <PermissionDialog pending={pending} cwd={status.cwd} maxDiffLines={maxDiffLines} columns={columns} />
+        <PermissionDialog pending={pending} cwd={status.cwd} maxDiffLines={maxDiffLines} columns={columns} onInspect={grant => setReader({ kind: 'permission', pending, grant })} />
       )}
       {/* Only while a turn is actually running and nothing's blocking it (see
           showBusyIndicator above) — hidden the instant a permission dialog takes over,
@@ -987,12 +1045,14 @@ export function reduceEvent(prev: TranscriptEntry[], e: EngineEvent): Transcript
         return [...prev.slice(0, -1), { ...last, text: last.text + e.delta }]
       return [...prev, { kind: 'thinking', text: e.delta }]
     }
+    case 'tool-effective-input':
+      return prev.map(entry => entry.kind === 'tool' && entry.id === e.id ? { ...entry, input: e.input, effective: true } : entry)
     case 'tool-request':
-      return [...prev, { kind: 'tool', id: e.id, name: e.name, input: e.input, output: null, isError: false }]
+      return [...prev, { kind: 'tool', id: e.id, name: e.name, input: e.input, output: null, isError: false, completed: false }]
     case 'tool-result':
       return prev.map((entry) =>
         entry.kind === 'tool' && entry.id === e.id
-          ? { ...entry, output: e.output, isError: e.isError }
+          ? { ...entry, output: e.output, isError: e.isError, completed: true, omitted: false }
           : entry,
       )
     case 'tool-progress':
@@ -1001,6 +1061,7 @@ export function reduceEvent(prev: TranscriptEntry[], e: EngineEvent): Transcript
           ? {
               ...entry,
               output: `${entry.output ?? ''}${e.delta}`.slice(-30_000),
+              omitted: entry.omitted || (entry.output?.length ?? 0) + e.delta.length > 30_000,
             }
           : entry,
       )

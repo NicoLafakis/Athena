@@ -70,6 +70,43 @@ function makeEngine(
 }
 
 describe('Engine.runTurn', () => {
+  it('cancellation while consent is pending cannot execute or grant session permission', async () => {
+    let executions = 0
+    const grants: string[] = []
+    const abortController = new AbortController()
+    const { engine, events } = makeEngine([
+      { blocks: [toolUseBlock('cancelled', 'Echo', { value: 'unsafe' })], stopReason: 'tool_use' },
+    ], {
+      abortController,
+      gate: { check: () => ({ decision: 'ask', reason: 'consent needed' }), grantSession: rule => { grants.push(rule) } },
+      askUser: async () => {
+        abortController.abort()
+        return 'allow-always'
+      },
+    }, makeEchoTool(() => { executions++ }))
+    const result = await engine.runTurn('go')
+    expect(executions).toBe(0)
+    expect(grants).toEqual([])
+    expect(result.status).toBe('aborted')
+    expect(events).toContainEqual(expect.objectContaining({ type: 'permission-resolved', answer: 'deny' }))
+    expect(events.at(-1)).toMatchObject({ type: 'turn-done' })
+  })
+
+  it('an allowed turn still completes after a blocked prompt', async () => {
+    const hooks = new HookRunner([])
+    let blocked = true
+    hooks.run = async event => event === 'UserPromptSubmit' && blocked
+      ? { allowed: false, reason: 'blocked once' } : { allowed: true }
+    const { engine, client, events } = makeEngine([
+      { blocks: [textBlock('fresh answer')], stopReason: 'end_turn' },
+    ], { hooks })
+    expect((await engine.runTurn('blocked')).status).toBe('error')
+    blocked = false
+    expect((await engine.runTurn('allowed')).status).toBe('completed')
+    expect(client.calls).toHaveLength(1)
+    expect(events.filter(event => event.type === 'turn-done')).toHaveLength(2)
+    expect(JSON.stringify(engine.getMessages())).not.toContain('blocked')
+  })
   it('text-only turn: streams deltas, appends assistant message, emits turn-done', async () => {
     const { engine, events } = makeEngine([{ blocks: [textBlock('Hello!')], stopReason: 'end_turn' }])
     await engine.runTurn('hi')
@@ -591,7 +628,9 @@ describe('Engine.runTurn', () => {
       [{ blocks: [textBlock('never')], stopReason: 'end_turn' }],
       { hooks },
     )
-    await engine.runTurn('bad prompt')
+    const result = await engine.runTurn('bad prompt')
+    expect(result).toMatchObject({ status: 'error', reason: 'Prompt blocked by UserPromptSubmit hook: blocked prompt' })
+    expect(engine.getRunResult()).toMatchObject({ status: 'error' })
     expect(client.calls).toHaveLength(0)
     expect(engine.getMessages()).toHaveLength(0)
     expect(events).toContainEqual(
