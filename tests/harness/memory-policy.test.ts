@@ -31,6 +31,34 @@ function request(op: string, path?: string) {
 }
 
 describe('Memory scoped authorization', () => {
+  it('matches relative and absolute rules through a linked brain parent', () => {
+    const linkedBrain = join(root, 'linked-brain')
+    symlinkSync(brain, linkedBrain, process.platform === 'win32' ? 'junction' : 'dir')
+    const linkedMemory = join(linkedBrain, 'memory')
+    const policy = (allow: string[], deny: string[] = []) => new PermissionEngine({
+      mode: 'normal', allow, deny, cwd: workspace, memoryRoot: linkedMemory,
+    })
+    expect(policy(['Memory(fact.md)', 'Memory(MEMORY.md)']).check(request('write', 'fact.md')).decision).toBe('allow')
+    for (const pattern of ['fact.md', join(linkedMemory, 'fact.md'), join(linkedMemory, '*.md')]) {
+      expect(policy([], [`Memory(${pattern.replaceAll('\\', '/')})`]).check(request('read', 'fact.md')).decision).toBe('deny')
+    }
+    expect(policy(['Memory'], [`Memory(${join(linkedMemory, 'MEMORY.md').replaceAll('\\', '/')})`]).check(request('write', 'fact.md')).decision).toBe('deny')
+  })
+
+  it('keeps a protected root fence when its parent is an alias', () => {
+    const linkedBrain = join(root, 'linked-brain')
+    symlinkSync(brain, linkedBrain, process.platform === 'win32' ? 'junction' : 'dir')
+    const linkedMemory = join(linkedBrain, 'memory')
+    const protectedPaths = ProtectedPaths.from([linkedMemory])
+    const policy = new PermissionEngine({ mode: 'trusted', allow: ['Memory'], deny: [],
+      cwd: workspace, memoryRoot: memory, sandboxMode: 'unrestricted', protectedPaths })
+    expect(policy.check(request('write', 'fact.md')).decision).toBe('deny')
+    expect(protectedPaths.deniedRoot(join(linkedMemory, 'fact.md'), workspace)).not.toBeNull()
+    const futureFence = new ProtectedPaths([join(linkedMemory, 'not-created')])
+    const canonicalMemory = new ResourcePolicy(memory).workspaceRoot
+    expect(futureFence.deniedRoot(join(canonicalMemory, 'not-created', 'fact.md'), workspace)).not.toBeNull()
+    expect(futureFence.deniedRoot(join(linkedMemory, 'not-created', 'fact.md'), workspace)).not.toBeNull()
+  })
   it('requires approval when only the fact is allowed but its index mutation still asks', () => {
     const policy = new PermissionEngine({ mode: 'normal', allow: ['Memory(fact.md)'], deny: [],
       cwd: workspace, memoryRoot: memory, sandboxMode: 'workspace-write' })

@@ -10,7 +10,8 @@ describe('safe action details', () => {
     try {
       mkdirSync(join(root, 'actual'))
       symlinkSync(join(root, 'actual'), join(root, 'alias'), process.platform === 'win32' ? 'junction' : 'dir')
-      const target = join(realpathSync(root), 'actual', 'new.txt')
+      // Native resolution expands Windows 8.3 temp roots as production does.
+      const target = join(realpathSync.native(root), 'actual', 'new.txt')
       const details = actionDetails({ toolName: 'Write', reason: 'test', cwd: root,
         input: { file_path: 'alias/new.txt', content: 'safe' }, targets: [target, join(root, 'MEMORY.md')] })
       expect(details).toContain(`Target: ${target}`)

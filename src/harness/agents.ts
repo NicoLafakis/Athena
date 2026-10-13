@@ -90,7 +90,7 @@ function resolveChildLimits(...overrides: Array<RunLimits | undefined>): RunLimi
       if (value === undefined) continue
       if (!Number.isFinite(value) || value < 0 ||
           (key !== 'maxCostUsd' && !Number.isInteger(value)) ||
-          (key === 'maxConcurrency' && value === 0)) {
+          (key !== 'maxToolCalls' && value === 0)) {
         throw new Error(`Invalid child limit ${key}`)
       }
       limits[key as keyof RunLimits] = value

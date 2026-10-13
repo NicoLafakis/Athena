@@ -96,10 +96,13 @@ export function DiffPreview({
    *  itself is sized against. */
   columns?: number
 }) {
-  const lines = sharedDiffLines(safeDetailText(oldText), safeDetailText(newText)).flatMap(l =>
-    wrapToRows(`${l.tag} ${l.line}`, columns).map(line => ({ tag: l.tag, line })),
+  const lines = sharedDiffLines(safeDetailText(oldText), safeDetailText(newText)).flatMap((l, sourceLine) =>
+    wrapToRows(`${l.tag} ${l.line}`, columns).map(line => ({ tag: l.tag, line, sourceLine })),
   )
-  const { shown, hiddenCount } = truncateWithNotice(lines, maxLines)
+  const { shown } = truncateWithNotice(lines, maxLines)
+  // The budget counts physical rows, but the notice names source lines, including
+  // a partially visible source line whose remaining wrapped rows were omitted.
+  const hiddenCount = new Set(lines.slice(shown.length).map(line => line.sourceLine)).size
   return (
     <Box flexDirection="column" flexShrink={0}>
       {shown.map((l, idx) => (

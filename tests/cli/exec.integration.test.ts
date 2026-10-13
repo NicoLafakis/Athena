@@ -8,7 +8,7 @@ import {
   ExperienceStore,
   GuidanceRecordSchema,
 } from '../../src/experience/index.js'
-import { projectId } from '../../src/harness/trust.js'
+import { projectId, ProjectTrustStore } from '../../src/harness/trust.js'
 import { SessionStore } from '../../src/harness/sessions.js'
 
 let root: string
@@ -261,5 +261,20 @@ describe('explicit trust disclosure', () => {
     expect(result.stdout).toContain('Interactive permission mode: trusted')
     expect(result.stdout).toContain(`sandbox: ${process.platform === 'win32' ? 'unrestricted' : 'workspace-write'}`)
     expect(result.stdout.indexOf('Project settings hooks and MCP')).toBeLessThan(result.stdout.lastIndexOf('\nTrusted '))
+  })
+})
+
+
+describe('invalid untrusted project settings', () => {
+  it.each(['{ broken json', JSON.stringify({ sandboxMode: 'invalid-mode' })])('allows declining a project whose trust preview cannot load', (settings) => {
+    mkdirSync(join(project, '.athena'))
+    writeFileSync(join(project, '.athena', 'settings.json'), settings)
+    writeFileSync(script, '[]')
+    const result = run(['--accessibility', 'screen-reader'], 'n\n')
+    expect(result.status, result.stderr).toBe(0)
+    expect(new ProjectTrustStore(join(home, '.athena', 'trust.json')).isTrusted(project)).toBe(false)
+    expect(result.stdout).toContain('Unable to preview project settings')
+    expect(result.stdout).toContain('Trust project')
+    expect(result.stdout).toContain('Status: Athena screen-reader mode is ready.')
   })
 })

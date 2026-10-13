@@ -4,6 +4,25 @@ import { DetailReader } from '../../src/tui/components/DetailReader.js'
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 20))
 describe('local detail reader', () => {
+  it('finds retained text across a physical wrap boundary and advances to the next match', async () => {
+    const line = 'a'.repeat(38) + 'needle' + 'z'.repeat(12)
+    const text = [line, ...Array.from({ length: 25 }, () => 'filler'), line].join('\n')
+    const { stdin, lastFrame, unmount } = render(<DetailReader title="Search" text={text} rows={12} columns={40} onClose={vi.fn()} />)
+    await tick()
+    stdin.write('/')
+    await tick()
+    stdin.write('needle')
+    await tick()
+    stdin.write('\r')
+    await tick()
+    expect(lastFrame()).not.toContain('No further match')
+    stdin.write('n')
+    await tick()
+    expect(lastFrame()).not.toContain('No further match')
+    expect(lastFrame()).toContain('edlezzzz')
+    expect(lastFrame()).not.toContain('Search (1-')
+    unmount()
+  })
   it('shows export failure and leaves the retained content readable', async () => {
     const exportText = vi.fn(async () => { throw new Error('disk unavailable') })
     const { stdin, lastFrame, unmount } = render(<DetailReader title="Tool result" text="retained content" rows={12} columns={80} onClose={vi.fn()} onExport={exportText} />)

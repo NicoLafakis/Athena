@@ -661,3 +661,15 @@ describe('child limit preflight', () => {
     expect(JSON.parse((await orchestrator.listRuns()).output)).toEqual([])
   })
 })
+
+
+describe('child zero override contract', () => {
+  it.each(['maxModelCalls', 'maxTokens', 'maxCostUsd', 'maxDurationMs', 'maxTurns', 'maxConcurrency'] as const)('rejects zero %s before starting the child', async (key) => {
+    const createClient = vi.fn(() => new MockAnthropicClient([]))
+    const orchestrator = makeOrchestrator(createClient, { limits: { [key]: 0 } })
+    const result = await orchestrator.runAgent(researcherDef(), 'work', makeCtx(process.cwd()))
+    expect(result).toMatchObject({ isError: true, output: expect.stringContaining(`Invalid child limit ${key}`) })
+    expect(createClient).not.toHaveBeenCalled()
+    expect(JSON.parse((await orchestrator.listRuns()).output)).toEqual([])
+  })
+})

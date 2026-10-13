@@ -47,6 +47,10 @@ account authority. It separately names instruction/extension loading, digest-bou
 approval for project settings hooks/MCP, persistent canonical-path trust, and the
 headless flag-driven exception. `athena trust` prints the same disclosure before
 storing its explicitly requested trust record; it does not add another confirmation.
+If untrusted project settings cannot be parsed or validated, the preview discloses
+that authority is unknown and still permits declining trust. After declining,
+authentication presentation and boot load only global settings. Parser error
+payloads are not printed because they may contain credentials.
 
 The escape hatches stay in force: `/mode` switches live per session, deny rules still
 deny, hooks still intercept, and `athena trust --revoke` removes the record.
@@ -67,7 +71,11 @@ Read/list are read-only operations and work in plan/read-only mode. Write/delete
 remain mutations. Every mutation includes the implicit `MEMORY.md` index target;
 decisions combine as deny before ask before allow, so allowing only the fact does
 not implicitly approve an otherwise unapproved index write. Memory-relative rules
-are anchored at the memory root, and canonical absolute rules also apply. Listing
+are anchored at the resolved memory root; absolute rules resolve their literal
+directory prefix while preserving glob syntax. This keeps macOS directory aliases
+and Windows short paths in the same coordinate system as execution. Protected
+roots retain their lexical fence and add native resolved aliases on the host OS.
+Listing
 checks every returned entry against denies. An absent explicit memory root denies
 Memory calls.
 

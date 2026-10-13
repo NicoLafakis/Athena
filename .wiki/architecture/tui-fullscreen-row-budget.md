@@ -251,6 +251,11 @@ Ink's modifier guard because Ink marks the Escape key itself as `meta`.
 40x12, 80x24 and 120x40, plus row resize and tiny-terminal denial. Reader tests cover
 resize disabling hidden grants and search/deny ownership.
 
+Reader search operates on sanitized logical text and maps matches back to physical
+rows, so hard wrapping cannot hide a retained substring. Diff omission notices count
+distinct source lines with omitted rows (including a partially shown line), while
+the preview's reserved height remains a physical-row budget.
+
 ## Source map
 
 - `src/tui/App.tsx` — the budget itself (see the large file-header comment there, which

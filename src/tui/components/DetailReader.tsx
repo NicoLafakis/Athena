@@ -15,6 +15,7 @@ export function DetailReader({ title, text, rows, columns, onClose, onExport, on
   const [offset, setOffset] = useState(0)
   const [query, setQuery] = useState<string | null>(null)
   const [lastQuery, setLastQuery] = useState('')
+  const [lastMatch, setLastMatch] = useState(-1)
   const [notice, setNotice] = useState('')
   const footer = [
     ...(onGrant ? ['a grant session'] : []), ...(onDeny ? ['x deny'] : []),
@@ -25,9 +26,33 @@ export function DetailReader({ title, text, rows, columns, onClose, onExport, on
   const page = Math.max(1, rows - 2 - footerRows)
   const start = Math.min(offset, Math.max(0, lines.length - page))
   const find = (term: string, after: number) => {
-    const found = lines.findIndex((line, i) => i >= after && line.toLowerCase().includes(term.toLowerCase()))
-    if (found >= 0) { setOffset(found); setNotice('') }
-    else setNotice('No further match')
+    if (!term) return
+    const pattern = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
+    pattern.lastIndex = after
+    const match = pattern.exec(safe)
+    if (!match) { setNotice('No further match'); return }
+    // Search logical text before wrapping; a match may span several rows.
+    // Map its original character offset through the full wrapped logical line
+    // so word wrapping and wide graphemes use the same rows as rendering.
+    let sourceOffset = 0
+    let rowOffset = 0
+    for (const logical of safe.split('\n')) {
+      const wrapped = wrapToRows(logical, columns)
+      if (match.index <= sourceOffset + logical.length) {
+        let local = match.index - sourceOffset
+        let row = 0
+        while (row < wrapped.length - 1 && local >= wrapped[row]!.length) {
+          local -= wrapped[row]!.length
+          row++
+        }
+        setOffset(rowOffset + row)
+        break
+      }
+      sourceOffset += logical.length + 1
+      rowOffset += wrapped.length
+    }
+    setLastMatch(match.index)
+    setNotice('')
   }
   useInput((ch, key) => {
     if (!readable) {
@@ -52,7 +77,7 @@ export function DetailReader({ title, text, rows, columns, onClose, onExport, on
     else if (key.downArrow) setOffset(Math.min(start + 1, Math.max(0, lines.length - page)))
     else if (key.upArrow) setOffset(Math.max(0, start - 1))
     else if (ch === '/') setQuery('')
-    else if (ch === 'n' && lastQuery) find(lastQuery, start + 1)
+    else if (ch === 'n' && lastQuery) find(lastQuery, lastMatch + 1)
     else if (ch === 'e' && onExport) {
       setNotice('Exporting…')
       void onExport(safe).then(path => setNotice(`Saved: ${path}`), error => setNotice(`Export failed: ${String(error)}`))

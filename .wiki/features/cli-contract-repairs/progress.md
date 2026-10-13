@@ -25,6 +25,15 @@ Implementation lives on `codex/cli-contract-repairs`; no live-provider calls wer
   preemption, exact scrolled-frame restoration and visible export failures.
 - Independent reviewers inspected each other's code, tests and evidence. Blocking
   findings were repaired and retested; latest architecture review found no blocker.
+- Exact-tree Windows gates at `d019513` passed 1,506 tests / 153 files. The first
+  CI matrix then exposed Memory rule/root alias mismatches on macOS and Windows
+  (Linux passed), plus a Windows 8.3 expectation using non-native realpath.
+  A linked-parent regression reproduces the authorization defect independent of
+  the host temporary-directory spelling. Release evidence must use the repaired
+  commit and its fresh full matrix, not the earlier local pass.
+- PR review added regression cases for malformed pre-consent settings, programmatic
+  zero limits, search across a physical wrap, and logical diff omission counts.
+  These corrections are included before rerunning the final release gates.
 
 ## Release verification
 
@@ -39,7 +48,10 @@ release handoff. All criteria remain subject to that final gate.
 ## Boundaries
 
 Real terminal/human NVDA/Narrator acceptance and live-provider behavior were not
-exercised. Revision rechecks are not filesystem transactions; redaction recognizes
+exercised. Independent synthetic reader probing observed an Ink layout discrepancy
+for repeated ZWJ emoji at 20 columns: search maps to the correct row but the frame
+can clip part of it. Retained text/export remains available; real-terminal emoji
+width acceptance remains open. Revision rechecks are not filesystem transactions; redaction recognizes
 credential patterns, not every possible private value. Output inspection exposes
 retained content and omissions, not producer-discarded bytes. Deep recovery,
 whole-task accounting and cross-machine synchronization remain outside this release.

@@ -999,10 +999,19 @@ async function confirm(question: string): Promise<boolean> {
 }
 
 function projectTrustDisclosure(paths: BrainPaths): string {
-  const settings = loadSettings(paths, 'anthropic', undefined, {
-    projectTrusted: true, allowProjectHooks: false, allowProjectMcp: false,
-  })
-  return describeProjectTrust({ permissionMode: settings.permissionMode, sandboxMode: settings.sandboxMode })
+  try {
+    const settings = loadSettings(paths, 'anthropic', undefined, {
+      projectTrusted: true, allowProjectHooks: false, allowProjectMcp: false,
+    })
+    return describeProjectTrust({ permissionMode: settings.permissionMode, sandboxMode: settings.sandboxMode })
+  } catch {
+    // Previewing untrusted project configuration must not prevent declining it.
+    // Do not print parser error values: malformed settings may contain credentials.
+    return 'Unable to preview project settings. Effective project permissions and sandbox authority are unknown. ' +
+      'Decline trust to continue with global settings, or repair the project .athena/settings.json before enabling it. ' +
+      'Trust enables project instructions and extensions; default interactive trust automatically approves mutating tools and may run the Windows shell unrestricted. ' +
+      'Project settings hooks and MCP configurations require separate approval.'
+  }
 }
 
 async function resolveProjectTrust(
@@ -1812,7 +1821,7 @@ async function main(): Promise<void> {
     ? 'standard'
     : resolveAuthPresentation(
         cmd,
-        loadSettings(paths, provider).accessibility.presentation,
+        loadSettings(effectivePaths, provider).accessibility.presentation,
       )
   let resolved = resolveApiKey(provider, credentials, process.env, credentialVault, warnCredentials)
   if (!resolved && cmd.provider === undefined) {
