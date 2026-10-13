@@ -146,30 +146,35 @@ export function parseAgentFile(file: string): AgentDef | null {
     systemPrompt: body.trim(),
     file,
     limits: {
-      maxModelCalls: positiveInt(attrs['max-turns']),
-      maxToolCalls: nonNegativeInt(attrs['max-tool-calls']),
-      maxTokens: positiveInt(attrs['max-tokens']),
-      maxCostUsd: positiveNumber(attrs['max-cost-usd']),
-      maxDurationMs: positiveInt(attrs['timeout-ms']),
+      maxModelCalls: agentLimit(attrs, 'max-turns', true),
+      maxToolCalls: agentLimit(attrs, 'max-tool-calls', true, true),
+      maxTokens: agentLimit(attrs, 'max-tokens', true),
+      maxCostUsd: agentLimit(attrs, 'max-cost-usd', false),
+      maxDurationMs: agentLimit(attrs, 'timeout-ms', true),
     },
   }
 }
 
-function positiveNumber(value: string | undefined): number | undefined {
-  if (value === undefined) return undefined
-  const parsed = Number(value)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
-}
-
 function positiveInt(value: string | undefined): number | undefined {
-  const parsed = positiveNumber(value)
-  return parsed !== undefined && Number.isInteger(parsed) ? parsed : undefined
-}
-
-function nonNegativeInt(value: string | undefined): number | undefined {
   if (value === undefined) return undefined
   const parsed = Number(value)
-  return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined
+  return Number.isFinite(parsed) && Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
+}
+
+function agentLimit(
+  attrs: Record<string, string>,
+  key: string,
+  integer: boolean,
+  allowZero = false,
+): number | undefined {
+  const value = attrs[key]
+  if (value === undefined) return undefined
+  const parsed = Number(value)
+  if (!value.trim() || !Number.isFinite(parsed) || (integer && !Number.isInteger(parsed)) ||
+      (allowZero ? parsed < 0 : parsed <= 0)) {
+    throw new Error(`Invalid agent limit ${key}: expected a ${allowZero ? 'non-negative' : 'positive'} ${integer ? 'integer' : 'number'}`)
+  }
+  return parsed
 }
 
 export function loadAgentsIndex(paths: BrainPaths): AgentDef[] {

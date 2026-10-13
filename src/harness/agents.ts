@@ -82,6 +82,23 @@ const DEFAULT_CHILD_LIMITS: RunLimits = {
   maxConcurrency: 2,
 }
 
+/** Undefined parsed fields never erase a ceiling. Validate programmatic overrides too. */
+function resolveChildLimits(...overrides: Array<RunLimits | undefined>): RunLimits {
+  const limits = { ...DEFAULT_CHILD_LIMITS }
+  for (const override of overrides) {
+    for (const [key, value] of Object.entries(override ?? {})) {
+      if (value === undefined) continue
+      if (!Number.isFinite(value) || value < 0 ||
+          (key !== 'maxCostUsd' && !Number.isInteger(value)) ||
+          (key === 'maxConcurrency' && value === 0)) {
+        throw new Error(`Invalid child limit ${key}`)
+      }
+      limits[key as keyof RunLimits] = value
+    }
+  }
+  return limits
+}
+
 function git(cwd: string, args: string[], input?: string, trim = true): string {
   const result = spawnSync('git', args, {
     cwd,
@@ -224,6 +241,12 @@ export class AgentOrchestrator {
   ): Promise<AgentRunOutput> {
     if (parentCtx.abortSignal.aborted) {
       return { output: `Agent ${def.name} aborted before start`, isError: true }
+    }
+    let limits: RunLimits
+    try {
+      limits = resolveChildLimits(this.opts.limits, def.limits)
+    } catch (error) {
+      return { output: error instanceof Error ? error.message : String(error), isError: true }
     }
     // Resolve before hooks, durable running state, trace creation, or an isolated worktree.
     // Unknown OpenAI versions must never silently inherit another model. Preserve
@@ -384,7 +407,7 @@ export class AgentOrchestrator {
       systemPrompt: `${this.opts.systemPromptBase}\n\n---\n\n# Agent: ${def.name}\n\n${def.systemPrompt}`,
       maxTokens: capabilities.maxOutputTokens,
       preflightContext: true,
-      limits: { ...DEFAULT_CHILD_LIMITS, ...this.opts.limits, ...def.limits },
+      limits,
     })
     if (record.messages.length > 0) engine.loadMessages(record.messages)
     const onParentAbort = () => engine.abort()

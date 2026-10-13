@@ -5,6 +5,7 @@ import type { PendingPermission } from '../App.js'
 import { DiffPreview } from './DiffPreview.js'
 import { truncateTextToRows } from '../viewport.js'
 import { permissionDiff } from '../../presentation/permission-diff.js'
+import { safeDetailText } from '../../presentation/action-details.js'
 
 // Exported (rather than inlined literals in the JSX below) so App.tsx's fullscreen row
 // budgeting can measure their ACTUAL wrapped row count at the current terminal width
@@ -13,7 +14,7 @@ import { permissionDiff } from '../../presentation/permission-diff.js'
 // terminal narrows much. A single source of truth means the measurement can never drift
 // from what's actually rendered.
 export const PERMISSION_HEADER_TEXT = 'Permission required'
-export const PERMISSION_FOOTER_TEXT = '[y] allow once   [a] always allow (writes rule)   [n] deny'
+export const PERMISSION_FOOTER_TEXT = '[y] allow once  [a] session grant  [n] deny  [d] details'
 
 // Columns eaten by borderStyle="round" (1 col each side) + paddingX={1} (1 col each
 // side) before any of this dialog's own text actually starts wrapping. Exported so
@@ -46,6 +47,7 @@ export function PermissionDialog({
   cwd,
   maxDiffLines,
   columns = 80,
+  onInspect,
 }: {
   pending: PendingPermission
   cwd: string
@@ -58,18 +60,22 @@ export function PermissionDialog({
    *  DIALOG_HORIZONTAL_CHROME_COLS) to get the width actually available to its text.
    *  Defaults to 80, matching Banner's own default. */
   columns?: number
+  onInspect?: (grant: boolean) => void
 }) {
-  useInput((ch) => {
+  useInput((ch, key) => {
+    if (key.escape) { pending.resolve('deny'); return }
+    if (key.ctrl || key.meta || key.shift) return
     if (ch === 'y') pending.resolve('allow-once')
-    else if (ch === 'a') pending.resolve('allow-always')
+    else if (ch === 'a') onInspect?.(true)
     else if (ch === 'n') pending.resolve('deny')
+    else if (ch === 'd') onInspect?.(false)
   })
   // Memoized on the pending request: pendingDiff reads the target file for
   // Write, and must not hit the filesystem again on every re-render.
   const diff = useMemo(() => pendingDiff(pending, cwd), [pending, cwd])
   const effectiveColumns = Math.max(columns - DIALOG_HORIZONTAL_CHROME_COLS, 1)
-  const displaySummary = truncateTextToRows(pending.summary, effectiveColumns, DIALOG_SUMMARY_MAX_ROWS)
-  const displayReason = truncateTextToRows(pending.reason, effectiveColumns, DIALOG_REASON_MAX_ROWS)
+  const displaySummary = truncateTextToRows(safeDetailText(pending.summary), effectiveColumns, DIALOG_SUMMARY_MAX_ROWS)
+  const displayReason = truncateTextToRows(safeDetailText(pending.reason), effectiveColumns, DIALOG_REASON_MAX_ROWS)
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1}>
       <Text bold color="yellow">

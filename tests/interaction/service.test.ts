@@ -34,7 +34,7 @@ describe('InteractionService', () => {
 
     expect(service.status('run-1')).toContain('Objective (user): Ship safely.')
     expect(service.status('run-1')).toContain('Status: completed.')
-    expect(service.repeat('run-1')).toBe('Completed: Work completed.')
+    expect(service.repeat('run-1')).toBe('Completed: Turn finished.')
     expect(service.details('run-1')).toContain('Full trace: runs/run-1.jsonl')
     expect(emitted).toHaveLength(1)
   })

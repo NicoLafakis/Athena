@@ -89,7 +89,7 @@ describe('ScreenReaderPresentation', () => {
       'Status: Athena screen-reader mode is ready.\n' +
       'Attention: Build failed.\n' +
       'Status: Cancellation accepted.\n' +
-      'Completed: Work completed.\n',
+      'Completed: Turn finished.\n',
     )
     expect(bytes).not.toMatch(/\u001b\[|\u001b\]|\u009b/)
     expect(chunks.every((chunk) => chunk.endsWith('\n'))).toBe(true)

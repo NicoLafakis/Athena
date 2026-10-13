@@ -17,11 +17,14 @@ import {
 } from '../agentMention.js'
 import { buildSlashCatalog, filterSlashCommands } from '../slashMenu.js'
 import { popupLayout } from '../popupWindow.js'
+import { displayWidth } from '../viewport.js'
 import { PICKABLE_KINDS } from '../argPicker.js'
 import type { CustomCommandDef } from '../slash.js'
 import {
   clampCursor,
-  cursorRowCol,
+  graphemeSegments,
+  nextGrapheme,
+  previousGrapheme,
   deleteBackward,
   deleteForward,
   deleteWordBackward,
@@ -47,6 +50,37 @@ interface MentionState {
  *  that's needed — the filter query is always `value.slice(1)`. */
 interface SlashMenuState {
   index: number
+}
+
+/** Explicit physical rows preserve grapheme boundaries and keep the caret in view. */
+export function composerRows(value: string, cursor: number, columns: number, maxRows?: number) {
+  const width = Math.max(2, columns - 2)
+  const rows: { text: string; start: number; caret?: number }[] = [{ text: '', start: 0 }]
+  let used = 0
+  for (const { segment, index } of graphemeSegments(value)) {
+    if (segment === '\n') {
+      if (cursor === index && used >= width) rows.push({ text: '', start: index })
+      rows.push({ text: '', start: index + 1 })
+      used = 0
+      continue
+    }
+    const cells = displayWidth(segment)
+    if (used + cells > width) {
+      rows.push({ text: '', start: index })
+      used = 0
+    }
+    rows[rows.length - 1]!.text += segment
+    used += cells
+  }
+  if (cursor === value.length && used >= width) rows.push({ text: '', start: value.length })
+  let caretRow = 0
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i]!.start <= cursor) caretRow = i
+  }
+  rows[caretRow]!.caret = cursor - rows[caretRow]!.start
+  const count = maxRows === undefined ? rows.length : Math.max(0, Math.floor(maxRows))
+  const start = Math.max(0, caretRow - count + 1)
+  return rows.slice(start, start + count)
 }
 
 /** Applies a run of plain typed/pasted characters against the current value/mention
@@ -217,6 +251,10 @@ export function useInputBox({
 
   const slashQuery = slashMenu ? value.slice(1) : ''
   const slashMatches = slashMenu ? filterSlashCommands(slashCatalog, slashQuery) : []
+  const lines = composerRows(value, cursor, columns, maxRows)
+  const popupBudget = maxRows === undefined ? undefined : Math.max(maxRows - lines.length, 0)
+  const mentionLayout = mention ? popupLayout(matches.length, mention.index, popupBudget) : null
+  const slashLayout = slashMenu ? popupLayout(slashMatches.length, slashMenu.index, popupBudget) : null
 
   /** The single seam every buffer mutation goes through, so value and cursor can never be
    *  updated independently and drift apart (the cursor is clamped against the NEW text,
@@ -242,6 +280,9 @@ export function useInputBox({
 
   useInput(
     (ch, key) => {
+      // Once a hidden composition yields a key, it cannot later revive stale choices.
+      if (mention && !mentionLayout) setMention(null)
+      if (slashMenu && !slashLayout) setSlashMenu(null)
       // --- Cursor motion and word-wise editing. Claimed FIRST, ahead of both sub-modes
       // below AND ahead of all three `if (key.ctrl || key.meta …) return` short-circuits
       // that used to swallow every modifier combo before any handler could see it. One
@@ -271,10 +312,10 @@ export function useInputBox({
         const next = key.leftArrow
           ? byWord
             ? prevWordBoundary(value, cursor)
-            : Math.max(0, cursor - 1)
+            : previousGrapheme(value, cursor)
           : byWord
             ? nextWordBoundary(value, cursor)
-            : Math.min(value.length, cursor + 1)
+            : nextGrapheme(value, cursor)
         dismissPopups()
         setCursor(next)
         return
@@ -309,7 +350,7 @@ export function useInputBox({
 
       // --- @-mention mode: intercepts navigation before any normal-mode handling
       // below (in particular, Enter here selects instead of submitting). ---
-      if (mention) {
+      if (mention && mentionLayout) {
         if (key.escape) {
           setMention(null) // typed '@query' stays as plain literal text
           return
@@ -363,7 +404,7 @@ export function useInputBox({
       // submit path below instead of "selecting" a no-op completion of itself — see
       // the report for why (keeps a fully-typed built-in like /compact submitting on a
       // single Enter, matching pre-existing behavior/tests). ---
-      if (slashMenu) {
+      if (slashMenu && slashLayout) {
         if (key.escape) {
           setSlashMenu(null) // typed '/query' stays as plain literal text
           return
@@ -462,6 +503,7 @@ export function useInputBox({
         ]
         const finalText = blocks.length > 0 ? `${text}\n\n${blocks.join('\n\n')}` : text
         setBuffer({ value: '', cursor: 0 })
+        dismissPopups()
         setDraft('')
         mentionedFiles.current = new Map() // next turn re-reads files fresh (they may have changed)
         onSubmit(finalText)
@@ -519,28 +561,9 @@ export function useInputBox({
     { isActive: !disabled },
   )
 
-  const lines = value.split('\n')
-  const caret = cursorRowCol(value, cursor)
-  // The text lines are non-negotiable (they're what the user is typing into), so the popup
-  // gets whatever `maxRows` leaves over rather than the other way round. `null` from
-  // popupLayout means "not even one row fits" — the popup then renders nothing and costs
-  // nothing, instead of overflowing a sibling nothing clips. mention/slashMenu are armed
-  // mutually exclusively (see the two input branches above), but summing both is what
-  // makes that a fact about the reported height rather than an assumption baked into it.
-  const popupBudget = maxRows === undefined ? undefined : Math.max(maxRows - lines.length, 0)
-  const mentionLayout = mention ? popupLayout(matches.length, mention.index, popupBudget) : null
-  const slashLayout = slashMenu ? popupLayout(slashMatches.length, slashMenu.index, popupBudget) : null
-  // One height number covering everything this hook actually draws — the text lines PLUS
-  // whichever popup is open, since MentionPopup/SlashMenuPopup render as siblings inside
-  // this same column and are just as unclipped in fullscreen mode's fixed-height layout as
-  // the text lines are. mention/slashMenu are armed mutually exclusively (see the two input
-  // branches above), but summing both layouts is what makes that a fact about the number
-  // rather than an assumption baked into it. Returned alongside the element rather than
-  // pushed out through a callback, so the caller has it BEFORE it renders anything sized
-  // against it — see the hook's doc comment.
   const totalRows = lines.length + (mentionLayout?.rows ?? 0) + (slashLayout?.rows ?? 0)
   const element = (
-    <Box flexDirection="column">
+    <Box flexDirection="column" flexShrink={0}>
       {mention && mentionLayout && (
         <MentionPopup
           query={query}
@@ -561,27 +584,27 @@ export function useInputBox({
         />
       )}
       {lines.map((line, idx) => {
-        const prefix = idx === 0 ? '❯ ' : '… '
+        const prefix = line.start === 0 ? '❯ ' : '… '
         // The cursor is drawn as an inverse-video block ON the character it sits at (or on
         // a trailing space when it's past the end of that line), so it's visible wherever
         // in the buffer editing is happening rather than only ever at the end. A disabled
         // box (busy turn / pending dialog / open arg picker) draws none at all, exactly as
         // before. Rendering-only derivation — the cursor itself is never stored as a
         // row/col pair (see ../cursor.ts).
-        if (disabled || idx !== caret.row) {
+        if (disabled || line.caret === undefined) {
           return (
             <Text key={idx}>
               {prefix}
-              {line}
+              {line.text}
             </Text>
           )
         }
         return (
           <Text key={idx}>
             {prefix}
-            {line.slice(0, caret.col)}
-            <Text inverse>{line.slice(caret.col, caret.col + 1) || ' '}</Text>
-            {line.slice(caret.col + 1)}
+            {line.text.slice(0, line.caret)}
+            <Text inverse>{line.text.slice(line.caret, nextGrapheme(line.text, line.caret)) || ' '}</Text>
+            {line.text.slice(nextGrapheme(line.text, line.caret))}
           </Text>
         )
       })}

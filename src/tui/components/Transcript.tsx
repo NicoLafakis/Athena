@@ -14,7 +14,7 @@ export type TranscriptEntry =
   | { kind: 'assistant'; text: string }
   | { kind: 'system'; text: string; id?: string }
   | { kind: 'thinking'; text: string }
-  | { kind: 'tool'; id: string; name: string; input: unknown; output: string | null; isError: boolean }
+  | { kind: 'tool'; id: string; name: string; input: unknown; output: string | null; isError: boolean; completed?: boolean; effective?: boolean; omitted?: boolean }
 
 /** Lightweight markdown degradation: bold headings, dim code fences. No external md lib. */
 function AssistantText({ text }: { text: string }) {
@@ -122,6 +122,7 @@ export function Transcript({
                 input={entry.input}
                 output={entry.output}
                 isError={entry.isError}
+                completed={entry.completed}
               />
             )
         }

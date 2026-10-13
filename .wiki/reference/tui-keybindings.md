@@ -100,3 +100,26 @@ stays fixed while later rows append below it.
 | Key | Action |
 | --- | --- |
 | Esc | Abort the current turn, if one is running; also cancels any queued sub-agent permission prompts |
+
+
+## Local tool reader and consent review
+
+Ctrl+O opens the latest retained tool result in either Ink mode, including while a
+turn runs. It does not submit input or change the transcript scroll anchor. Use
+`[`/`]` to select another tool, PageUp/PageDown or arrows to read, `/` to search,
+`n` for the next match, and Escape to return. `e` exports sanitized retained text
+to a new `athena-inspection-*` temporary directory and reports its path or failure.
+Exports persist until removed by the user or OS temp cleanup; no automatic clipboard
+write occurs. Streaming output says running until the terminal tool-result event.
+A presentation cap is labeled; upstream truncation markers remain in the result.
+
+For pending permission, `d` opens complete available details without resolving the
+request; `a` opens the exact session grant for a second deliberate confirmation.
+`y` allows once and `n`/Escape denies from the summary. In details, `n` searches
+next, `x` denies and Escape returns. Modified approval keys do not authorize.
+At tiny sizes approvals are disabled and Escape remains available to deny.
+
+Append-only permission prompts accept `d`, `/details`, or the displayed exact detail
+command while waiting. Consent reads discard pre-prompt buffered/partial input;
+ordinary conversation prompts retain their buffering. An `a` session grant is shown
+before a fresh second `a` confirms it. Voice remains allow-once only.

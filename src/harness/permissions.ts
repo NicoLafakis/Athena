@@ -8,6 +8,7 @@ import type {
 } from '../engine/types.js'
 import { ProtectedPaths } from './protected-paths.js'
 import { realPathForAccess, type ResourcePolicy } from './resource-policy.js'
+import { resolveMemoryAccess } from './memory-access.js'
 
 export interface ParsedRule { tool: string; pattern: string | null }
 
@@ -133,6 +134,8 @@ export interface PermissionEngineOptions {
   cwd?: string
   sandboxMode?: SandboxMode
   resourcePolicy?: ResourcePolicy
+  /** The sole explicitly authorized Memory root, shared with ToolContext.brainDir. */
+  memoryRoot?: string
   /** Unconditional OS write fence. Defaults to the environment-derived roots so
    *  a caller that omits it is still fenced. */
   protectedPaths?: ProtectedPaths
@@ -147,6 +150,7 @@ export class PermissionEngine implements PermissionGate {
   private readonly sandboxMode: SandboxMode
   private readonly resourcePolicy?: ResourcePolicy
   private readonly protectedPaths: ProtectedPaths
+  private readonly memoryRoot?: string
 
   constructor(opts: PermissionEngineOptions) {
     this.mode = opts.mode
@@ -156,6 +160,7 @@ export class PermissionEngine implements PermissionGate {
     this.sandboxMode = opts.sandboxMode ?? 'unrestricted'
     this.resourcePolicy = opts.resourcePolicy
     this.protectedPaths = opts.protectedPaths ?? ProtectedPaths.defaults()
+    this.memoryRoot = opts.memoryRoot
   }
 
   setMode(mode: PermissionMode): void { this.mode = mode }
@@ -176,6 +181,26 @@ export class PermissionEngine implements PermissionGate {
   }
 
   check(req: PermissionRequest): PermissionDecision {
+    if (req.toolName === 'Memory') {
+      if (!this.memoryRoot) return { decision: 'deny', reason: 'Memory scope is not configured' }
+      try {
+        const access = resolveMemoryAccess(this.memoryRoot, req.input)
+        let primary: PermissionDecision | undefined
+        for (const target of access.targets) {
+          const result = this.checkResolved({ ...req, readOnly: access.readOnly,
+            input: { ...(req.input as Record<string, unknown>), path: target } }, true)
+          if (result.decision === 'deny') return result
+          if (!primary || result.decision === 'ask') primary = result
+        }
+        return primary!
+      } catch (error) {
+        return { decision: 'deny', reason: (error as Error).message }
+      }
+    }
+    return this.checkResolved(req)
+  }
+
+  private checkResolved(req: PermissionRequest, memoryScoped = false): PermissionDecision {
     const input = (req.input ?? {}) as Record<string, unknown>
     const path =
       typeof input['file_path'] === 'string'
@@ -210,7 +235,7 @@ export class PermissionEngine implements PermissionGate {
         }
       }
     }
-    if (path !== null && this.resourcePolicy) {
+    if (path !== null && this.resourcePolicy && !memoryScoped) {
       const access = req.readOnly ? 'read' : 'write'
       if (!this.resourcePolicy.contains(path, access)) {
         return {
@@ -224,7 +249,7 @@ export class PermissionEngine implements PermissionGate {
     }
     // 1. Hard deny — no mode bypasses it.
     for (const rule of this.denyRules) {
-      if (matchesRule(rule, req.toolName, req.input, this.cwd)) {
+      if (matchesRule(rule, req.toolName, req.input, memoryScoped ? this.memoryRoot! : this.cwd)) {
         return { decision: 'deny', reason: `Denied by rule ${rule.tool}(${rule.pattern ?? ''})` }
       }
     }
@@ -238,7 +263,7 @@ export class PermissionEngine implements PermissionGate {
     if (req.readOnly) return { decision: 'allow', reason: 'Read-only tool' }
     // 4. Explicit allow rules + session grants.
     for (const rule of [...this.allowRules, ...this.sessionGrants]) {
-      if (matchesRule(rule, req.toolName, req.input, this.cwd)) {
+      if (matchesRule(rule, req.toolName, req.input, memoryScoped ? this.memoryRoot! : this.cwd)) {
         return { decision: 'allow', reason: `Allowed by rule ${rule.tool}(${rule.pattern ?? ''})` }
       }
     }

@@ -31,7 +31,7 @@ describe('accessible permission formatting', () => {
     expect(output).toContain('Consequence: Replace or create file content.')
     expect(output).toContain('Reason: Mutation requires approval.')
     expect(output).toContain('Changes: 4 added lines, 2 removed lines.')
-    expect(output).toContain('[y] allow once; [a] always allow; [n] deny')
+    expect(output).toContain('[y] allow once; [a] review session grant; [n] deny')
     expect(output).toContain('/details permission permission-1')
     expect(output).not.toContain('supersecretvalue1234')
   })

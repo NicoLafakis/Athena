@@ -116,7 +116,9 @@ Phase 1 now has a passive semantic subscriber in the CLI composition root. Versi
 bounded envelopes are derived from user objectives and runtime events, reduced into
 per-run snapshots, and appended as redacted metadata through the existing hash-chained
 run trace. `turn-done` carries its authoritative `RunResult`, so completion, limit,
-failure, and abort state never need to be inferred from assistant prose.
+failure, and abort state never need to be inferred from assistant prose. The completed
+announcement says "Turn finished": this verifies the runtime turn ended, not that the
+user's broader task has been independently accepted.
 
 Implemented and covered by deterministic tests: contracts and schemas, per-run/root-child
 sequencing, the pure reducer and source-precedence rules, malformed/cross-run/order

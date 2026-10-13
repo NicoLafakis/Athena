@@ -6,6 +6,20 @@ function req(name: string) {
 }
 
 describe('PermissionBridge concurrent-ask queue', () => {
+  it('ignores a stale resolver instead of removing the next pending request', async () => {
+    const shown: Array<PendingPermission | null> = []
+    const bridge = new PermissionBridge()
+    bridge.bind(p => shown.push(p))
+    const first = bridge.ask(req('Bash'))
+    const second = bridge.ask(req('Write'))
+    const stale = shown[0]!
+    stale.resolve('deny')
+    await first
+    stale.resolve('allow-once')
+    expect(shown.at(-1)?.toolName).toBe('Write')
+    shown.at(-1)!.resolve('deny')
+    await expect(second).resolves.toBe('deny')
+  })
   it('queues a second ask while one is pending and presents them one at a time, in order', async () => {
     const shown: Array<PendingPermission | null> = []
     const bridge = new PermissionBridge()

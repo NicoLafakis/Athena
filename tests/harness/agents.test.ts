@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, it, expect } from 'vitest'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import {
   existsSync,
@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { AgentOrchestrator, type AgentOrchestratorOptions } from '../../src/harness/agents.js'
+import { RunBudget } from '../../src/engine/run.js'
 import { makeAgentTool } from '../../src/tools/agent.js'
 import { ToolRegistry } from '../../src/tools/registry.js'
 import { readTool } from '../../src/tools/read.js'
@@ -25,7 +26,9 @@ import { PermissionEngine } from '../../src/harness/permissions.js'
 import { ProtectedPaths } from '../../src/harness/protected-paths.js'
 import { ResourcePolicy } from '../../src/harness/resource-policy.js'
 import { TraceWarehouse } from '../../src/learning/warehouse.js'
-import type { AgentDef } from '../../src/brain/loader.js'
+import { loadAgentsIndex, parseAgentFile, type AgentDef } from '../../src/brain/loader.js'
+import { resolveBrainPaths } from '../../src/brain/paths.js'
+import { ensureBrainScaffold } from '../../src/harness/bootstrap.js'
 import type { ModelKey } from '../../src/brain/models.js'
 import type { ModelClient, StreamCallbacks, StreamResult } from '../../src/engine/client.js'
 import type { PermissionGate, ToolContext, ToolDefinition } from '../../src/engine/types.js'
@@ -602,4 +605,59 @@ describe('subagent permission inheritance', () => {
     // an unrestricted parent above produced an unrestricted child, this one did not.
     expect(existsSync(outside)).toBe(false)
   }, 30_000)
+})
+
+
+describe('parsed child ceilings', () => {
+  it('retains every default for the actual first-run seeded explorer', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'athena-seeded-explorer-'))
+    const observed = vi.spyOn(RunBudget.prototype, 'getLimits')
+    try {
+      const paths = resolveBrainPaths({ cwd: dir, homeOverride: dir })
+      ensureBrainScaffold(paths)
+      const defs = loadAgentsIndex(paths)
+      const explorer = defs.find(def => def.name === 'explorer')!
+      expect(explorer.file).toBe(join(paths.agentsDir, 'explorer.md'))
+      const client = new MockAnthropicClient([{ blocks: [textBlock('fixture exploration')], stopReason: 'end_turn' }])
+      const result = await makeOrchestrator(() => client, { defs }).runAgent(explorer, 'inspect fixture', makeCtx(dir))
+      expect(result.isError).toBe(false)
+      expect(client.calls).toHaveLength(1)
+      expect(observed.mock.results.at(-1)?.value).toEqual({
+        maxModelCalls: 50, maxToolCalls: 100, maxTokens: 1_000_000,
+        maxCostUsd: 5, maxDurationMs: 1_800_000, maxConcurrency: 2,
+      })
+    } finally {
+      observed.mockRestore()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+  it.each(['', 'max-tool-calls: 0\n'])('preserves the model ceiling with partial frontmatter %s', async (limits) => {
+    const dir = mkdtempSync(join(tmpdir(), 'athena-limits-'))
+    try {
+      const file = join(dir, 'agent.md')
+      writeFileSync(file, `---\nname: researcher\n${limits}---\nResearch`)
+      const def = parseAgentFile(file)!
+      const observed = vi.spyOn(RunBudget.prototype, 'getLimits')
+      try {
+        const client = new MockAnthropicClient([{ blocks: [textBlock('done')], stopReason: 'end_turn' }])
+        await makeOrchestrator(() => client, { limits: { maxTokens: undefined } }).runAgent(def, 'work', makeCtx(dir))
+        expect(observed.mock.results.at(-1)?.value).toEqual({
+          maxModelCalls: 50, maxToolCalls: limits ? 0 : 100,
+          maxTokens: 1_000_000, maxCostUsd: 5, maxDurationMs: 1_800_000, maxConcurrency: 2,
+        })
+      } finally { observed.mockRestore() }
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+})
+
+
+describe('child limit preflight', () => {
+  it.each([NaN, Infinity, -1, 1.5])('rejects invalid %s before creating a run', async (maxModelCalls) => {
+    const createClient = vi.fn(() => new MockAnthropicClient([]))
+    const orchestrator = makeOrchestrator(createClient, { limits: { maxModelCalls } })
+    const result = await orchestrator.runAgent(researcherDef(), 'work', makeCtx(process.cwd()))
+    expect(result).toMatchObject({ isError: true, output: expect.stringContaining('Invalid child limit maxModelCalls') })
+    expect(createClient).not.toHaveBeenCalled()
+    expect(JSON.parse((await orchestrator.listRuns()).output)).toEqual([])
+  })
 })

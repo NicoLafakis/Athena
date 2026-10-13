@@ -293,7 +293,7 @@ describe('estimateEntryRows', () => {
     expect(estimateEntryRows(entry)).toBe(1)
   })
 
-  it('a tool entry with output adds its wrapped row count', () => {
+  it('a collapsed tool measures only the rendered first output line', () => {
     const entry: TranscriptEntry = {
       kind: 'tool',
       id: '1',
@@ -302,7 +302,7 @@ describe('estimateEntryRows', () => {
       output: 'out1\nout2',
       isError: false,
     }
-    expect(estimateEntryRows(entry)).toBe(3) // 1 header + 2 output lines
+    expect(estimateEntryRows(entry)).toBe(1) // collapsed header and first output share a row
   })
 
   it('a thinking entry measures its prefixed, tail-capped display text', () => {

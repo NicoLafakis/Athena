@@ -2,6 +2,7 @@
 // rendering. Classic mode never calls into this file: native scrollback handles history,
 // so Transcript renders the full `entries` array unchanged (see components/Transcript.tsx).
 import stringWidth from 'string-width'
+import { toolDisplayText } from './tool-display.js'
 import wrapAnsi from 'wrap-ansi'
 import type { TranscriptEntry } from './components/Transcript.js'
 
@@ -126,7 +127,7 @@ export function estimateEntryRows(entry: TranscriptEntry, columns = 80): number 
       return wrappedLines(entry.text)
     case 'tool':
       // Header line (name/input) plus the (wrapped) output body, if any.
-      return 1 + (entry.output ? wrappedLines(entry.output) : 0)
+      return wrappedLines(toolDisplayText(entry))
     case 'thinking':
       // The component renders thinkingDisplayText verbatim — measure that string,
       // prefix and tail-cap included, never the raw reasoning text.

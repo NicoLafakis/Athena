@@ -4,6 +4,7 @@ import type { Announcement, InteractionSnapshot } from '../interaction/types.js'
 import type { LineInput } from './line-input.js'
 import { LineInputCancelledError } from './line-input.js'
 import { formatAccessiblePermission } from './permission-format.js'
+import { safeDetailText } from './action-details.js'
 import type {
   AccessiblePermissionRequest,
   DetailRequest,
@@ -32,7 +33,7 @@ export class ScreenReaderPresentation implements InteractivePresentation {
   announce(item: Announcement): void {
     const line = plainBounded(item.text, 1_024)
     if (!line) return
-    if (line === 'Completed: Work completed.') this.announcedResult = 'completed'
+    if (line === 'Completed: Turn finished.') this.announcedResult = 'completed'
     else if (line === 'Failed: Work failed.') this.announcedResult = 'error'
     else if (line === 'Attention: Run limit reached.') this.announcedResult = 'limit'
     else if (line === 'Attention: Work was canceled.') this.announcedResult = 'aborted'
@@ -51,10 +52,22 @@ export class ScreenReaderPresentation implements InteractivePresentation {
       this.writeBlock(formatAccessiblePermission(request))
       try {
         for (;;) {
-          const answer = (await this.options.input.readLine('Permission choice: ')).trim().toLowerCase()
+          const read = this.options.input.readConsent?.bind(this.options.input) ?? this.options.input.readLine.bind(this.options.input)
+          const answer = (await read('Permission choice: ')).trim().toLowerCase()
           if (answer === 'y') return 'allow-once'
-          if (answer === 'a') return 'allow-always'
+          if (answer === 'a') {
+            this.options.write(`${safeDetailText(`Session grant: ${request.grantRule ?? request.toolName}`)}\n`)
+            this.writeLine('This permits all matching actions for this session. Enter a again to grant, or n to deny.')
+            const confirmation = (await read('Confirm session grant: ')).trim().toLowerCase()
+            if (confirmation === 'a') return 'allow-always'
+            if (confirmation === 'n') return 'deny'
+            continue
+          }
           if (answer === 'n') return 'deny'
+          if (answer === 'd' || answer === '/details' || answer === request.detailsCommand.toLowerCase()) {
+            this.options.write(`${safeDetailText(request.details ?? 'No additional detail available.')}\n`)
+            continue
+          }
           this.writeLine('Permission: Enter y, a, or n.')
         }
       } catch (error) {
@@ -70,11 +83,10 @@ export class ScreenReaderPresentation implements InteractivePresentation {
   }
 
   showDetails(request: DetailRequest): void {
-    const line = plainBounded(request.text, 4_096)
-    if (!line) return
-    this.writeLine(/^(Status|Attention|Permission|Advisory|Completed|Failed):/.test(line)
-      ? line
-      : `Status: ${line}`)
+    const text = safeDetailText(request.text)
+    if (!text) return
+    this.options.write(/^(Status|Attention|Permission|Advisory|Completed|Failed):/.test(text)
+      ? `${text}\n` : `Status: ${text}\n`)
   }
 
   /** Assistant final text remains ordinary output, separate from semantic status. */
@@ -95,7 +107,7 @@ export class ScreenReaderPresentation implements InteractivePresentation {
     this.closed = true
     this.flushAnnouncements()
     const line = result.status === 'completed'
-      ? 'Completed: Work completed.'
+      ? 'Completed: Turn finished.'
       : result.status === 'error'
         ? 'Failed: Work failed.'
         : result.status === 'limit'

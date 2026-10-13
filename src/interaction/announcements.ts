@@ -37,7 +37,7 @@ function provenanceOf(event: InteractionEventEnvelope): Provenance {
 
 function phaseDraft(phase: RuntimePhase, verbose: boolean): DraftAnnouncement | null {
   const terminal: Partial<Record<RuntimePhase, Omit<DraftAnnouncement, 'target' | 'condition'>>> = {
-    completed: { priority: 'polite', category: 'phase', text: 'Completed: Work completed.' },
+    completed: { priority: 'polite', category: 'phase', text: 'Completed: Turn finished.' },
     failed: { priority: 'assertive', category: 'phase', text: 'Failed: Work failed.' },
     aborted: { priority: 'assertive', category: 'phase', text: 'Attention: Work was canceled.' },
     limited: { priority: 'assertive', category: 'phase', text: 'Attention: Run limit reached.' },
