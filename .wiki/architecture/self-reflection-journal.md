@@ -12,6 +12,8 @@ planning package or the legacy free-text hygiene plan in
 [source investigation](source-investigation.md) completion contract remains
 separate: a reflection cannot make an investigation pass.
 
+An optional [project librarian](librarian-library.md), disabled by default, uses the same request-time historical-context seam. An explicit librarian query replaces journal recall for that request; library notes are not copied into journal storage. The journal's capture, provisional status and schedule remain separate.
+
 ## Human controls and schedule
 
 The journal is disabled by default. These commands operate on the global brain;

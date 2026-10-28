@@ -172,7 +172,9 @@ export class AgentOrchestrator {
     ) {
       names = [...names, 'TaskOutput']
     }
-    return this.opts.baseRegistry.restrict(names, ['Agent'])
+    // Library tools carry parent-owned ephemeral selection. Child engines do not
+    // have a librarian context adapter, so never share these stateful tool objects.
+    return this.opts.baseRegistry.restrict(names, ['Agent', 'LibraryRead', 'LibraryWrite'])
   }
 
   isConcurrencySafe(def: AgentDef): boolean {
@@ -381,7 +383,7 @@ export class AgentOrchestrator {
       provider,
       model,
       effort,
-      systemPrompt: `${this.opts.systemPromptBase}\n\n---\n\n# Agent: ${def.name}\n\n${def.systemPrompt}`,
+      systemPrompt: `${this.opts.systemPromptBase}\n\nLibraryRead and LibraryWrite are unavailable to child agents; ask the parent for scoped evidence.\n\n---\n\n# Agent: ${def.name}\n\n${def.systemPrompt}`,
       maxTokens: capabilities.maxOutputTokens,
       preflightContext: true,
       limits: { ...DEFAULT_CHILD_LIMITS, ...this.opts.limits, ...def.limits },

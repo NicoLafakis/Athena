@@ -17,6 +17,8 @@ provisional memory; see [its architecture page](self-reflection-journal.md).
 Conversational Continuity remains the planning package for the broader user-facing
 cross-project conversation index.
 
+A separate [project librarian](librarian-library.md) is implemented in source, disabled by default, for approved public operational documents with committed-review/check gates. It does not migrate personal facts, rewrite legacy memory, or implement the conversational-continuity plan.
+
 ## Implemented journal boundary (2026-10-10)
 
 `src/journal/` now implements a bounded daily lifecycle after human enablement,
