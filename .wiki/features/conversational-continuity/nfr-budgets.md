@@ -17,6 +17,11 @@
 These are initial guardrails to validate on representative histories; tests use generous
 regression limits across CI hosts.
 
+The synthetic 10,000-episode and 10,000-session-file measurements are recorded in
+[the calibration snapshot](calibration.md). Warm indexed search, five-source context
+expansion, and the shared CLI/slash search presenter are within their targets in that
+sample; representative live-history performance remains unmeasured.
+
 ## Prompt and result bounds
 
 - Automatic recall: at most 5 episode/fact candidates and 4,000 characters total by
@@ -32,15 +37,39 @@ regression limits across CI hosts.
 - Optional index failure never blocks boot, non-memory requests, or project work.
 - Every surfaced memory result has valid source refs or is explicitly marked unverified.
 - Zero known forgotten/tombstoned records returned after rebuild.
+- A forgotten semantic record retains only typed source IDs needed to suppress its exact
+  source lines; its semantic body and user-authored description are absent from disk.
 
 ## Privacy and cost
 
-- No new provider/network request for capture, indexing, or ranking.
-- No duplicate raw transcript store or new paid service.
-- Logs contain no query strings, content, user facts, or project paths.
+- Capture, indexing, and local ranking make no provider calls. Jev routing is disabled by default. A call requires explicit global enablement and
+  `TYPESAFE_API_KEY`; without both there is no network request.
+- When configured, send at most one synchronous Jev request per inbound user turn. Send
+  only the current request after shared secret redaction (maximum 12,000 characters) and
+  fixed route and speech-act choice labels; do not send hook context, history, episode
+  text, summaries, memory text, source IDs, or project paths.
+- The outer decision deadline is two seconds, with a 1.9-second SDK attempt timeout and
+  retries disabled. The added wait is
+  bounded; timeout, rate limit, invalid output, or provider error continues the answer
+  turn without a route hint.
+- Measure Jev route precision/recall, no-recall false positives, speech-act precision,
+  confidence-gated persisted-label precision, calibration, latency, token volume, and
+  estimated cost on labeled synthetic corpora. On 2026-09-24, the recall evaluator scored
+  266/266 raw exact; at the production confidence >= 0.98 threshold, 197/197 accepted
+  decisions were exact (74.1% coverage) with no no-recall false positives or provider
+  fallbacks. Speech-act results were 126/126 raw exact; 53/53 labels meeting the >= 0.98
+  persistence threshold were exact (42.1% coverage), with zero fallbacks. These are small
+  synthetic results, not representative live-conversation quality.
+- There is no duplicate raw transcript store. Jev is a paid provider path only when the
+  user explicitly enables it and configures its key; disable it with global `jev.enabled: false`.
+- Logs and local traces contain no query strings, user content, route labels, facts, or
+  project paths. Decision telemetry may contain provider/model, outcome, elapsed time,
+  and input/output token counts.
 - Secret-shaped fixtures produce zero leaks in indexes, rollups, prompt context, or logs.
 - Local index size is measured on representative histories; an initial target is under
-  10% of source session size, excluding source files themselves.
+  10% of source session size, excluding source files themselves. The current host archive
+  is 30,833 bytes for 369,230 source bytes (8.35%), but contains only 29 episodes from 8
+  sessions across 2 projects over July 23–August 13, 2026; this is not representative.
 
 ## Accessibility
 

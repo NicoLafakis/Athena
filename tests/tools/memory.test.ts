@@ -1,9 +1,22 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { memoryTool } from '../../src/tools/memory.js'
+import { MemoryHygieneStore } from '../../src/brain/hygiene.js'
+import { ContinuityStore } from '../../src/continuity/store.js'
+import { latestUserMessageSourceRef, readSessionLineRecords, SessionStore, stableSessionLineId } from '../../src/harness/sessions.js'
+import { generateSemanticCandidates } from '../../src/continuity/candidates.js'
 import { makeCtx } from '../helpers/tool-ctx.js'
+
+const sourceRef = {
+  kind: 'session-message' as const,
+  projectId: 'project-one',
+  sessionId: 'session-one',
+  recordId: 'line-one',
+  timestamp: '2026-09-23T15:00:00.000Z',
+  timeZone: 'America/New_York',
+}
 
 let dir: string
 beforeEach(() => {
@@ -17,6 +30,19 @@ const memFile = (rel: string) => join(dir, 'memory', rel)
 const indexFile = () => join(dir, 'memory', 'MEMORY.md')
 
 describe('memoryTool', () => {
+  it('classifies list/read as read-only while every memory lifecycle action remains mutating', () => {
+    const readOnlyForInput = (
+      memoryTool as typeof memoryTool & { readOnlyForInput?: (input: unknown) => boolean }
+    ).readOnlyForInput
+    expect(readOnlyForInput).toBeTypeOf('function')
+    if (!readOnlyForInput) return
+
+    expect(readOnlyForInput({ op: 'list' })).toBe(true)
+    expect(readOnlyForInput({ op: 'read', path: 'preferences/topic.md' })).toBe(true)
+    for (const op of ['write', 'delete', 'remember', 'review', 'supersede', 'forget']) {
+      expect(readOnlyForInput({ op })).toBe(false)
+    }
+  })
   it('write creates the file and appends an index line to MEMORY.md', async () => {
     const ctx = makeCtx(dir)
     const res = await memoryTool.execute(
@@ -100,5 +126,380 @@ describe('memoryTool', () => {
     const res = await memoryTool.execute({ op: 'list' }, ctx)
     expect(res.isError).toBe(false)
     expect(res.output).toBe('(memory is empty)')
+  })
+
+  it('requires a persisted current-user source before remembering a semantic fact', async () => {
+    const ctx = makeCtx(dir)
+    const res = await memoryTool.execute(
+      { op: 'remember', content: 'I prefer linked episodes.', speechAct: 'preferred' },
+      ctx,
+    )
+    expect(res.isError).toBe(true)
+    expect(res.output).toMatch(/persisted user message/i)
+    expect(existsSync(join(dir, 'memory', 'semantic'))).toBe(false)
+  })
+
+  it('stores explicit memories with server-authored source references outside the injected index', async () => {
+    const ctx = makeCtx(dir, { getCurrentUserSourceRef: () => sourceRef })
+    const res = await memoryTool.execute(
+      {
+        op: 'remember',
+        description: 'Continuity preference',
+        content: 'I prefer linked episodes across projects.',
+        speechAct: 'preferred',
+        scope: 'global',
+        sensitivity: 'ordinary',
+      },
+      ctx,
+    )
+
+    expect(res.isError).toBe(false)
+    expect(res.output).toMatch(/active semantic memory/i)
+    const files = await memoryTool.execute({ op: 'list' }, ctx)
+    expect(files.output).toContain('semantic/')
+    expect(existsSync(indexFile())).toBe(false)
+    const semanticDir = join(dir, 'memory', 'semantic')
+    const file = readdirSync(semanticDir).find((name) => name.endsWith('.md'))!
+    const saved = readFileSync(join(semanticDir, file), 'utf8')
+    expect(saved).toContain('I prefer linked episodes across projects.')
+    expect(saved).toContain('"recordId":"line-one"')
+  })
+
+  it('stores sensitive content only through an explicit remember request', async () => {
+    const ctx = makeCtx(dir, { getCurrentUserSourceRef: () => sourceRef })
+    const res = await memoryTool.execute(
+      {
+        op: 'remember',
+        description: 'Explicitly requested sensitive detail',
+        content: 'Please remember this sensitive detail.',
+        speechAct: 'stated',
+        scope: 'global',
+        sensitivity: 'sensitive',
+      },
+      ctx,
+    )
+
+    expect(res.isError).toBe(false)
+    const store = new MemoryHygieneStore(join(dir, 'memory'))
+    expect(store.listActive()).toMatchObject([
+      { captureMode: 'explicit', sensitivity: 'sensitive', status: 'active', content: 'Please remember this sensitive detail.' },
+    ])
+  })
+
+  it('refuses to read a semantic memory after its source session is trashed', async () => {
+    const sessionsRoot = join(dir, 'sessions')
+    const sessions = new SessionStore(sessionsRoot, 'C:/projects/memory-source-availability')
+    const session = sessions.create()
+    session.appendMessage({
+      role: 'user',
+      content: 'I decided that the violet lantern memory is linked to its source.',
+    })
+    const sourceRef = latestUserMessageSourceRef(session.file, sessions.projectId, session.id)
+    if (!sourceRef) throw new Error('Expected a persisted user source reference in the fixture')
+    const memory = new MemoryHygieneStore(join(dir, 'memory')).create({
+      description: 'A source-linked decision',
+      content: 'The violet lantern memory is linked to its source.',
+      sourceRefs: [sourceRef],
+      observedAt: sourceRef.timestamp,
+      scope: 'global',
+      speechAct: 'decided',
+      captureMode: 'explicit',
+      confidence: 1,
+      sensitivity: 'ordinary',
+    })
+    const ctx = makeCtx(dir)
+    const path = `semantic/${memory.memoryId}.md`
+
+    const available = await memoryTool.execute({ op: 'read', path }, ctx)
+    expect(available.isError).toBe(false)
+    expect(available.output).toContain('The violet lantern memory is linked to its source.')
+
+    sessions.delete(session.id)
+
+    const unavailable = await memoryTool.execute({ op: 'read', path }, ctx)
+    expect(unavailable.isError).toBe(true)
+    expect(unavailable.output).not.toContain('The violet lantern memory is linked to its source.')
+    expect(unavailable.output).toMatch(/source.*unavailable/i)
+  })
+
+  it('refuses a semantic memory whose still-live source has a continuity tombstone', async () => {
+    const sessionsRoot = join(dir, 'sessions')
+    const sessions = new SessionStore(sessionsRoot, 'C:/projects/memory-tombstone')
+    const session = sessions.create()
+    session.appendMessage({ role: 'user', content: 'I decided this source must remain connected.' })
+    const sourceRef = latestUserMessageSourceRef(session.file, sessions.projectId, session.id)
+    if (!sourceRef) throw new Error('Expected a persisted user source reference in the fixture')
+    const memory = new MemoryHygieneStore(join(dir, 'memory')).create({
+      description: 'A tombstoned decision',
+      content: 'This source must remain connected.',
+      sourceRefs: [sourceRef],
+      observedAt: sourceRef.timestamp,
+      scope: 'global',
+      speechAct: 'decided',
+      captureMode: 'explicit',
+      confidence: 1,
+      sensitivity: 'ordinary',
+    })
+    const continuity = new ContinuityStore(join(dir, 'continuity'))
+    continuity.tombstoneSession(sessions.projectId, session.id)
+
+    const result = await memoryTool.execute({ op: 'read', path: `semantic/${memory.memoryId}.md` }, makeCtx(dir))
+
+    expect(result.isError).toBe(true)
+    expect(result.output).not.toContain('This source must remain connected.')
+    expect(result.output).toMatch(/source unavailable/i)
+  })
+
+  it('refuses a semantic read when a cited source line changes without changing its identity', async () => {
+    const sessions = new SessionStore(join(dir, 'sessions'), 'C:/projects/memory-source-content')
+    const session = sessions.create()
+    session.appendMessage({ role: 'user', content: 'I decided the amber notebook is the source of truth.' })
+    const originalRecord = readSessionLineRecords(session.file).find((item) => item.line.kind === 'message')!
+    const sourceRef = latestUserMessageSourceRef(session.file, sessions.projectId, session.id)
+    if (!sourceRef) throw new Error('Expected a persisted user source reference in the fixture')
+    expect(sourceRef.lineDigest).toMatch(/^[a-f0-9]{64}$/)
+
+    const memory = new MemoryHygieneStore(join(dir, 'memory')).create({
+      description: 'A source-linked decision',
+      content: 'The amber notebook is the source of truth.',
+      sourceRefs: [sourceRef],
+      observedAt: sourceRef.timestamp,
+      scope: 'global',
+      speechAct: 'decided',
+      captureMode: 'explicit',
+      confidence: 1,
+      sensitivity: 'ordinary',
+    })
+    const path = `semantic/${memory.memoryId}.md`
+
+    const available = await memoryTool.execute({ op: 'read', path }, makeCtx(dir))
+    expect(available.isError).toBe(false)
+
+    const rawLines = readFileSync(session.file, 'utf8').split('\n')
+    const mutatedLine = JSON.parse(rawLines[originalRecord.lineNumber - 1]!) as {
+      id: string
+      ts: string
+      data: { role: string; content: string }
+    }
+    mutatedLine.data.content = 'I decided the amber notebook is no longer the source of truth.'
+    rawLines[originalRecord.lineNumber - 1] = JSON.stringify(mutatedLine)
+    writeFileSync(session.file, rawLines.join('\n'), 'utf8')
+
+    const currentRecord = readSessionLineRecords(session.file).find(
+      (item) => stableSessionLineId(item) === sourceRef.recordId,
+    )!
+    expect(currentRecord.line.ts).toBe(sourceRef.timestamp)
+    expect((currentRecord.line.data as { role: string }).role).toBe('user')
+
+    const unavailable = await memoryTool.execute({ op: 'read', path }, makeCtx(dir))
+    expect(unavailable.isError).toBe(true)
+    expect(unavailable.output).not.toContain('The amber notebook is the source of truth.')
+    expect(unavailable.output).toMatch(/source.*unavailable/i)
+  })
+
+  it('does not return unreviewed candidate text through the model tool', async () => {
+    const sessions = new SessionStore(join(dir, 'sessions'), 'C:/projects/unreviewed-memory')
+    const sourceRefs = []
+    for (const content of [
+      'I prefer source-linked memory candidates.',
+      'I prefer source-linked memory candidates across projects.',
+    ]) {
+      const session = sessions.create()
+      session.appendMessage({ role: 'user', content })
+      const sourceRef = latestUserMessageSourceRef(session.file, sessions.projectId, session.id)
+      if (!sourceRef) throw new Error('Expected a persisted user source reference in the fixture')
+      sourceRefs.push(sourceRef)
+    }
+    const candidate = new MemoryHygieneStore(join(dir, 'memory')).create({
+      description: 'An unreviewed recurring preference',
+      content: 'I prefer source-linked memory candidates across projects.',
+      sourceRefs,
+      supportingEpisodeIds: ['episode-one', 'episode-two'],
+      observedAt: sourceRefs.at(-1)!.timestamp,
+      scope: 'global',
+      speechAct: 'preferred',
+      captureMode: 'inferred',
+      confidence: 1,
+      sensitivity: 'ordinary',
+    })
+
+    const result = await memoryTool.execute({ op: 'read', path: `semantic/${candidate.memoryId}.md` }, makeCtx(dir))
+    expect(candidate.status).toBe('candidate')
+    expect(result.isError).toBe(true)
+    expect(result.output).not.toContain('I prefer source-linked memory candidates across projects.')
+  })
+
+  it('refuses a managed semantic read linked to an assistant-authored message', async () => {
+    const sessions = new SessionStore(join(dir, 'sessions'), 'C:/projects/assistant-memory-source')
+    const session = sessions.create()
+    session.appendMessage({ role: 'assistant', content: 'The assistant proposed this fact.' })
+    const record = readSessionLineRecords(session.file).find((item) => item.line.kind === 'message')!
+    const memory = new MemoryHygieneStore(join(dir, 'memory')).create({
+      description: 'An assistant-authored claim',
+      content: 'The assistant proposed this fact.',
+      sourceRefs: [{
+        kind: 'session-message',
+        projectId: sessions.projectId,
+        sessionId: session.id,
+        recordId: stableSessionLineId(record),
+        timestamp: record.line.ts,
+      }],
+      observedAt: record.line.ts,
+      scope: 'global',
+      speechAct: 'stated',
+      captureMode: 'explicit',
+      confidence: 1,
+      sensitivity: 'ordinary',
+    })
+
+    const result = await memoryTool.execute({ op: 'read', path: `semantic/${memory.memoryId}.md` }, makeCtx(dir))
+    expect(result.isError).toBe(true)
+    expect(result.output).not.toContain('The assistant proposed this fact.')
+  })
+
+  it('prevents generic memory writes and deletes from bypassing semantic lifecycle metadata', async () => {
+    const ctx = makeCtx(dir, { getCurrentUserSourceRef: () => sourceRef })
+    const remembered = await memoryTool.execute(
+      { op: 'remember', content: 'I prefer citations.', speechAct: 'preferred' },
+      ctx,
+    )
+    expect(remembered.isError).toBe(false)
+    const listed = await memoryTool.execute({ op: 'list' }, ctx)
+    const path = listed.output.split('\n').find((line) => line.startsWith('semantic/'))!
+    const write = await memoryTool.execute({ op: 'write', path, content: 'untracked replacement' }, ctx)
+    const remove = await memoryTool.execute({ op: 'delete', path }, ctx)
+    expect(write.isError).toBe(true)
+    expect(remove.isError).toBe(true)
+  })
+
+  it('forgets a managed semantic memory by ID and keeps its source session intact', async () => {
+    const sessions = new SessionStore(join(dir, 'sessions'), 'C:/projects/forget-memory')
+    const session = sessions.create()
+    session.appendMessage({ role: 'user', content: 'I prefer this private derived claim to be forgotten.' })
+    const source = latestUserMessageSourceRef(session.file, sessions.projectId, session.id)!
+    const semanticStore = new MemoryHygieneStore(join(dir, 'memory'))
+    const memory = semanticStore.create({
+      description: 'Private derived claim',
+      content: 'I prefer this private derived claim to be forgotten.',
+      sourceRefs: [source],
+      observedAt: source.timestamp,
+      speechAct: 'preferred',
+      captureMode: 'explicit',
+      confidence: 1,
+      sensitivity: 'ordinary',
+    })
+
+    const result = await memoryTool.execute({ op: 'forget', memoryId: memory.memoryId }, makeCtx(dir))
+
+    expect(result.isError).toBe(false)
+    expect(result.output).toContain(`forgotten: ${memory.memoryId}`)
+    expect(semanticStore.get(memory.memoryId)).toMatchObject({ status: 'tombstoned', content: '' })
+    expect(readFileSync(memory.file, 'utf8')).not.toContain('I prefer this private derived claim')
+    expect(readFileSync(session.file, 'utf8')).toContain('I prefer this private derived claim')
+    const read = await memoryTool.execute({ op: 'read', path: `semantic/${memory.memoryId}.md` }, makeCtx(dir))
+    expect(read.isError).toBe(true)
+    expect(read.output).toContain('was forgotten')
+    expect(read.output).not.toContain('I prefer this private derived claim')
+  })
+
+  it('renders managed semantic memory without exposing its internal source identifiers', async () => {
+    const sessions = new SessionStore(join(dir, 'sessions'), 'C:/projects/memory-render')
+    const session = sessions.create()
+    session.appendMessage({ role: 'user', content: 'I prefer linked episodes.' })
+    const linkedSource = latestUserMessageSourceRef(session.file, sessions.projectId, session.id)
+    if (!linkedSource) throw new Error('Expected a persisted user source reference in the fixture')
+    const ctx = makeCtx(dir, { getCurrentUserSourceRef: () => linkedSource })
+    const created = new MemoryHygieneStore(join(dir, 'memory')).create({
+      description: 'A remembered preference',
+      content: 'I prefer linked episodes.',
+      sourceRefs: [linkedSource],
+      observedAt: linkedSource.timestamp,
+      speechAct: 'preferred',
+      captureMode: 'explicit',
+      confidence: 1,
+      sensitivity: 'ordinary',
+    })
+    const res = await memoryTool.execute({ op: 'read', path: `semantic/${created.memoryId}.md` }, ctx)
+    expect(res.isError).toBe(false)
+    expect(res.output).toContain('I prefer linked episodes.')
+    expect(res.output).not.toContain('line-one')
+  })
+
+  it('reviews only source-backed inferred candidates', async () => {
+    const ctx = makeCtx(dir)
+    const store = new MemoryHygieneStore(join(dir, 'memory'))
+    const sessionsRoot = join(dir, 'sessions')
+    for (let index = 0; index < 2; index++) {
+      const session = new SessionStore(sessionsRoot, 'C:/projects/memory-tool-review').create()
+      session.appendMessage({ role: 'user', content: 'I prefer linked episodes across projects.' })
+      session.appendMessage({ role: 'assistant', content: 'The source can be verified.' })
+      session.appendEvent({ type: 'turn-done' })
+    }
+    const continuityStore = new ContinuityStore(join(dir, 'continuity'))
+    continuityStore.rebuild(sessionsRoot)
+    generateSemanticCandidates(continuityStore, sessionsRoot, store)
+    const candidate = store.listAll()[0]!
+
+    const res = await memoryTool.execute({ op: 'review', memoryId: candidate.memoryId, decision: 'promote' }, ctx)
+    expect(res.isError).toBe(false)
+    expect(store.get(candidate.memoryId)?.status).toBe('active')
+    expect(store.get(candidate.memoryId)?.content).toBe(candidate.content)
+  })
+
+  it('refuses Memory tool promotion when a candidate source changed after generation', async () => {
+    const ctx = makeCtx(dir)
+    const store = new MemoryHygieneStore(join(dir, 'memory'))
+    const sessionsRoot = join(dir, 'sessions')
+    const sourceSessions: Array<ReturnType<SessionStore['create']>> = []
+    for (let index = 0; index < 2; index++) {
+      const session = new SessionStore(sessionsRoot, `C:/projects/memory-tool-stale-${index}`).create()
+      session.appendMessage({ role: 'user', content: 'I prefer current evidence for memory review.' })
+      session.appendMessage({ role: 'assistant', content: 'This statement has a source.' })
+      session.appendEvent({ type: 'turn-done' })
+      sourceSessions.push(session)
+    }
+    const continuityStore = new ContinuityStore(join(dir, 'continuity'))
+    continuityStore.rebuild(sessionsRoot)
+    generateSemanticCandidates(continuityStore, sessionsRoot, store)
+    const candidate = store.listAll()[0]!
+    const sourceRef = candidate.sourceRefs.find((source) => source.sessionId === sourceSessions[1]!.id)!
+    const records = readFileSync(sourceSessions[1]!.file, 'utf8').trimEnd().split('\n')
+    const lineIndex = records.findIndex((line) => line.includes(sourceRef.recordId))
+    const source = JSON.parse(records[lineIndex]!) as { data: { content: string } }
+    source.data.content = 'This is no longer the supporting claim.'
+    records[lineIndex] = JSON.stringify(source)
+    writeFileSync(sourceSessions[1]!.file, `${records.join('\n')}\n`, 'utf8')
+
+    const result = await memoryTool.execute(
+      { op: 'review', memoryId: candidate.memoryId, decision: 'promote' },
+      ctx,
+    )
+    expect(result.isError).toBe(true)
+    expect(result.output).toMatch(/source verification/i)
+    expect(store.get(candidate.memoryId)?.status).toBe('candidate')
+  })
+
+  it('supersedes an active semantic memory with the current correction source', async () => {
+    const ctx = makeCtx(dir, { getCurrentUserSourceRef: () => sourceRef })
+    const store = new MemoryHygieneStore(join(dir, 'memory'))
+    const prior = store.create({
+      description: 'Theme preference',
+      content: 'The user prefers dark mode.',
+      sourceRefs: [{ ...sourceRef, recordId: 'old-line' }],
+      speechAct: 'preferred',
+      captureMode: 'explicit',
+      confidence: 1,
+      sensitivity: 'ordinary',
+    })
+
+    const res = await memoryTool.execute(
+      { op: 'supersede', memoryId: prior.memoryId, content: 'The user now prefers light mode.' },
+      ctx,
+    )
+    const updated = store.get(prior.memoryId)!
+    expect(res.isError).toBe(false)
+    expect(updated.status).toBe('superseded')
+    expect(updated.content).toBe('The user prefers dark mode.')
+    expect(store.get(updated.supersededBy!)?.sourceRefs).toEqual([sourceRef])
   })
 })

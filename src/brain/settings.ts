@@ -193,6 +193,15 @@ function modelSchema(provider: ProviderId) {
     .default(PROVIDERS[provider].defaultModel)
 }
 
+function isIanaTimeZone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value }).format(0)
+    return !/^[+-]\d{2}(?::?\d{2})?$/.test(value)
+  } catch {
+    return false
+  }
+}
+
 export const AccessibilitySettingsSchema = z.object({
   presentation: z.enum(['standard', 'screen-reader']).default('standard'),
   verbosity: z.enum(['concise', 'balanced', 'detailed']).default('balanced'),
@@ -209,7 +218,15 @@ export const VmpConnectorSchema = z.object({
 }).strict()
 export type VmpConnectorSettings = z.infer<typeof VmpConnectorSchema>
 
+/** Jev classification is an account-wide user choice because it sends the current
+ * redacted request to an external decision service. Project settings cannot opt in. */
+export const JevDecisionSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+}).strict()
+export type JevDecisionSettings = z.infer<typeof JevDecisionSettingsSchema>
+
 const baseShape = {
+  timeZone: z.string().max(128).refine(isIanaTimeZone, 'Expected a supported IANA timezone').optional(),
   maxOutputTokens: z.number().int().positive().optional(),
   permissionMode: z.enum(['normal', 'acceptEdits', 'plan', 'trusted']).default('normal'),
   sandboxMode: z.enum(['read-only', 'workspace-write', 'unrestricted']).default('workspace-write'),
@@ -224,6 +241,7 @@ const baseShape = {
   hooks: z.array(HookDefSchema).default([]),
   mcpServers: z.record(z.string(), McpServerSchema).default({}),
   accessibility: AccessibilitySettingsSchema.default({}),
+  jev: JevDecisionSettingsSchema.default({}),
   vmp: VmpConnectorSchema.default({}),
 }
 
@@ -260,6 +278,28 @@ function readJsonIfExists(file: string): Record<string, unknown> {
   }
 }
 
+function sanitizeGlobalTimeZone(
+  global: Record<string, unknown>,
+  settingsFile: string,
+  onWarn?: (msg: string) => void,
+): string | undefined {
+  const value = global['timeZone']
+  if (value !== undefined && (typeof value !== 'string' || !isIanaTimeZone(value))) {
+    onWarn?.(`Global timezone in ${settingsFile} is invalid; OS local timezone will be inferred for continuity queries.`)
+    delete global['timeZone']
+  }
+  return typeof global['timeZone'] === 'string' ? global['timeZone'] : undefined
+}
+
+/** Read only the global timezone without validating provider-scoped model settings. */
+export function loadGlobalTimeZone(
+  paths: BrainPaths,
+  onWarn?: (msg: string) => void,
+): string | undefined {
+  const global = readJsonIfExists(paths.settingsFile)
+  return sanitizeGlobalTimeZone(global, paths.settingsFile, onWarn)
+}
+
 /** Cascade: global ~/.athena/settings.json <- project .athena/settings.json.
  *  Scalars: project wins. Rule/hook/protectedPaths arrays: concatenated global-first. Object maps
  *  (mcpServers): project wins wholesale via the base spread — a project that defines
@@ -280,6 +320,11 @@ export function loadSettings(
   const project = projectTrusted && paths.projectBrainDir
     ? readJsonIfExists(join(paths.projectBrainDir, 'settings.json'))
     : {}
+  sanitizeGlobalTimeZone(global, paths.settingsFile, onWarn)
+  if (Object.prototype.hasOwnProperty.call(project, 'timeZone')) {
+    onWarn?.('Project settings cannot override the global user timezone; ignoring project timeZone.')
+    delete project['timeZone']
+  }
   const globalAccessibility = AccessibilitySettingsSchema.safeParse(global['accessibility'] ?? {})
   if (globalAccessibility.success) {
     global['accessibility'] = globalAccessibility.data
@@ -290,11 +335,25 @@ export function loadSettings(
     )
     global['accessibility'] = AccessibilitySettingsSchema.parse({})
   }
+  const globalJev = JevDecisionSettingsSchema.safeParse(global['jev'] === undefined ? {} : global['jev'])
+  if (globalJev.success) {
+    global['jev'] = globalJev.data
+  } else {
+    onWarn?.(
+      `Global Jev settings in ${paths.settingsFile} are invalid; Jev is disabled. ` +
+      `Fix or remove the jev object in ${paths.settingsFile}.`,
+    )
+    global['jev'] = JevDecisionSettingsSchema.parse({})
+  }
   if (Object.prototype.hasOwnProperty.call(project, 'accessibility')) {
     onWarn?.(
       'Project settings cannot override global accessibility preferences; ignoring project accessibility.',
     )
     delete project['accessibility']
+  }
+  if (Object.prototype.hasOwnProperty.call(project, 'jev')) {
+    onWarn?.('Project settings cannot override global Jev decision settings; ignoring project jev.')
+    delete project['jev']
   }
   if (project['permissionMode'] === 'trusted') {
     onWarn?.('Project settings cannot select trusted permission mode; using the global/default mode.')

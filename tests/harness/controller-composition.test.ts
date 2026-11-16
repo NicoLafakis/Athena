@@ -55,6 +55,7 @@ function settingsFor(overrides: Partial<Settings> = {}): Settings {
     },
     hooks: [],
     mcpServers: {},
+    jev: { enabled: false },
     vmp: { enabled: false },
     ...overrides,
   }

@@ -1,9 +1,9 @@
 # Conversational Continuity — Objective Overview
 
-**Tier:** 3 — major / high trust impact
-**Date:** 2026-09-23
-**Status:** planning; linked-episode storage choice confirmed
-**Product owner:** Nico
+- **Tier:** 3 — major / high trust impact
+- **Date:** 2026-09-23
+- **Status:** implementation in progress; local linked-episode catalog, CLI/slash inspection, source-verified semantic candidate generation/review/forget, on-demand time rollups, explainable local ranking previews, persistent session delete/restore tombstones, Jev recall routing, source-linked Jev speech-act intake, and scoped answer-time history retrieval are implemented; synthetic live Jev evaluations are recorded, while representative live-history dogfood remains open
+- **Product owner:** Nico
 
 ## What was asked
 
@@ -52,7 +52,7 @@ plausible-sounding recollection.
 - Explicit recall, remember, correct, review, and forget controls, with CLI and
   accessibility parity.
 
-### Proposed defaults to carry into implementation
+### Product decisions and current behavior
 
 - Existing per-user session JSONL remains the canonical conversation record. The user
   selected **linked episodes**: the new index may contain bounded summaries and metadata
@@ -64,6 +64,18 @@ plausible-sounding recollection.
   are not decisions.
 - No automatic age-based deletion. Explicit source deletion/forgetting invalidates its
   derived records. Retention controls can be added without changing source identity.
+- The product owner selected [Jev decision routing](adr/0003-jev-decision-model.md).
+  `jev.enabled` defaults to false globally; a TypeSafe call requires explicit enablement and
+  `TYPESAFE_API_KEY` is configured. Jev receives only the current request after the shared
+  secret redactor; it receives no history or project identifiers. The same call classifies
+  speech act, and only labels at confidence >= 0.98 are persisted locally with the exact
+  user-message digest. History routes also require confidence >= 0.98; clear deterministic
+  explicit-recall requests retain a local fallback. Verified labels support review-only
+  candidate detection; correction and retraction labels stay contextual and do not change
+  memory by themselves. The route adds a temporary
+  answer-model instruction to avoid unsupported cross-session claims. The user separately
+  authorized scoped, source-verified episode excerpts to the configured answer model for
+  current history requests. Jev itself receives no historical data.
 
 ### Dropping
 
@@ -93,9 +105,52 @@ Athena already persists resumable sessions under per-project directories in the 
 brain, keeps run traces, has a free-text `Memory` tool, compiles project-scoped run
 experiences, and has a separate governed-learning pipeline. These mechanisms do not
 currently provide a unified time-aware conversation index across projects. The current
-memory index is injected broadly into sessions, and the memory-hygiene page is a design
-spec rather than implemented behavior.
+free-text memory index is injected broadly into sessions. The initial source-linked
+semantic-memory store is implemented separately under the existing memory tree and is
+not yet part of that prompt-injected index.
 
 This package coordinates those systems without treating them as interchangeable:
 sessions are conversation history, run traces and the journal are operational evidence,
 experience is prior task outcome guidance, and user memory is durable personal context.
+
+## Implementation status
+
+The local source-linked index, all-project session discovery, fork lineage resolution,
+timezone-aware date parsing, bounded topic/timeline search, source-verified show actions,
+on-demand day/week/month/quarter/year rollups, `athena memory` commands, and `/memory`
+actions are implemented. `athena memory rank <query>` and `/memory rank <query>` preview
+deterministic selections across working, episodic, semantic, and rollup layers. The preview
+filters explicit time/project scope, checks semantic validity and sensitivity, rejects
+stale rollups, and returns bounded identifiers and explanation metadata without source
+text. Rollups use only a complete current index, retain coverage IDs and a source digest,
+and are recomputed after the session index changes. The index refreshes after persisted turn
+completion and can be rebuilt explicitly. On a routed history request, answer-time
+retrieval applies time/project scope locally, verifies source lines and tombstones, uses
+semantic records and rollups only as navigation, and sends at most five episodes/4,000
+redacted characters of user/Athena text to the active answer call. Source paths, IDs, tool
+blocks, and hook context are excluded; retrieved context is not persisted. `athena memory
+candidates` / `/memory candidates`
+generate local review candidates only from repeated direct user claims in at least two
+distinct, digest-verified sessions; the bounded listing includes linked episode IDs.
+`athena memory review <id> <promote|reject>` and `/memory review ...` apply an explicit
+decision. `athena memory forget <id>` and `/memory forget <id>` erase the semantic body and
+description while retaining content-free source identities that prevent candidate scans
+from regenerating the claim from those lines. Sensitive claims are excluded from inferred
+semantic storage; the original session remains canonical, and explicit remember is a
+separate user-directed path. Existing explicit or terminal decisions suppress duplicates.
+Session deletion persists a content-free tombstone that suppresses episodes and derived
+rollups across reads and rebuilds; `athena session restore <id>` explicitly restores the
+canonical source and reindexes it. Semantic-memory forget preserves that source for explicit
+historical recall. Synthetic quality and latency calibration, including live Jev routing
+and speech-act evaluations, is documented; representative live-history dogfood remains
+open.
+
+## Request-time safety in the Stage 1 candidate
+
+Source-verified recall excerpts are attached as untrusted data to an outbound user
+message and are not persisted or placed in the system prompt. Local retrieval revalidates
+sources before each logical model request, including after tool calls; transport retries
+reuse that request. A bounded local phrase heuristic for explicit no-history requests
+suppresses classification and historical-context retrieval for the turn. This heuristic
+does not recognize every possible formulation. Journal and librarian context remain
+separate from Jev and use their existing budgets.

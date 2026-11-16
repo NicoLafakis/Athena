@@ -18,6 +18,37 @@ describe('parseSlash', () => {
     ['/tui bogus', { kind: 'error', value: 'Usage: /tui <fullscreen|classic>' }],
     ['/tui', { kind: 'error', value: 'Usage: /tui <fullscreen|classic>' }],
     ['/memory', { kind: 'memory' }],
+    ['/memory status', { kind: 'memory', action: 'status' }],
+    ['/memory timeline last week', { kind: 'memory', action: 'timeline', value: 'last week' }],
+    ['/memory search what did we decide --project alpha-123', {
+      kind: 'memory', action: 'search', value: 'what did we decide', projectId: 'alpha-123',
+    }],
+    ['/memory rank what did we decide --project alpha-123', {
+      kind: 'memory', action: 'rank', value: 'what did we decide', projectId: 'alpha-123',
+    }],
+    ['/memory candidates', { kind: 'memory', action: 'candidates' }],
+    ['/memory review 123e4567-e89b-42d3-a456-426614174000 promote', {
+      kind: 'memory', action: 'review', value: '123e4567-e89b-42d3-a456-426614174000 promote',
+    }],
+    ['/memory review 123e4567-e89b-42d3-a456-426614174000 reject', {
+      kind: 'memory', action: 'review', value: '123e4567-e89b-42d3-a456-426614174000 reject',
+    }],
+    ['/memory forget 123e4567-e89b-42d3-a456-426614174000', {
+      kind: 'memory', action: 'forget', value: '123e4567-e89b-42d3-a456-426614174000',
+    }],
+    ['/memory forget not-an-id', {
+      kind: 'error', value: 'Usage: /memory forget <memory-id>',
+    }],
+    ['/memory review 123e4567-e89b-42d3-a456-426614174000 forget', {
+      kind: 'error', value: 'Usage: /memory review <memory-id> <promote|reject>',
+    }],
+    ['/memory show episode-123', { kind: 'memory', action: 'show', value: 'episode-123' }],
+    ['/memory rollup', { kind: 'memory', action: 'rollup' }],
+    ['/memory rollup month', { kind: 'memory', action: 'rollup', value: 'month' }],
+    ['/memory rollup decade', { kind: 'error', value: 'Usage: /memory rollup [day|week|month|quarter|year]' }],
+    ['/memory rollup day week', { kind: 'error', value: 'Usage: /memory rollup [day|week|month|quarter|year]' }],
+    ['/memory search', { kind: 'error', value: 'Usage: /memory search <query>' }],
+    ['/memory rank', { kind: 'error', value: 'Usage: /memory rank <query>' }],
     ['/skills', { kind: 'skills' }],
     ['/agents', { kind: 'agents' }],
     ['/status', { kind: 'status' }],

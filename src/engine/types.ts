@@ -1,6 +1,8 @@
 // src/engine/types.ts
 import type { z } from 'zod'
 import type { ProviderId } from '../brain/models.js'
+import type { SourceRef } from '../continuity/schemas.js'
+import type { JevMemorySpeechAct } from '../decision/jev.js'
 
 export interface TokenUsage {
   inputTokens: number
@@ -156,6 +158,15 @@ export interface ToolContext {
   runId?: string
   toolCallId?: string
   toolName?: string
+  /** Persisted source link for the current human prompt, if available. */
+  getCurrentUserSourceRef?: () => SourceRef | null
+  /** Mark the start of a turn so an older identical prompt cannot be reused as a source. */
+  setCurrentUserTurnPrompt?: (prompt: string) => void
+  /** Persist a high-confidence Jev label against the already-written current user message. */
+  recordCurrentUserSpeechAct?: (classification: {
+    speechAct: Extract<JevMemorySpeechAct, 'preferred' | 'decided' | 'promised' | 'corrected' | 'retracted'>
+    confidence: number
+  }) => void
 }
 
 export interface ToolDefinition<I = unknown> {
@@ -167,6 +178,8 @@ export interface ToolDefinition<I = unknown> {
    *  sees, while `schema` stays a permissive local-validation passthrough. */
   inputSchemaJson?: Record<string, unknown>
   readOnly: boolean
+  /** Classify a validated invocation when a tool exposes both query and mutation operations. */
+  readOnlyForInput?(input: I): boolean
   /** Whether multiple calls may execute concurrently without shared-write
    * conflicts. Omitted means the tool's readOnly value. */
   concurrencySafe?: (input: unknown) => boolean

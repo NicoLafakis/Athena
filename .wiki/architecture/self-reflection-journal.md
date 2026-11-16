@@ -216,8 +216,8 @@ code/diff bodies and instruction-changing text; cleaned values are stored rather
 than the unfiltered inputs. These are bounded filters, not a guarantee that every
 possible sensitive string or adversarial statement will be recognized.
 
-Deferred: a bundled cross-platform closed-app scheduler, cross-machine synchronization, a unified
-conversation index, legacy memory frontmatter repair/flag/supersede/expiry,
+Deferred in the journal: a bundled cross-platform closed-app scheduler, cross-machine synchronization,
+legacy memory frontmatter repair/flag/supersede/expiry,
 automatic prediction resolution, runtime/binary investigation providers, active
 claim promotion, semantic truth verification, and a TUI journal viewer.
 

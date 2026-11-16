@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-09-23T12:00:00.000Z",
+  "cases": [
+    { "id": "audit-none-fresh-guide", "intent": "none", "text": "Draft a fresh onboarding guide explaining how a terminal agent can inspect files." },
+    { "id": "audit-none-pasted-notes", "intent": "none", "text": "Format these pasted release notes as bullets: the project shipped its update in Q2." },
+    { "id": "audit-none-quoted-decision", "intent": "none", "text": "Write a template sentence that asks a teammate what decision they made." },
+    { "id": "audit-none-schedule-input", "intent": "none", "text": "I have an earlier appointment; build a schedule from the times listed below." },
+    { "id": "audit-none-example-code", "intent": "none", "text": "Continue the example code block below and add a function for retrying a request." },
+    { "id": "audit-none-reminder-design", "intent": "none", "text": "Explain common ways to store reminders and include a new example." },
+
+    { "id": "audit-continue-paused-explanation", "intent": "continue-current", "text": "Finish your explanation of the route labels; we paused in this chat." },
+    { "id": "audit-continue-current-plan", "intent": "continue-current", "text": "Pick up our conversation about the plan from exactly where we left it." },
+    { "id": "audit-continue-clarification", "intent": "continue-current", "text": "You had just asked me a clarification before I disconnected. What was the question?" },
+    { "id": "audit-continue-debug-thread", "intent": "continue-current", "text": "Continue our current debugging thread from your last message." },
+    { "id": "audit-continue-walkthrough", "intent": "continue-current", "text": "Go back to the step you were walking me through a minute ago." },
+    { "id": "audit-continue-truncated-answer", "intent": "continue-current", "text": "Please finish your previous answer; it stopped halfway through." },
+
+    { "id": "audit-time-half-year", "intent": "temporal-recall", "text": "Summarize our conversations from the first half of this year." },
+    { "id": "audit-time-seven-days", "intent": "temporal-recall", "text": "What questions did I ask during the past seven days?" },
+    { "id": "audit-time-may", "intent": "temporal-recall", "text": "What did we work through in May?" },
+    { "id": "audit-time-last-month", "intent": "temporal-recall", "text": "Give me a broad overview of what happened in this project last month." },
+    { "id": "audit-time-yesterday-chats", "intent": "temporal-recall", "text": "Across all our chats, recap the topics from yesterday." },
+    { "id": "audit-time-q4", "intent": "temporal-recall", "text": "Lay out our activity from Q4 of last year." },
+
+    { "id": "audit-topic-dpapi", "intent": "topic-recall", "text": "Locate the thread about DPAPI credential storage." },
+    { "id": "audit-topic-folder-permissions", "intent": "topic-recall", "text": "What did we discuss in the conversation about local folder permissions?" },
+    { "id": "audit-topic-run-configs", "intent": "topic-recall", "text": "Find our messages about JetBrains run configurations." },
+    { "id": "audit-topic-status-line", "intent": "topic-recall", "text": "Show me the discussion where we mapped status-line behavior." },
+    { "id": "audit-topic-api-version", "intent": "topic-recall", "text": "What were the main points in the chat about the version two API?" },
+    { "id": "audit-topic-process-restarts", "intent": "topic-recall", "text": "Retrieve the conversation about process restarts on Windows." },
+
+    { "id": "audit-preference-failure-format", "intent": "preference-or-fact", "text": "How have I asked you to present test failures?" },
+    { "id": "audit-preference-default-provider", "intent": "preference-or-fact", "text": "Which model or provider did I tell you to use by default?" },
+    { "id": "audit-preference-release-tone", "intent": "preference-or-fact", "text": "What tone did I specify for release notes?" },
+    { "id": "audit-preference-doc-rule", "intent": "preference-or-fact", "text": "What's my standing rule about updating docs alongside code?" },
+    { "id": "audit-preference-review-style", "intent": "preference-or-fact", "text": "Have I said whether I prefer inline comments or pull request review comments?" },
+    { "id": "audit-preference-timezone", "intent": "preference-or-fact", "text": "Which timezone did I ask you to use when interpreting my schedule?" },
+
+    { "id": "audit-decision-classifier-model", "intent": "historical-decision", "text": "Which model did we select for the classifier?" },
+    { "id": "audit-decision-merge-approval", "intent": "historical-decision", "text": "Did we approve merging that pull request?" },
+    { "id": "audit-decision-turn-persistence", "intent": "historical-decision", "text": "What had we agreed the harness would persist after each turn?" },
+    { "id": "audit-decision-cost-estimate", "intent": "historical-decision", "text": "Did we decide that the report should include cost estimates?" },
+    { "id": "audit-decision-default-enable", "intent": "historical-decision", "text": "What was our decision about enabling the feature by default?" },
+    { "id": "audit-decision-timeout", "intent": "historical-decision", "text": "Which option did we choose after investigating the network timeout?" },
+
+    { "id": "audit-similar-digest", "intent": "similar-work", "text": "Find earlier code that handled exact-digest invalidation." },
+    { "id": "audit-similar-sidebar", "intent": "similar-work", "text": "Which of my apps has a sidebar flow we could adapt?" },
+    { "id": "audit-similar-redaction", "intent": "similar-work", "text": "Can we reuse another project's example for token redaction?" },
+    { "id": "audit-similar-observability", "intent": "similar-work", "text": "Show me a previous implementation that combines logs with traces." },
+    { "id": "audit-similar-memory-cleanup", "intent": "similar-work", "text": "Is there past work we can adapt for automatic memory cleanup?" },
+    { "id": "audit-similar-migration-rollback", "intent": "similar-work", "text": "Find another repository with a migration rollback pattern like this one." }
+  ]
+}

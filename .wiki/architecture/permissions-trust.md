@@ -97,8 +97,12 @@ case-insensitivity on win32, `/` vs `\`, `..` traversal, drive-relative (`C:..\.
 root-relative (`\Windows\x`) forms, trailing dots and spaces on a segment, device and
 extended-length prefixes (`\\?\`, `\\.\`, `\??\`, including stacked and `\\?\UNC\`),
 administrative shares (`\\host\C$\Windows`), 8.3 short names (`C:\PROGRA~1`), and symlinks
-or junctions aimed into a protected directory — the last via `realpathSync.native`, which
-also expands a real short name before the syntactic fallback ever runs.
+or junction aliases on either side of a comparison. Existing configured roots are indexed
+under both their lexical and `realpathSync.native` forms; file-write targets are
+canonicalized before comparison, and shell targets retain their lexical form. When a
+configured root cannot be resolved, its lexical path still provides the fallback fence.
+Keeping both root forms covers OS temporary or protected directories exposed through an
+alias.
 
 ### Shell commands are the honest weak point
 

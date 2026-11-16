@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-09-24T06:32:57.000Z",
+  "cases": [
+    { "id": "none-vague-holdout", "intent": "none", "text": "What about the one from before?" },
+    { "id": "none-quoted-sample-holdout", "intent": "none", "text": "Label this quoted line as an example of a question: ‘What did I decide yesterday?’" },
+
+    { "id": "continue-checklist-holdout", "intent": "continue-current", "text": "Resume the checklist from its last completed step." },
+    { "id": "continue-chat-pause-holdout", "intent": "continue-current", "text": "Can we go back to where this chat paused?" },
+
+    { "id": "time-tuesday-holdout", "intent": "temporal-recall", "text": "Catch me up on what we covered Tuesday." },
+    { "id": "time-march-topics-holdout", "intent": "temporal-recall", "text": "What issues came up across March?" },
+
+    { "id": "topic-permission-checks-holdout", "intent": "topic-recall", "text": "Find our earlier exchange about permission checks." },
+    { "id": "topic-indexing-schema-holdout", "intent": "topic-recall", "text": "What did we say about the indexing schema?" },
+
+    { "id": "preference-date-style-holdout", "intent": "preference-or-fact", "text": "Which date style do I usually want in reports?" },
+    { "id": "preference-error-detail-holdout", "intent": "preference-or-fact", "text": "Have I told you if I like concise or detailed error messages?" },
+
+    { "id": "decision-storage-backend-holdout", "intent": "historical-decision", "text": "Which storage backend did we choose for this feature in March?" },
+    { "id": "decision-index-location-holdout", "intent": "historical-decision", "text": "Did I agree to keep the index on this machine?" },
+
+    { "id": "similar-retry-policy-holdout", "intent": "similar-work", "text": "Show me an earlier project with a similar retry policy." },
+    { "id": "similar-another-tool-holdout", "intent": "similar-work", "text": "Have we solved a comparable issue in another tool?" },
+    { "id": "none-vague-holdout-v2", "intent": "none", "text": "Can you remind me about the thing from earlier?" },
+    { "id": "continue-chat-holdout-v2", "intent": "continue-current", "text": "Let's carry on from where this conversation paused." },
+    { "id": "time-friday-holdout-v2", "intent": "temporal-recall", "text": "Give me the highlights from everything we discussed Friday." },
+    { "id": "topic-sync-protocol-holdout-v2", "intent": "topic-recall", "text": "Find our discussion about the sync protocol." },
+    { "id": "fact-hosting-provider-holdout-v2", "intent": "preference-or-fact", "text": "What did I tell you about this service's hosting provider?" },
+    { "id": "decision-hosting-provider-holdout-v2", "intent": "historical-decision", "text": "Which deployment provider did the team settle on?" },
+    { "id": "similar-import-adapt-holdout-v2", "intent": "similar-work", "text": "Find a previous import implementation we could adapt." }
+  ]
+}

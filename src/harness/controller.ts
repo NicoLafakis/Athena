@@ -21,7 +21,12 @@ import { ProtectedPaths } from './protected-paths.js'
 import { realPathForAccess, ResourcePolicy } from './resource-policy.js'
 import { HookRunner } from './hooks.js'
 import { McpManager } from './mcp.js'
-import { Session, SessionStore } from './sessions.js'
+import {
+  latestUserMessageSourceRef,
+  sessionLastLineNumber,
+  Session,
+  SessionStore,
+} from './sessions.js'
 import { RunTraceWriter } from './traces.js'
 import { AgentOrchestrator } from './agents.js'
 import { projectId } from './trust.js'
@@ -55,6 +60,10 @@ import { JournalRuntime, type JournalRuntimeOptions } from '../journal/runtime.j
 import { makeAgentTool } from '../tools/agent.js'
 import { LibraryRuntime } from '../library/runtime.js'
 import { makeLibraryReadTool, makeLibraryWriteTool } from '../tools/library.js'
+import { ContinuityStore } from '../continuity/store.js'
+import { prepareAnswerTimeRecall } from '../continuity/answer-recall.js'
+import { createJevRecallRouter, JEV_MODEL, type RecallIntentRouter, type RecallRouteDecision } from '../decision/jev.js'
+import { JevSpeechActEventSchema, JEV_SPEECH_ACT_PERSISTENCE_CONFIDENCE } from '../continuity/schemas.js'
 
 function gitBranch(cwd: string): string | null {
   try {
@@ -122,6 +131,8 @@ export interface HarnessSessionControllerOptions {
    * is the deliberate `athena exec` contract; an interactive owner (voice, TUI) wires one.
    */
   askUser?: AskUserFn
+  /** Injectable decision router for deterministic harness integrations. */
+  recallRouter?: RecallIntentRouter
   onAnnouncement?: (announcement: Announcement) => void
   onEnvelope?: (envelope: InteractionEventEnvelope) => void
   /** Clock/timer seam for lifecycle tests; production uses the global journal config. */
@@ -150,6 +161,7 @@ interface HarnessSessionControllerParts {
   hooks: HookRunner
   library: LibraryRuntime | null
   reflectionJournal: JournalRuntime
+  continuityStore: ContinuityStore
 }
 
 export interface HarnessTurnResult {
@@ -184,6 +196,7 @@ export class HarnessSessionController {
   public readonly hooks: HookRunner
   public readonly library: LibraryRuntime | null
   public readonly reflectionJournal: JournalRuntime
+  public readonly continuityStore: ContinuityStore
 
   private sessionEnded = false
   private isRunning = false
@@ -209,6 +222,7 @@ export class HarnessSessionController {
     this.hooks = parts.hooks
     this.library = parts.library
     this.reflectionJournal = parts.reflectionJournal
+    this.continuityStore = parts.continuityStore
   }
 
   public static async create(
@@ -329,6 +343,28 @@ export class HarnessSessionController {
     interaction.attach(bus)
 
     const store = sessionStore ?? new SessionStore(paths.sessionsDir, cwd)
+    // The linked local catalog is optional and is not read into provider prompts here.
+    const continuityStore = new ContinuityStore(paths.continuityDir, {
+      onWarn: (warning) => console.error(warning),
+    })
+    const recallRouter = options.recallRouter ?? createJevRecallRouter({
+      enabled: settings.jev.enabled,
+      apiKey: settings.jev.enabled ? process.env.TYPESAFE_API_KEY : undefined,
+      telemetry: (event) => trace.append('decision-model-call', event),
+    })
+    const answerTimeRecall = ({ request, decision }: {
+      request: string
+      decision?: RecallRouteDecision
+    }) => prepareAnswerTimeRecall({
+      query: request,
+      ...(decision ? { decision } : {}),
+      sessionsRoot: paths.sessionsDir,
+      store: continuityStore,
+      memoryDir: paths.memoryDir,
+      continuityRoot: paths.continuityDir,
+      currentProjectId: store.projectId,
+      ...(settings.timeZone ? { configuredTimeZone: settings.timeZone } : {}),
+    })
 
     const registry = new ToolRegistry()
     for (const t of [
@@ -453,12 +489,24 @@ export class HarnessSessionController {
         }
       }
     })
+    bus.on((event) => {
+      if (event.type !== 'turn-done' || !journal) return
+      try {
+        const result = continuityStore.indexSession(paths.sessionsDir, store.projectId, session.id)
+        if (result.state === 'corrupt') {
+          console.error('Continuity local index was corrupt; this turn remains in its source session. Run `athena memory rebuild`.')
+        }
+      } catch {
+        console.error('Continuity local index could not update this session; normal conversation completed. Run `athena memory rebuild`.')
+      }
+    })
 
     const activeCapabilities = modelCapabilities(provider, model)
     const contextManager = new ContextManager({
       modelWindowTokens: activeCapabilities.contextWindowTokens,
     })
 
+    let currentUserTurn: { prompt: string; afterLineNumber: number } | null = null
     const toolContext: ToolContext = {
       cwd,
       brainDir: paths.brainDir,
@@ -471,6 +519,38 @@ export class HarnessSessionController {
       resolvePath: (path, access) => resourcePolicy.resolvePath(path, access),
       sandboxMode,
       runId: trace.runId,
+      ...(journal
+        ? {
+            setCurrentUserTurnPrompt: (prompt) => {
+              currentUserTurn = null
+              currentUserTurn = { prompt, afterLineNumber: sessionLastLineNumber(session.file) }
+            },
+            getCurrentUserSourceRef: () =>
+              currentUserTurn
+                ? latestUserMessageSourceRef(session.file, store.projectId, session.id, currentUserTurn)
+                : null,
+            recordCurrentUserSpeechAct: ({ speechAct, confidence }) => {
+              if (confidence < JEV_SPEECH_ACT_PERSISTENCE_CONFIDENCE) return
+              const sourceRef = currentUserTurn
+                ? latestUserMessageSourceRef(session.file, store.projectId, session.id, currentUserTurn)
+                : null
+              if (!sourceRef) return
+              const event = JevSpeechActEventSchema.parse({
+                type: 'jev-speech-act-classification',
+                schemaVersion: 1,
+                model: JEV_MODEL,
+                sourceRef,
+                speechAct,
+                confidence,
+              })
+              try {
+                journal.appendEvent(event)
+              } catch {
+                console.error(`Jev speech-act label could not be saved to session ${session.id}; this turn will continue normally.`)
+              }
+            },
+          }
+        : {}),
     }
 
     const engine: Engine = new Engine({
@@ -485,6 +565,8 @@ export class HarnessSessionController {
       model,
       effort,
       systemPrompt,
+      recallRouter,
+      answerTimeRecall,
       maxTokens: settings.maxOutputTokens ?? activeCapabilities.maxOutputTokens,
       preflightContext: true,
       historicalContext: (prompt): string => library?.selected ? library.context() : reflectionJournal.retrieve(prompt),
@@ -536,7 +618,7 @@ export class HarnessSessionController {
         const decision = gate.check({
           toolName: name,
           input: parsed.data,
-          readOnly: tool.readOnly,
+          readOnly: tool.readOnlyForInput?.(parsed.data) ?? tool.readOnly,
           summary: `Hook invokes ${name}`,
         })
         if (decision.decision !== 'allow') {
@@ -597,6 +679,7 @@ export class HarnessSessionController {
       hooks,
       library,
       reflectionJournal,
+      continuityStore,
     })
   }
 

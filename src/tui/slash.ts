@@ -18,7 +18,12 @@ export type SlashCommand =
   | { kind: 'clear' }
   | { kind: 'resume' }
   | { kind: 'compact' }
-  | { kind: 'memory' }
+  | {
+      kind: 'memory'
+      action?: 'status' | 'rebuild' | 'timeline' | 'search' | 'show' | 'rollup' | 'rank' | 'candidates' | 'review' | 'forget'
+      value?: string
+      projectId?: string
+    }
   | { kind: 'skills' }
   | { kind: 'agents' }
   | { kind: 'status' }
@@ -43,6 +48,7 @@ export type TuiMode = 'classic' | 'fullscreen'
 const MODES = new Set(['normal', 'acceptEdits', 'plan', 'trusted'])
 const EFFORT_SET = new Set<string>(EFFORTS)
 const TUI_MODES = new Set(['classic', 'fullscreen'])
+const SEMANTIC_MEMORY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const BARE = new Set([
   'help', 'clear', 'resume', 'compact', 'memory', 'skills', 'agents', 'status', 'repeat', 'quit',
 ])
@@ -62,6 +68,66 @@ export function parseSlash(
   if (!input.startsWith('/')) return null
   const [cmd = '', ...rest] = input.slice(1).trim().split(/\s+/)
   const arg = rest.join(' ')
+  if (cmd === 'memory') {
+    if (rest.length === 0) return { kind: 'memory' }
+    const action = rest[0]
+    if (!['status', 'rebuild', 'timeline', 'search', 'show', 'rollup', 'rank', 'candidates', 'review', 'forget'].includes(action!)) {
+      return { kind: 'error', value: 'Usage: /memory [status|rebuild|timeline [range]|search <query>|rank <query>|show <episode-id>|rollup [day|week|month|quarter|year]|candidates|review <memory-id> <promote|reject>|forget <memory-id>]' }
+    }
+    const valueParts: string[] = []
+    let projectId: string | undefined
+    for (let index = 1; index < rest.length; index++) {
+      if (rest[index] === '--project') {
+        const next = rest[index + 1]
+        if (!next || next.startsWith('--')) return { kind: 'error', value: '/memory --project requires a project ID' }
+        projectId = next
+        index++
+      } else if (rest[index]!.startsWith('--')) {
+        return { kind: 'error', value: `Unknown /memory argument: ${rest[index]}` }
+      } else {
+        valueParts.push(rest[index]!)
+      }
+    }
+    const value = valueParts.join(' ')
+    if (action === 'candidates' && (projectId !== undefined || valueParts.length !== 0)) {
+      return { kind: 'error', value: 'Usage: /memory candidates' }
+    }
+    if (action === 'review') {
+      if (
+        projectId !== undefined || valueParts.length !== 2 ||
+        !SEMANTIC_MEMORY_ID.test(valueParts[0]!) ||
+        !['promote', 'reject'].includes(valueParts[1]!)
+      ) {
+        return { kind: 'error', value: 'Usage: /memory review <memory-id> <promote|reject>' }
+      }
+    }
+    if (action === 'forget' && (
+      projectId !== undefined || valueParts.length !== 1 || !SEMANTIC_MEMORY_ID.test(valueParts[0]!)
+    )) {
+      return { kind: 'error', value: 'Usage: /memory forget <memory-id>' }
+    }
+    if ((action === 'status' || action === 'rebuild') && value) {
+      return { kind: 'error', value: `Usage: /memory ${action}` }
+    }
+    if ((action === 'search' || action === 'rank' || action === 'show') && !value) {
+      const valueName = action === 'search' || action === 'rank' ? 'query' : 'episode-id'
+      return { kind: 'error', value: `Usage: /memory ${action} <${valueName}>` }
+    }
+    if (action === 'show' && valueParts.length !== 1) {
+      return { kind: 'error', value: 'Usage: /memory show <episode-id>' }
+    }
+    if (action === 'rollup' &&
+      (projectId !== undefined || valueParts.length > 1 ||
+        (valueParts.length === 1 && !['day', 'week', 'month', 'quarter', 'year'].includes(valueParts[0]!)))) {
+      return { kind: 'error', value: 'Usage: /memory rollup [day|week|month|quarter|year]' }
+    }
+    return {
+      kind: 'memory',
+      action: action as Extract<SlashCommand, { kind: 'memory' }>['action'],
+      ...(value ? { value } : {}),
+      ...(projectId ? { projectId } : {}),
+    }
+  }
   if (BARE.has(cmd)) return { kind: cmd } as SlashCommand
   if (cmd === 'model')
     return arg

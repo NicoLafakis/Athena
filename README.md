@@ -282,6 +282,74 @@ unclaimed until repeated real tasks show a durable measured gain.
 Global `~/.athena/settings.json` is overlaid by trusted project settings. Settings
 select model, effort, permission/sandbox modes, allow/deny rules, additional
 protected paths, hooks, MCP, limits, and extension configuration.
+The optional global `timeZone` field accepts an IANA timezone (for example,
+`"timeZone": "America/New_York"`) for conversational timeline queries; project settings
+cannot override it.
+
+Jev recall-intent routing is disabled by default. It makes no network call unless explicitly
+enabled in global settings and `TYPESAFE_API_KEY` is set. When configured,
+TypeSafe receives only the current user request after Athena's shared secret redactor,
+with a 12,000-character limit; it receives no prior conversation, memory text, source IDs,
+or project paths. That redactor handles known credentials, not general personal
+information. Set `"jev": {"enabled": true}` in the global settings file to enable
+routing, and set it to `false` to disable it. The route adds temporary guidance; an
+explicit history request may also send bounded, redacted, source-verified excerpts to
+the configured answer provider as untrusted user-message context. Jev never receives
+those excerpts.
+
+Athena's local conversation catalog can be inspected across projects:
+
+```sh
+athena memory status
+athena memory rebuild
+athena memory timeline last week
+athena memory search "what did we decide" --project <project-id>
+athena memory rank "what did we decide"
+athena memory candidates
+athena memory review <memory-id> <promote|reject>
+athena memory forget <memory-id>
+athena memory show <episode-id>
+athena memory rollup [day|week|month|quarter|year]
+```
+
+The catalog stores bounded, redacted summaries with links to local session lines. It does
+not copy transcripts. A full archive index requires `athena memory rebuild`; new persisted
+turns update their own session entries. The equivalent `/memory status`, `/memory rebuild`,
+`/memory timeline`, `/memory search`, `/memory rank`, `/memory candidates`,
+`/memory review <memory-id> <promote|reject>`, `/memory forget <memory-id>`,
+`/memory show`, and `/memory rollup [granularity]`
+controls work in both interactive presentations. Show includes bounded same-session turns
+around an episode with its source line IDs. Rollups are computed on demand from a
+complete local catalog, using the configured IANA timezone (or a labeled OS-timezone
+inference). Each rollup retains every covered episode ID and a digest of the current source
+set. Output lists up to five episode IDs per rollup; use `athena memory show <episode-id>`
+to inspect a listed source. Complete coverage stays in the linked index. Rollup summaries contain
+only episode summaries, with no separate transcript copy or persisted cache. A correction or
+source deletion is reflected after the session index is refreshed; an incomplete catalog
+asks for a rebuild.
+`memory rank` locally previews selected working, episodic, semantic, and rollup layers with
+bounded IDs, scope, time, scores, and reason labels. `/memory rank` also considers text in
+the active in-memory conversation. The preview does not show query/source text and does
+not itself add historical excerpts to provider prompts. For an eligible current history
+request, separate answer-time recall can attach bounded, source-verified excerpts to the
+answer provider as untrusted user-message context; Jev receives only the current request.
+
+The `Memory` tool can also save an explicitly requested durable fact as a semantic-memory
+record tied to the current persisted user message. A clear user correction can supersede
+that record while preserving the earlier statement and its source link. `memory candidates`
+generates review-only records only when the same direct user preference, decision, or
+promise appears in at least two distinct, source-digest-verified sessions. Candidate
+generation is local and explicit; tentative, question, assistant-authored, stale, or
+incomplete or credential-bearing evidence is skipped. Cross-project support broadens a
+candidate to global scope; sensitive claims are not copied into inferred semantic
+candidates. Review is an explicit local
+`promote` or `reject` command; promotion verifies every source again at decision time, and
+rejected/terminal decisions suppress recreation. Semantic records are not added to the
+prompt-injected `MEMORY.md` index. `athena memory forget <memory-id>` and
+`/memory forget <memory-id>` erase derived semantic text while preserving the source
+session and minimal suppression metadata. `athena session delete <id>` moves a source
+session to recoverable trash and suppresses its recall; `athena session restore <id>`
+restores and reindexes it.
 
 Independent of every mode above, a write fence covers operating-system directories
 (`%SystemRoot%`, the Program Files trees, `%ProgramData%`, and the boot/recovery
@@ -298,6 +366,9 @@ Environment variables override stored provider keys:
 - `ANTHROPIC_API_KEY`
 - `MOONSHOT_API_KEY`
 - `KIMI_CODE_API_KEY`
+
+`TYPESAFE_API_KEY` is a separate environment-only credential for Jev; it is not an answer
+model provider key and is not stored in `credentials.json`.
 
 `athena doctor --json` reports installation, trust, credential-vault, provider,
 dependency, process-sandbox, permission-posture, protected-paths, and update

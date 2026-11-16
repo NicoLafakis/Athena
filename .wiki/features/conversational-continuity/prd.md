@@ -3,10 +3,10 @@
 > [Objective overview](00-overview.md) · [Requirements](requirements.md) ·
 > [Technical design](design.md) · [Tasks](tasks.md)
 
-**Status:** Proposed; linked-episode approach selected
-**Priority:** P1 — core product direction
-**Owner surface:** local sessions, `src/brain/`, prompt/tool integration, CLI memory controls
-**Migration:** additive derived index; no session transcript migration or rewrite
+- **Status:** Implementation in progress; linked episodes, Jev routing/intake, scoped answer-time recall, and semantic-memory forget are implemented
+- **Priority:** P1 — core product direction
+- **Owner surface:** local sessions, `src/brain/`, prompt/tool integration, CLI memory controls
+- **Migration:** additive derived index; no session transcript migration or rewrite
 **Related:** [ADR 0001](adr/0001-source-linked-episodes.md),
 [ADR 0002](adr/0002-layered-memory-promotion.md)
 
@@ -65,8 +65,8 @@ windows retain the timezone used.
 
 Storage is additive under the per-user Athena brain. Existing session files remain
 untouched. Index versions support rebuild and can be discarded without destroying source
-history. Memory-file changes reuse the existing `Memory` tool/index discipline and its
-planned metadata extension; they do not create an independent durable fact store.
+history. Memory-file changes reuse the existing `Memory` tool/index discipline and the
+source-linked metadata now in place; they do not create an independent durable fact store.
 
 ## 8. Surfaces and experience
 
@@ -74,9 +74,16 @@ planned metadata extension; they do not create an independent durable fact store
   request depends on earlier conversation, chronology, a remembered preference, or an
   unresolved conversational commitment. Source-backed results are clearly distinguished
   from the model’s inference.
-- **Direct controls:** `athena memory search`, `athena memory timeline`,
-  `athena memory show`, `athena memory review`, and `athena memory forget`, with
-  equivalent in-session `/memory` commands and append-only presentation wording.
+- **Direct controls:** local `athena memory status|rebuild|search|timeline|show|rollup|rank`,
+  `athena memory candidates`, `athena memory review <memory-id> <promote|reject>`, and
+  `athena memory forget <memory-id>`
+  commands, with equivalent in-session `/memory` commands. Candidate generation is an
+  explicit local action that requires repeated direct user claims in distinct,
+  source-verified sessions; review never happens automatically. Session delete/restore is
+  integrated with continuity tombstones. Semantic-memory forget scrubs the derived text
+  and description, suppresses re-derivation from those source lines, and preserves the
+  original session for explicitly requested historical recall. Source deletion remains the
+  separate session-delete action.
 - **Common path:** one conversational question; no user-selected project/session when
   the request is unambiguous. Inspect/correct/forget actions require a clear target before
   mutation.
@@ -84,26 +91,46 @@ planned metadata extension; they do not create an independent durable fact store
   Athena use intact and names the rebuild command; ambiguous time/scope is stated or
   clarified.
 
-Exact command syntax may follow current CLI parser conventions, but all five operations
-and their noninteractive forms are required before claiming parity.
+Exact command syntax follows the current CLI parser. Local episode search, inspection,
+ranking, candidate generation, candidate review, and semantic-memory forget have CLI/slash
+parity. Session delete/restore is implemented through `athena session delete|restore` and
+persistent tombstones. Scoped automatic answer-time retrieval is implemented.
 
 ## 9. Interface contract
 
 Use a bounded read-only retrieval operation for automatic recall and explicit query
-surfaces for timeline/search. Inputs include query, time range, scope, and result budget;
-outputs include summaries, classifications, confidence, dates, and source references.
-Mutating operations (remember, correct, forget, review) validate IDs and source links and
-go through one local store API. No raw absolute path or model-provided timestamp is
-trusted as an identifier. The exact TypeScript contracts are in the design doc.
+surfaces for timeline/search/ranking. Inputs include query, time range, project scope, and
+result budget. Answer-time retrieval returns source-verified user/Athena messages with
+speaker, date, timezone, coarse project label, and adjacent-turn relation; it does not
+send summaries, semantic-memory bodies, rollup text, source IDs, or paths. The payload is
+capped at five episodes/4,000 characters and exists only in the active answer-model call.
+The implemented `athena memory rank` and `/memory rank` surfaces remain local previews
+that show bounded identifiers and ranking explanations but no source text.
+Mutating operations (remember, correct, review, and forget) validate IDs and source links and go
+through one local store API. Candidate generation writes only review-state records after
+verifying source identities and digests. No raw absolute path or model-provided timestamp
+is trusted as an identifier. Forget atomically clears a semantic record's body and
+description, strips source digests, timezones, support episode IDs, original observation/
+validity dates, and project scope, and retains typed source identities plus minimal
+lifecycle metadata to prevent same-line regeneration. Its canonical source session remains
+available for explicit historical recall. The
+exact TypeScript contracts are in the design doc.
 
 ## 10. Security, privacy, and access control
 
-All data remains under the local per-user brain. No project configuration can widen
-global memory retrieval or trigger external transmission. Prompts, assistant text, traces,
-and generated summaries are untrusted inputs to parsing. Reuse secret redaction, cap all
-fields, avoid copying raw transcripts, and do not infer sensitive attributes. Retrieval
-must not expose another project’s detail unless relevant to the user’s request. See the
-[threat model](threat-model.md).
+Continuity indexes and summaries remain under the local per-user brain. Project
+configuration cannot widen global memory retrieval or control the user-wide Jev setting.
+The selected Jev decision call classifies route and speech act using only the current user
+request after shared secret redaction when a TypeSafe key is configured. A route or
+speech-act decision must meet confidence >= 0.98 before it can guide retrieval or be
+persisted as a local event. The stored label is linked to its exact message digest; its
+source text is not duplicated. Prompts, assistant text, traces, and generated summaries
+are untrusted inputs to parsing. Cap fields, avoid copying raw transcripts, and
+do not infer sensitive attributes. The user authorized scoped answer-provider recall on
+2026-09-23. Only redacted source-verified user/Athena text for the current history request
+may cross that boundary; local project filters, tombstones, and source checks remain
+authoritative. The shared redactor does not classify general PII or arbitrary sensitive
+prose. See the [threat model](threat-model.md).
 
 ## 11. Data integrity and write path
 
@@ -124,10 +151,11 @@ tool-to-prompt behavior. Verify against acceptance criteria and the invariant.
 
 ## 13. Observability
 
-Local diagnostics record counts, duration, index version, and source IDs only. Do not log
-query text, memory content, summaries, personal values, or full paths. `/memory status`
-reports indexed-source count, last successful scan, stale/missing index condition, and
-recovery guidance without printing content.
+Local diagnostics record counts, duration, index version, and source IDs only. Decision
+traces may record provider/model, outcome, duration, and token counts; they never record
+request or response content. Do not log query text, memory content, summaries, personal
+values, or full paths. `/memory status` reports indexed-source count, last successful
+scan, stale/missing index condition, and recovery guidance without printing content.
 
 ## 14. Error handling and user feedback
 
@@ -138,10 +166,12 @@ instruction. Corrupt optional data reports the artifact and `athena memory rebui
 
 ## 15. Performance and cost
 
-Local recall adds no provider call by itself and is bounded by the NFR budgets. If the
-current response model summarizes retrieved evidence, that is the ordinary user-request
-call, never an automatic boot/session-end call. Relevance ranking is local and
-deterministic. Candidate and prompt budgets are explicit.
+Indexing and local recall search make no provider call. Jev may make one synchronous,
+two-second-bounded call per user turn when a TypeSafe key is configured; its input and
+cost are measured by the synthetic evaluator and token trace. Jev receives no historical
+context. The answer provider may receive the bounded source excerpts described in FR-013
+for a current history request; this is the ordinary user-request call, never an automatic
+boot/session-end call. Candidate and prompt budgets are explicit.
 
 ## 16. Accessibility
 
@@ -155,6 +185,9 @@ and no memory identity depends on color, position, or animation.
 2. Context reconstruction, automatic recall integration, and inspectable controls.
 3. Long-term memory provenance, explicit promotion, corrections, and forgetting.
 4. Day/week/month/quarter/year rollups and calibration from dogfood.
+5. Jev recall routing and source-linked speech-act intake, accepted and integrated; live
+   synthetic live evaluations are recorded in the calibration snapshot; representative
+   live-history quality review remains open.
 
 Every phase is local-first and reversible. The derived index is rebuilt rather than
 backfilled destructively. See [rollout](rollout.md).
@@ -180,20 +213,18 @@ invariant. Each criterion maps to at least one automated test in the test strate
 
 ## 20. Dependencies and integration points
 
-No external service or paid dependency. Main integration points: `SessionStore`,
+No external service or paid dependency is added. Main integration points: `SessionStore`,
 `BrainPaths`, memory loader/tool, prompt assembly or read-only memory tool, and CLI
-composition. The implementation tasks identify exact boundaries after inspecting the
-current call path. No feature flag is necessary for local read-only indexing; automatic
-prompt use is opt-in during rollout.
+composition. Local indexing is optional at boot; automatic recall is limited to routed
+history requests and the documented source/payload checks.
 
 ## 21. Open questions
 
 - Linked episodes are confirmed. Existing session retention remains the policy; this
   feature introduces no automatic deletion.
-- Recommended default for “forget this memory”: suppress its derived content from recall
-  while preserving the source session. The separate question of whether forgetting a
-  memory should also erase its source conversation is awaiting user preference and blocks
-  finalizing Phase 3 deletion semantics.
+- Forgetting a semantic record scrubs its derived content and suppresses re-derivation from
+  the same source lines while preserving the source session for explicit recall. Source
+  deletion remains an independent, explicit `athena session delete` action.
 - The minimum independent evidence threshold for inferred long-term promotion must be
   calibrated during dogfood and kept configurable/testable. The first release may keep
   inferred items as review candidates only.

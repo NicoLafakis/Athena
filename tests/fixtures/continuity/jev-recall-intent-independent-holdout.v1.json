@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-09-24T06:55:12.000Z",
+  "cases": [
+    {
+      "id": "blind-none-empty-header",
+      "intent": "none",
+      "text": "The parser rejects an empty header. Can you trace the validation path?"
+    },
+    {
+      "id": "blind-none-vague-reminder",
+      "intent": "none",
+      "text": "Could you remind me about the other thing?"
+    },
+    {
+      "id": "blind-none-quoted-classification",
+      "intent": "none",
+      "text": "Please classify this sentence as sample text: “What did we select last month?”"
+    },
+    {
+      "id": "blind-continue-chat-point",
+      "intent": "continue-current",
+      "text": "Pick up this same chat from the last point we covered a moment ago."
+    },
+    {
+      "id": "blind-continue-connection-drop",
+      "intent": "continue-current",
+      "text": "What was the last thing you told me before the connection dropped?"
+    },
+    {
+      "id": "blind-continue-interruption",
+      "intent": "continue-current",
+      "text": "Let’s continue the conversation we were having before the interruption."
+    },
+    {
+      "id": "blind-temporal-two-weeks",
+      "intent": "temporal-recall",
+      "text": "Give me a broad summary of my conversations over the past two weeks."
+    },
+    {
+      "id": "blind-temporal-yesterday-topics",
+      "intent": "temporal-recall",
+      "text": "What topics did we cover across yesterday, without focusing on one project?"
+    },
+    {
+      "id": "blind-temporal-this-month",
+      "intent": "temporal-recall",
+      "text": "Catch me up on what we have been discussing this month."
+    },
+    {
+      "id": "blind-topic-autosave",
+      "intent": "topic-recall",
+      "text": "Find our earlier conversation about the autosave trigger."
+    },
+    {
+      "id": "blind-topic-report-exports",
+      "intent": "topic-recall",
+      "text": "What did we discuss regarding report exports?"
+    },
+    {
+      "id": "blind-topic-retention-dashboard",
+      "intent": "topic-recall",
+      "text": "Pull up the exchange where we talked about the retention dashboard."
+    },
+    {
+      "id": "blind-fact-timezone",
+      "intent": "preference-or-fact",
+      "text": "Which timezone have I said to use for calendar examples?"
+    },
+    {
+      "id": "blind-fact-timestamp-format",
+      "intent": "preference-or-fact",
+      "text": "What format did I say I want timestamps in?"
+    },
+    {
+      "id": "blind-fact-database",
+      "intent": "preference-or-fact",
+      "text": "What database does the service currently use?"
+    },
+    {
+      "id": "blind-decision-storage",
+      "intent": "historical-decision",
+      "text": "Did we settle on local SQLite or the hosted store for episode metadata?"
+    },
+    {
+      "id": "blind-decision-retention",
+      "intent": "historical-decision",
+      "text": "Which retention window did the team approve?"
+    },
+    {
+      "id": "blind-decision-deduplication",
+      "intent": "historical-decision",
+      "text": "What option did we choose for resolving transcript duplicates?"
+    },
+    {
+      "id": "blind-similar-import",
+      "intent": "similar-work",
+      "text": "Look for an existing import flow we can adapt to this importer."
+    },
+    {
+      "id": "blind-similar-retry",
+      "intent": "similar-work",
+      "text": "Show me a similar tool’s retry strategy that could be reused here."
+    },
+    {
+      "id": "blind-similar-migration",
+      "intent": "similar-work",
+      "text": "Find an earlier solution to noisy database migration warnings so we can apply it."
+    }
+  ]
+}

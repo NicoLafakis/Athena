@@ -10,6 +10,7 @@ import React from 'react'
 import { loadAvailableSkills } from './tools/skill.js'
 import { resolveBrainPaths } from './brain/paths.js'
 import {
+  loadGlobalTimeZone,
   loadSettings,
   readProjectSettingsCapabilities,
   SettingsSchema,
@@ -110,11 +111,24 @@ import {
 import { stalenessBootWarnings } from './harness/staleness.js'
 import { configureVmp, getVmpStatus, printVmpReport, startVmpServer } from './harness/vmp.js'
 import { runJournalCommand } from './journal/cli.js'
+import { ContinuityStore } from './continuity/store.js'
+import { MemoryHygieneStore } from './brain/hygiene.js'
+import { generateSemanticCandidates, reviewSemanticCandidate } from './continuity/candidates.js'
+import type { WorkingRecallState } from './continuity/ranking.js'
+import {
+  formatContinuityEpisode,
+  formatContinuityRanking,
+  formatContinuityRollups,
+  formatContinuitySearch,
+  formatContinuityStatus,
+  formatSemanticCandidateReview,
+} from './continuity/presentation.js'
 export type AccessibilityPresentation = 'standard' | 'screen-reader'
 export type VoiceModel = 'gpt-realtime-2.1-mini' | 'gpt-realtime-2.1'
 
 const VOICE_MODELS: readonly VoiceModel[] = ['gpt-realtime-2.1-mini', 'gpt-realtime-2.1']
 const DEFAULT_VOICE_MODEL: VoiceModel = 'gpt-realtime-2.1-mini'
+const SEMANTIC_MEMORY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 export type CliCommand =
   | { command: 'run'; provider?: ProviderId; accessibility?: AccessibilityPresentation }
@@ -144,8 +158,14 @@ export type CliCommand =
   | { command: 'exec'; provider?: ProviderId; options: ExecOptions }
   | {
       command: 'session'
-      action: 'list' | 'checkpoints' | 'rewind' | 'fork' | 'rename' | 'search' | 'delete'
+      action: 'list' | 'checkpoints' | 'rewind' | 'fork' | 'rename' | 'search' | 'delete' | 'restore'
       args: string[]
+    }
+  | {
+      command: 'memory'
+      action: 'rebuild' | 'status' | 'timeline' | 'search' | 'show' | 'rollup' | 'rank' | 'candidates' | 'review' | 'forget'
+      args: string[]
+      projectId?: string
     }
   | {
       command: 'plugin'
@@ -481,17 +501,79 @@ export function parseArgs(argv: string[]): CliCommand {
   }
   if (argv[0] === 'session') {
     const action = argv[1] ?? 'list'
-    const actions = new Set(['list', 'checkpoints', 'rewind', 'fork', 'rename', 'search', 'delete'])
+    const actions = new Set(['list', 'checkpoints', 'rewind', 'fork', 'rename', 'search', 'delete', 'restore'])
     if (!actions.has(action)) {
       return {
         command: 'error',
-        message: 'Usage: athena session <list|checkpoints|rewind|fork|rename|search|delete> [args]',
+        message: 'Usage: athena session <list|checkpoints|rewind|fork|rename|search|delete|restore> [args]',
       }
     }
     return {
       command: 'session',
       action: action as Extract<CliCommand, { command: 'session' }>['action'],
       args: argv.slice(2),
+    }
+  }
+  if (argv[0] === 'memory') {
+    const action = argv[1] ?? 'status'
+    const actions = new Set(['rebuild', 'status', 'timeline', 'search', 'show', 'rollup', 'rank', 'candidates', 'review', 'forget'])
+    if (!actions.has(action)) {
+      return {
+        command: 'error',
+        message: 'Usage: athena memory <rebuild|status|timeline|search|rank|show|rollup|candidates|review|forget> [query|episode-id|granularity|memory-id] [--project <project-id>]',
+      }
+    }
+    const args: string[] = []
+    let projectId: string | undefined
+    const rest = argv.slice(2)
+    for (let index = 0; index < rest.length; index++) {
+      const arg = rest[index]!
+      if (arg === '--project') {
+        const value = rest[index + 1]
+        if (!value || value.startsWith('--')) return { command: 'error', message: '--project requires a project ID' }
+        projectId = value
+        index++
+      } else if (arg.startsWith('--')) {
+        return { command: 'error', message: `Unknown memory argument: ${arg}` }
+      } else {
+        args.push(arg)
+      }
+    }
+    if (['rebuild', 'status'].includes(action) && args.length > 0) {
+      return { command: 'error', message: `Usage: athena memory ${action}` }
+    }
+    if (action === 'candidates' && (projectId !== undefined || args.length > 0)) {
+      return { command: 'error', message: 'Usage: athena memory candidates' }
+    }
+    if (action === 'review' && (
+      projectId !== undefined || args.length !== 2 || !SEMANTIC_MEMORY_ID.test(args[0]!) ||
+      !['promote', 'reject'].includes(args[1]!)
+    )) {
+      return { command: 'error', message: 'Usage: athena memory review <memory-id> <promote|reject>' }
+    }
+    if (action === 'forget' && (
+      projectId !== undefined || args.length !== 1 || !SEMANTIC_MEMORY_ID.test(args[0]!)
+    )) {
+      return { command: 'error', message: 'Usage: athena memory forget <memory-id>' }
+    }
+    if (action === 'show' && args.length !== 1) {
+      return { command: 'error', message: 'Usage: athena memory show <episode-id>' }
+    }
+    if (action === 'search' && args.length === 0) {
+      return { command: 'error', message: 'Usage: athena memory search <query> [--project <project-id>]' }
+    }
+    if (action === 'rank' && args.length === 0) {
+      return { command: 'error', message: 'Usage: athena memory rank <query> [--project <project-id>]' }
+    }
+    if (action === 'rollup' &&
+      (projectId !== undefined || args.length > 1 || (args.length === 1 && !['day', 'week', 'month', 'quarter', 'year'].includes(args[0]!)))) {
+      return { command: 'error', message: 'Usage: athena memory rollup [day|week|month|quarter|year]' }
+    }
+    return {
+      command: 'memory',
+      action: action as Extract<CliCommand, { command: 'memory' }>['action'],
+      args,
+      ...(projectId ? { projectId } : {}),
     }
   }
   if (argv[0] === 'trust') {
@@ -618,7 +700,18 @@ Usage:
   athena trust --hooks   separately approve the current project hook definitions
   athena trust --mcp     separately approve the current project MCP definitions
   athena trust --revoke  revoke all trust for this project
-  athena session list    manage durable sessions, checkpoints, rewind, and forks
+  athena session list           manage durable sessions, checkpoints, rewind, and forks
+  athena session delete <id>    move a session to recoverable trash and suppress its recall
+  athena session restore <id>   restore a recoverable session and reindex its history
+  athena memory          inspect cross-project conversation continuity
+  athena memory rebuild  rebuild the local linked episode index
+  athena memory search   find prior conversations by time or topic
+  athena memory rank     preview ranked local continuity layers for a query
+  athena memory candidates generate and list source-linked inferred candidates for review
+  athena memory review   explicitly promote or reject a semantic memory candidate
+  athena memory forget   erase derived semantic text while preserving its source session
+  athena memory show     inspect an episode with source-linked messages
+  athena memory rollup   show source-linked day/week/month/quarter/year summaries
   athena plugin list     manage installed plugins (install/update/enable/disable/remove/verify)
   athena learn candidates inspect governed learning candidates, held-out evals, canaries, and rollback
   athena journal status  inspect opt-in daily reflection, source-linked memory, relationships and budgets
@@ -626,7 +719,7 @@ Usage:
   athena --help          this help
   athena --version       print the installed version
 
-In-session: /help /status /repeat /details /verbosity /clear /resume /compact /model /effort /provider /mode /tui /memory /skills /agents /quit. Esc interrupts a turn.
+In-session: /help /status /repeat /details /verbosity /clear /resume /compact /model /effort /provider /mode /tui /memory /memory rank <query> /memory candidates /memory review <memory-id> <promote|reject> /memory forget <memory-id> /skills /agents /quit. Esc interrupts a turn.
 Custom commands: drop a .md file (with description/argument-hint frontmatter) into .athena/commands/ or ~/.athena/commands/ to add /<name>.
 Plugins: use \`athena plugin install <directory-or-git-url>\`; managed bundles can contribute namespaced skills, agents, commands, hooks, MCP, and app metadata.`
 
@@ -722,6 +815,28 @@ export function handleScreenReaderInterrupt(
   return 'session-exit'
 }
 
+function currentWorkingRecallState(
+  messages: MessageParam[],
+  sessionId: string | null,
+  projectId: string,
+): WorkingRecallState[] {
+  const content = messages.map((message) => {
+    if (typeof message.content === 'string') return message.content
+    return message.content
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join(' ')
+  }).filter(Boolean).join('\n').slice(-32_000).trim()
+  if (!content) return []
+  return [{
+    id: `working:${sessionId ?? 'current'}`,
+    projectId,
+    observedAt: new Date().toISOString(),
+    content,
+    sourceIds: sessionId ? [`session:${sessionId}`] : [],
+  }]
+}
+
 interface SlashDeps {
   bus: EngineEventBus
   engine: Engine
@@ -737,6 +852,8 @@ interface SlashDeps {
   permissionDetails?: (id: string) => string | null
   commands?: ReadonlyMap<string, { description: string; argumentHint: string | null }>
   vmpRecorder?: TelemetryRecorder
+  continuityStore?: ContinuityStore
+  timeZone?: string
 }
 
 export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
@@ -755,6 +872,8 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
     permissionDetails,
     commands,
     vmpRecorder,
+    continuityStore,
+    timeZone,
   } = deps
   const info = (message: string) => bus.emit({ type: 'info', message })
   return (cmd) => {
@@ -768,7 +887,7 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
                 .join(', ')
             : ''
         info(
-          `Commands: /help /status /repeat /details /verbosity <concise|balanced|detailed> /clear /resume /compact /model <${modelKeys(engine.getProvider()).join('|')}> /effort <${effortLevels(engine.getProvider(), engine.getModel()).join('|') || 'unavailable'}> /provider <${PROVIDER_IDS.join('|')}> /mode <normal|acceptEdits|plan|trusted> /tui <fullscreen|classic> /memory /skills /agents /quit\n` +
+          `Commands: /help /status /repeat /details /verbosity <concise|balanced|detailed> /clear /resume /compact /model <${modelKeys(engine.getProvider()).join('|')}> /effort <${effortLevels(engine.getProvider(), engine.getModel()).join('|') || 'unavailable'}> /provider <${PROVIDER_IDS.join('|')}> /mode <normal|acceptEdits|plan|trusted> /tui <fullscreen|classic> /memory /memory rank <query> /memory candidates /memory review <memory-id> <promote|reject> /memory forget <memory-id> /skills /agents /quit\n` +
             '/clear clears the screen (transcript display only) — conversation context is unchanged; use /compact to shrink it.\n' +
             '/tui fullscreen switches to an alternate-screen buffer with a pinned input (like vim/htop); /tui classic returns to normal scrollback.\n' +
             '/model /provider /effort /mode /tui run with no argument open a picker to choose a value instead of requiring you to type one.' +
@@ -906,9 +1025,77 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
           }
         })()
         break
-      case 'memory':
-        info(loadMemoryIndex(paths) ?? '(no memory index)')
+      case 'memory': {
+        if (!cmd.action) {
+          info(loadMemoryIndex(paths) ?? '(no memory index)')
+          break
+        }
+        const memoryStore = continuityStore ?? new ContinuityStore(paths.continuityDir, { onWarn: info })
+        if (cmd.action === 'status') {
+          info(formatContinuityStatus(memoryStore))
+        } else if (cmd.action === 'rebuild') {
+          const result = memoryStore.rebuild(paths.sessionsDir)
+          info(`Indexed ${result.episodeCount} episode(s) from ${result.sessionCount} session(s).`)
+        } else if (cmd.action === 'candidates') {
+          try {
+            const semanticStore = new MemoryHygieneStore(paths.memoryDir, { onWarn: info })
+            const result = generateSemanticCandidates(memoryStore, paths.sessionsDir, semanticStore)
+            info(formatSemanticCandidateReview(result, semanticStore.listAll()))
+          } catch (error) {
+            info(`Could not generate semantic candidates: ${(error as Error).message}`)
+          }
+        } else if (cmd.action === 'review') {
+          const [memoryId, action] = (cmd.value ?? '').split(/\s+/)
+          if (!memoryId || (action !== 'promote' && action !== 'reject')) {
+            info('Usage: /memory review <memory-id> <promote|reject>')
+            break
+          }
+          try {
+            const semanticStore = new MemoryHygieneStore(paths.memoryDir, { onWarn: info })
+            const reviewed = reviewSemanticCandidate(semanticStore, memoryStore, paths.sessionsDir, memoryId, action)
+            info(`Semantic memory ${reviewed.memoryId} ${action === 'promote' ? 'promoted' : 'rejected'}.`)
+          } catch (error) {
+            info(`Could not review semantic memory: ${(error as Error).message}`)
+          }
+        } else if (cmd.action === 'forget') {
+          const memoryId = cmd.value ?? ''
+          try {
+            const semanticStore = new MemoryHygieneStore(paths.memoryDir, { onWarn: info })
+            const forgotten = semanticStore.forget(memoryId)
+            info(`Semantic memory ${forgotten.memoryId} forgotten. Its source session remains available for historical recall.`)
+          } catch (error) {
+            info(`Could not forget semantic memory: ${(error as Error).message}`)
+          }
+        } else if (cmd.action === 'rank') {
+          const semanticStore = new MemoryHygieneStore(paths.memoryDir, { onWarn: info })
+          info(formatContinuityRanking(memoryStore, {
+            sessionsRoot: paths.sessionsDir,
+            query: cmd.value ?? '',
+            semanticMemories: semanticStore.listAll(),
+            working: currentWorkingRecallState(engine.getMessages(), session?.id ?? null, store.projectId),
+            currentProjectId: store.projectId,
+            ...(cmd.projectId ? { projectId: cmd.projectId } : {}),
+            ...(timeZone ? { timeZone } : {}),
+          }))
+        } else if (cmd.action === 'rollup') {
+          info(formatContinuityRollups(
+            memoryStore,
+            paths.sessionsDir,
+            timeZone,
+            cmd.value as 'day' | 'week' | 'month' | 'quarter' | 'year' | undefined,
+          ))
+        } else if (cmd.action === 'search' || cmd.action === 'timeline') {
+          info(formatContinuitySearch(memoryStore, paths.sessionsDir, {
+            action: cmd.action,
+            query: cmd.value ?? '',
+            ...(cmd.projectId ? { projectId: cmd.projectId } : {}),
+            ...(timeZone ? { timeZone } : {}),
+          }))
+        } else {
+          info(formatContinuityEpisode(memoryStore, paths.sessionsDir, cmd.value ?? ''))
+        }
         break
+      }
       case 'skills': {
         const skills = loadAvailableSkills(paths)
         info(
@@ -1413,8 +1600,106 @@ async function main(): Promise<void> {
     }
     return
   }
+  if (cmd.command === 'memory') {
+    const store = new ContinuityStore(paths.continuityDir, { onWarn: (warning) => console.error(warning) })
+    try {
+      if (cmd.action === 'rebuild') {
+        const result = store.rebuild(paths.sessionsDir)
+        console.log(`Indexed ${result.episodeCount} episode(s) from ${result.sessionCount} session(s).`)
+        for (const warning of result.warnings) console.error(warning)
+        return
+      }
+      if (cmd.action === 'status') {
+        console.log(formatContinuityStatus(store))
+        return
+      }
+
+      if (cmd.action === 'candidates') {
+        const semanticStore = new MemoryHygieneStore(paths.memoryDir, {
+          onWarn: (warning) => console.error(warning),
+        })
+        const result = generateSemanticCandidates(store, paths.sessionsDir, semanticStore)
+        console.log(formatSemanticCandidateReview(result, semanticStore.listAll()))
+        return
+      }
+
+      if (cmd.action === 'review') {
+        const [memoryId, action] = cmd.args
+        if (!memoryId || (action !== 'promote' && action !== 'reject')) {
+          throw new Error('Usage: athena memory review <memory-id> <promote|reject>')
+        }
+        const semanticStore = new MemoryHygieneStore(paths.memoryDir, {
+          onWarn: (warning) => console.error(warning),
+        })
+        const reviewed = reviewSemanticCandidate(semanticStore, store, paths.sessionsDir, memoryId, action)
+        console.log(`Semantic memory ${reviewed.memoryId} ${action === 'promote' ? 'promoted' : 'rejected'}.`)
+        return
+      }
+
+      if (cmd.action === 'forget') {
+        const [memoryId] = cmd.args
+        if (!memoryId) throw new Error('Usage: athena memory forget <memory-id>')
+        const semanticStore = new MemoryHygieneStore(paths.memoryDir, {
+          onWarn: (warning) => console.error(warning),
+        })
+        const forgotten = semanticStore.forget(memoryId)
+        console.log(`Semantic memory ${forgotten.memoryId} forgotten. Its source session remains available for historical recall.`)
+        return
+      }
+
+      let timeZone: string | undefined
+      try {
+        timeZone = loadGlobalTimeZone(paths, (warning) => console.error(warning))
+      } catch {
+        console.error('The configured timezone could not be loaded; memory dates will use the inferred OS timezone.')
+      }
+
+      if (cmd.action === 'rollup') {
+        console.log(formatContinuityRollups(
+          store,
+          paths.sessionsDir,
+          timeZone,
+          cmd.args[0] as 'day' | 'week' | 'month' | 'quarter' | 'year' | undefined,
+        ))
+        return
+      }
+
+      if (cmd.action === 'rank') {
+        const semanticStore = new MemoryHygieneStore(paths.memoryDir, {
+          onWarn: (warning) => console.error(warning),
+        })
+        const currentProjectId = new SessionStore(paths.sessionsDir, cwd).projectId
+        console.log(formatContinuityRanking(store, {
+          sessionsRoot: paths.sessionsDir,
+          query: cmd.args.join(' '),
+          semanticMemories: semanticStore.listAll(),
+          currentProjectId,
+          ...(cmd.projectId ? { projectId: cmd.projectId } : {}),
+          ...(timeZone ? { timeZone } : {}),
+        }))
+        return
+      }
+
+      if (cmd.action === 'search' || cmd.action === 'timeline') {
+        console.log(formatContinuitySearch(store, paths.sessionsDir, {
+          action: cmd.action,
+          query: cmd.args.join(' '),
+          ...(cmd.projectId ? { projectId: cmd.projectId } : {}),
+          ...(timeZone ? { timeZone } : {}),
+        }))
+        return
+      }
+
+      console.log(formatContinuityEpisode(store, paths.sessionsDir, cmd.args[0]!))
+    } catch (error) {
+      console.error((error as Error).message)
+      process.exitCode = CLI_EXIT.usage
+    }
+    return
+  }
   if (cmd.command === 'session') {
     const store = new SessionStore(paths.sessionsDir, cwd)
+    const continuityStore = new ContinuityStore(paths.continuityDir, { onWarn: (warning) => console.error(warning) })
     const [id, ...rest] = cmd.args
     try {
       switch (cmd.action) {
@@ -1456,8 +1741,27 @@ async function main(): Promise<void> {
           break
         case 'delete':
           if (!id) throw new Error('Usage: athena session delete <session-id>')
-          console.log(`Deleted ${id}; recoverable copy: ${store.delete(id)}`)
+          store.assertExists(id)
+          continuityStore.tombstoneSession(store.projectId, id)
+          try {
+            console.log(`Deleted ${id}; recoverable copy: ${store.delete(id)}; continuity suppressed.`)
+          } catch (error) {
+            continuityStore.restoreSession(store.projectId, id, paths.sessionsDir)
+            throw error
+          }
           break
+        case 'restore': {
+          if (!id) throw new Error('Usage: athena session restore <session-id>')
+          const file = store.restore(id)
+          const result = continuityStore.restoreSession(store.projectId, id, paths.sessionsDir)
+          if (result.state === 'indexed') {
+            console.log(`Restored ${id}; continuity indexed ${result.episodeCount} episode(s).`)
+          } else {
+            console.error(`Restored ${id} at ${file}, but continuity could not be refreshed (${result.state}). Run \`athena memory rebuild\`.`)
+            process.exitCode = CLI_EXIT.provider
+          }
+          break
+        }
       }
     } catch (err) {
       console.error((err as Error).message)
@@ -2159,6 +2463,8 @@ async function main(): Promise<void> {
       permissionDetails: (id) => permissionDetails.get(id) ?? null,
       commands,
       vmpRecorder,
+      continuityStore: controller.continuityStore,
+      ...(settings.timeZone ? { timeZone: settings.timeZone } : {}),
     })
     const unsubscribeScreen = bus.on((event) => {
       if (event.type === 'info') {
@@ -2277,6 +2583,8 @@ async function main(): Promise<void> {
         permissionDetails: (id) => permissionDetails.get(id) ?? null,
         commands,
         vmpRecorder,
+        continuityStore: controller.continuityStore,
+        ...(settings.timeZone ? { timeZone: settings.timeZone } : {}),
       }),
     }),
   )
