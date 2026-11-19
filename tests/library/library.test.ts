@@ -6,7 +6,10 @@ import { ZodError } from 'zod'
 import { createNote, digest, reviewNote, promoteNote, releaseRecovery, rejectNote, retrieveNotes, type LibraryNote, type Review } from '../../src/library/core.js'
 import { projectFile } from '../../src/library/config.js'
 import { LibraryStore } from '../../src/library/store.js'
+import { LibraryRuntime } from '../../src/library/runtime.js'
 import { libraryCommand } from '../../src/library/cli.js'
+import { makeLibraryReadTool } from '../../src/tools/library.js'
+import { makeCtx } from '../helpers/tool-ctx.js'
 
 vi.mock('node:fs', async importOriginal => {
   const original = await importOriginal<typeof import('node:fs')>()
@@ -163,7 +166,7 @@ describe('library CLI per-operation validation', () => {
     expect(existsSync(join(cwd, '.athena', 'library', 'library.json'))).toBe(false)
   })
 
-  it('canonicalizes OS-level symlinked parent prefixes (e.g. macOS /var -> /private/var) while still rejecting symlinked project files or library roots', () => {
+  it('canonicalizes OS-level symlinked parent prefixes (e.g. macOS /var -> /private/var) while still rejecting symlinked project files or library roots', async () => {
     const outer = mkdtempSync(join(tmpdir(), 'athena-library-alias-'))
     roots.push(outer)
     const realParent = join(outer, 'real-parent')
@@ -189,6 +192,14 @@ describe('library CLI per-operation validation', () => {
     expect(libraryCommand(aliasedCwd, 'status')).toMatchObject({ enabled: true })
     // Direct LibraryStore under a symlinked OS ancestor prefix also succeeds:
     expect(new LibraryStore(join(aliasedCwd, '.athena', 'library'), safe).read().notes).toEqual([])
+    // LibraryRead tool invoked with the aliased cwd matches its canonical LibraryRuntime scope:
+    const aliasedRuntime = LibraryRuntime.open(aliasedCwd, true)!
+    const readTool = makeLibraryReadTool(aliasedRuntime)
+    const toolRes = await readTool.execute(readTool.schema.parse({ op: 'status' }), makeCtx(aliasedCwd))
+    expect(toolRes.isError).toBe(false)
+    // A different project cwd is still refused by the tool scope check:
+    const otherRes = await readTool.execute(readTool.schema.parse({ op: 'status' }), makeCtx(outer))
+    expect(otherRes.isError).toBe(true)
 
     // Direct symlink at the library root itself is still rejected:
     const targetDir = join(outer, 'redirect-target')
