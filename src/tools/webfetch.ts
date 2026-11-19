@@ -19,6 +19,55 @@ function isDocumentationHostname(hostname: string): boolean {
   )
 }
 
+function parseIpv6Hextets(address: string): number[] | null {
+  let working = address
+  let ipv4Tail: [number, number] | null = null
+  const lastColon = working.lastIndexOf(':')
+  if (lastColon !== -1 && working.slice(lastColon + 1).includes('.')) {
+    const tail = working.slice(lastColon + 1)
+    if (isIP(tail) !== 4) return null
+    const octets = tail.split('.').map(Number)
+    ipv4Tail = [(octets[0]! << 8) | octets[1]!, (octets[2]! << 8) | octets[3]!]
+    working = working.slice(0, lastColon)
+    if (working.endsWith(':')) working += ':' // preserve `::` when tail followed `::`
+  }
+
+  const halves = working.split('::')
+  if (halves.length > 2) return null
+
+  const parsePart = (part: string): number[] | null => {
+    if (part === '') return []
+    const groups = part.split(':')
+    const nums: number[] = []
+    for (const g of groups) {
+      if (!/^[0-9a-f]{1,4}$/.test(g)) return null
+      nums.push(Number.parseInt(g, 16))
+    }
+    return nums
+  }
+
+  const head = parsePart(halves[0]!)
+  const tail = halves.length === 2 ? parsePart(halves[1]!) : []
+  if (!head || !tail) return null
+
+  const targetLen = ipv4Tail ? 6 : 8
+  let hextets: number[]
+  if (halves.length === 1) {
+    if (head.length !== targetLen) return null
+    hextets = head
+  } else {
+    const missing = targetLen - (head.length + tail.length)
+    if (missing < 1) return null
+    hextets = [...head, ...Array<number>(missing).fill(0), ...tail]
+  }
+
+  return ipv4Tail ? [...hextets, ipv4Tail[0], ipv4Tail[1]] : hextets
+}
+
+function ipv4FromHextets(hi: number, lo: number): string {
+  return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`
+}
+
 export function isPrivateAddress(address: string): boolean {
   const lower = address.toLowerCase().split('%')[0]!
   if (isIP(lower) === 4) {
@@ -38,10 +87,36 @@ export function isPrivateAddress(address: string): boolean {
     )
   }
   if (isIP(lower) === 6) {
-    if (lower === '::' || lower === '::1') return true
-    if (lower.startsWith('fc') || lower.startsWith('fd') || /^fe[89ab]/.test(lower)) return true
-    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(lower)
-    return mapped ? isPrivateAddress(mapped[1]!) : false
+    const h = parseIpv6Hextets(lower)
+    if (!h) return true
+    const [h0, h1, h2, h3, h4, h5, h6, h7] = h as [
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+    ]
+    // Unspecified (::) and loopback (::1)
+    if (h0 === 0 && h1 === 0 && h2 === 0 && h3 === 0 && h4 === 0 && h5 === 0 && h6 === 0 && (h7 === 0 || h7 === 1)) {
+      return true
+    }
+    // Unique local (fc00::/7), link-local (fe80::/10), multicast (ff00::/8)
+    if ((h0 & 0xfe00) === 0xfc00 || (h0 & 0xffc0) === 0xfe80 || (h0 & 0xff00) === 0xff00) {
+      return true
+    }
+    // IPv4-mapped (::ffff:0:0/96), IPv4-translated SIIT (::ffff:0:0:0/96),
+    // deprecated IPv4-compatible (::/96), and NAT64 well-known prefix (64:ff9b::/96)
+    const isIpv4Mapped = h0 === 0 && h1 === 0 && h2 === 0 && h3 === 0 && h4 === 0 && h5 === 0xffff
+    const isIpv4Translated = h0 === 0 && h1 === 0 && h2 === 0 && h3 === 0 && h4 === 0xffff && h5 === 0
+    const isIpv4Compatible = h0 === 0 && h1 === 0 && h2 === 0 && h3 === 0 && h4 === 0 && h5 === 0
+    const isNat64 = h0 === 0x0064 && h1 === 0xff9b && h2 === 0 && h3 === 0 && h4 === 0 && h5 === 0
+    if (isIpv4Mapped || isIpv4Translated || isIpv4Compatible || isNat64) {
+      return isPrivateAddress(ipv4FromHextets(h6, h7))
+    }
+    return false
   }
   return true
 }

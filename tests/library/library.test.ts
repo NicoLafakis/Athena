@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, existsSync, renameSync, readdirSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, renameSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { ZodError } from 'zod'
 import { createNote, digest, reviewNote, promoteNote, releaseRecovery, rejectNote, retrieveNotes, type LibraryNote, type Review } from '../../src/library/core.js'
 import { LibraryStore } from '../../src/library/store.js'
+import { libraryCommand } from '../../src/library/cli.js'
 
 vi.mock('node:fs', async importOriginal => {
   const original = await importOriginal<typeof import('node:fs')>()
@@ -135,5 +137,28 @@ describe('isolated persistence and recovery', () => {
     expect(() => library.save([], initial.revision)).toThrow()
     expect(library.read()).toEqual(initial)
     expect(existsSync(join(library.root, 'writer.lock'))).toBe(true)
+  })
+})
+
+describe('library CLI per-operation validation', () => {
+  it('rejects missing required fields via Zod before touching runtime state', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'athena-library-cli-'))
+    roots.push(cwd)
+    mkdirSync(join(cwd, '.athena'))
+    writeFileSync(join(cwd, 'detail.md'), 'Detail.\n')
+    writeFileSync(join(cwd, 'summary.md'), 'Summary.\n')
+    writeFileSync(
+      join(cwd, '.athena', 'library.config.json'),
+      JSON.stringify({
+        enabled: true,
+        publicSources: ['detail.md', 'summary.md'],
+        categories: ['context'],
+        checks: [{ id: 'ok', args: ['check.mjs'] }],
+      }),
+    )
+    for (const op of ['submit', 'review', 'promote', 'reverify', 'release', 'reject', 'rollback'] as const) {
+      expect(() => libraryCommand(cwd, op, {}), `expected ${op} with {} to fail Zod validation`).toThrow(ZodError)
+    }
+    expect(existsSync(join(cwd, '.athena', 'library', 'library.json'))).toBe(false)
   })
 })

@@ -56,7 +56,7 @@ const MUTATING_COMMANDS = new Set([
   'new-item', 'set-content', 'add-content', 'clear-content', 'out-file',
   'remove-item', 'move-item', 'copy-item', 'rename-item', 'set-itemproperty',
   'new-itemproperty', 'remove-itemproperty', 'set-acl', 'unblock-file',
-  'compress-archive', 'expand-archive', 'new-itemproperty',
+  'compress-archive', 'expand-archive',
 ])
 
 /** Characters that end a command segment, so the next segment gets its own verb.

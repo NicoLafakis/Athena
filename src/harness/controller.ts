@@ -1,7 +1,7 @@
 // src/harness/controller.ts — Shared Athena Harness Session Controller for the interactive
 // TUI, the append-only screen-reader loop, CLI exec, and voice.
-import { execSync } from 'node:child_process'
 import { join } from 'node:path'
+import { gitBranch } from './git.js'
 import type { BrainPaths } from '../brain/paths.js'
 import type { ProviderId, Effort } from '../brain/models.js'
 import { modelCapabilities } from '../brain/models.js'
@@ -55,19 +55,6 @@ import { JournalRuntime, type JournalRuntimeOptions } from '../journal/runtime.j
 import { makeAgentTool } from '../tools/agent.js'
 import { LibraryRuntime } from '../library/runtime.js'
 import { makeLibraryReadTool, makeLibraryWriteTool } from '../tools/library.js'
-
-function gitBranch(cwd: string): string | null {
-  try {
-    const branch = execSync('git rev-parse --abbrev-ref HEAD', {
-      cwd,
-      stdio: ['pipe', 'pipe', 'ignore'],
-    }).toString('utf8').trim()
-    return branch || null
-  } catch {
-    return null
-  }
-}
-
 import { ensureBrainScaffold } from './bootstrap.js'
 
 /** A session the caller picked itself: the `--continue` latest pick and the `--resume` picker. */
@@ -487,6 +474,10 @@ export class HarnessSessionController {
       systemPrompt,
       maxTokens: settings.maxOutputTokens ?? activeCapabilities.maxOutputTokens,
       preflightContext: true,
+      // Intentional precedence (see .wiki/architecture/librarian-library.md): while an
+      // explicit LibraryRead selection is active on the current turn, provisional journal
+      // recall is not mixed into the same request context; normal journal recall resumes
+      // on the next turn once library.beginTurn() clears the selection.
       historicalContext: (prompt): string => library?.selected ? library.context() : reflectionJournal.retrieve(prompt),
       ...(askUser ? { askUser } : {}),
       limits: limits ?? {

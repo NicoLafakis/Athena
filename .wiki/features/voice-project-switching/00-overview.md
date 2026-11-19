@@ -1,8 +1,8 @@
 # Voice-addressable project switching
 
-**Status: design. Piece 1 (composition unification) in progress; pieces 2 and 3 not
-started.** Nothing here is shipped. The protected-paths fence and the
-trusted/unrestricted posture that this design assumes ARE shipped — see
+**Status: design. Piece 1 (composition unification) is shipped; pieces 2 and 3 are not
+started.** The protected-paths fence and the trusted/unrestricted posture that this design
+assumes ARE shipped — see
 [permissions and project trust](../../architecture/permissions-trust.md).
 
 ## The goal, in Nico's words
@@ -22,13 +22,13 @@ Four capabilities are named there. Two already work, two do not:
 | Re-root the session at another project by voice | **Missing** |
 | See it happen in the Ink display | **Missing** — voice mode prints plain lines |
 
-## Why it is not a small change
+## Why it was not a small change
 
-`athena voice` is the only caller of `HarnessSessionController`
-(`src/cli.ts`, the voice branch). The interactive Ink TUI builds its own engine, bus,
-gate, trace, and session store inline inside `main()`. Two compositions of the same
-session exist, and both missing capabilities have to cross that seam. So the seam is the
-work, and it is piece 1.
+When this design was drafted, `athena voice` was the only caller of `HarnessSessionController`
+while the interactive Ink TUI built its own engine, bus, gate, trace, and session store inline
+inside `main()`. Piece 1 has since landed: `exec`, the append-only screen-reader loop, the Ink
+TUI, and `athena voice` all build from `HarnessSessionController.create()`, so pieces 2 and 3
+now have a single composition seam to build on.
 
 `cwd` being `readonly` on the controller is correct, not an oversight. Construction-time
 consumers of it include the resource policy, the permission engine, project trust, the

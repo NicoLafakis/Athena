@@ -7,9 +7,11 @@ See [architecture, policy, invocation and limitations](../../.wiki/architecture/
 
 Components: `core.ts` (contracts), `store.ts` (atomic persistence), `config.ts`
 (explicit public-source opt-in), `verifier.ts` (actual Git/check evidence),
-`runtime.ts` (librarian service), `cli.ts` (operator controls), and
-`../tools/library.ts` (model-facing adapters). The shared controller mounts tools
-only for an opted-in trusted project and supplies revalidated ephemeral context.
+`runtime.ts` (librarian service), `cli.ts` (standalone operator CLI — intentionally
+not wired into `src/cli.ts` until activation, leaving the installed `dist/` build
+untouched), and `../tools/library.ts` (model-facing adapters). The shared controller
+mounts tools only for an opted-in trusted project and supplies revalidated ephemeral
+context.
 
 Existing-dependency checks:
 

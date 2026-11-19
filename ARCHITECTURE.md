@@ -90,6 +90,11 @@ and local slash-command handler.
   notes and human `athena journal` commands own enablement and scheduling.
   Generated `memory/journal/` views stay outside the system memory index and
   active learning claims. See [the journal lifecycle](.wiki/architecture/self-reflection-journal.md).
+- `src/library/` - disabled-by-default source-linked project librarian: explicit
+  public-file opt-in, Git-canonical provenance, committed four-stage review evidence,
+  executed check receipts, bounded category-key recall via `LibraryRead`/`LibraryWrite`,
+  ephemeral request-time context, and standalone operator CLI (`src/library/cli.ts`).
+  See [the project librarian contract](.wiki/architecture/librarian-library.md).
 
 ## Presentation and permission flow
 

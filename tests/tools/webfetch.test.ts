@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { webfetchTool, htmlToText, readBodyCapped } from '../../src/tools/webfetch.js'
+import { webfetchTool, htmlToText, readBodyCapped, isPrivateAddress, assertPublicUrl } from '../../src/tools/webfetch.js'
 import { makeCtx } from '../helpers/tool-ctx.js'
 
 let dir: string
@@ -116,9 +116,21 @@ describe('webfetchTool', () => {
   it('blocks localhost and loopback without fetching', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
-    for (const url of ['http://localhost:3000/x', 'http://127.0.0.1:8080/y', 'http://[::1]/']) {
+    for (const url of [
+      'http://localhost:3000/x',
+      'http://127.0.0.1:8080/y',
+      'http://[::1]/',
+      'http://[0:0:0:0:0:0:0:1]/',
+      'http://[::ffff:127.0.0.1]/',
+      'http://[::ffff:7f00:1]/',
+      'http://[0:0:0:0:0:ffff:7f00:1]/',
+      'http://[0:0:0:0:ffff:0:7f00:1]/',
+      'http://[::ffff:10.0.0.1]/',
+      'http://[::ffff:a00:1]/',
+      'http://[ff02::1]/',
+    ]) {
       const result = await webfetchTool.execute({ url }, makeCtx(dir))
-      expect(result.isError).toBe(true)
+      expect(result.isError, `expected ${url} to be blocked`).toBe(true)
     }
     expect(fetchMock).not.toHaveBeenCalled()
   })
@@ -129,11 +141,39 @@ describe('webfetchTool', () => {
     for (const url of [
       'http://169.254.169.254/latest/meta-data/',
       'https://169.254.169.254/latest/meta-data/',
+      'http://[::ffff:169.254.169.254]/latest/meta-data/',
+      'http://[::ffff:a9fe:a9fe]/latest/meta-data/',
     ]) {
       const res = await webfetchTool.execute({ url }, makeCtx(dir))
-      expect(res.isError).toBe(true)
+      expect(res.isError, `expected ${url} to be blocked`).toBe(true)
     }
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('distinguishes private vs public IPv6 representations directly', async () => {
+    for (const addr of [
+      '::',
+      '::1',
+      '0:0:0:0:0:0:0:0',
+      '0:0:0:0:0:0:0:1',
+      '::ffff:127.0.0.1',
+      '::ffff:7f00:1',
+      '::ffff:a9fe:a9fe',
+      '0:0:0:0:0:ffff:7f00:1',
+      '0:0:0:0:ffff:0:a9fe:a9fe',
+      'fc00::1',
+      'fd12:3456::1',
+      'fe80::1',
+      'ff02::1',
+    ]) {
+      expect(isPrivateAddress(addr), `expected ${addr} to be private`).toBe(true)
+    }
+    for (const addr of ['2606:4700:4700::1111', '2001:4860:4860::8888', '::ffff:1.1.1.1', '::ffff:101:101']) {
+      expect(isPrivateAddress(addr), `expected ${addr} to be public`).toBe(false)
+    }
+    await expect(assertPublicUrl(new URL('http://[::ffff:127.0.0.1]/'))).rejects.toThrow(/private/i)
+    await expect(assertPublicUrl(new URL('http://[::ffff:169.254.169.254]/'))).rejects.toThrow(/private/i)
+    await expect(assertPublicUrl(new URL('http://[0:0:0:0:0:0:0:1]/'))).rejects.toThrow(/private/i)
   })
 
   it('blocks a redirect into a private address before the second request', async () => {
