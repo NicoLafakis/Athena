@@ -44,3 +44,8 @@ links here for depth, this wiki explains it.
 ## Research & Literature
 
 - [Long-horizon coding agent degradation: literature review](research/long-horizon-agent-code-degradation.md) - Literature review of structural decay in long-running coding-agent sessions; claims checked at arXiv abstract level (not full text), practitioner opinion marked unverified, and an Athena mapping with known gaps.
+
+
+## New planning packages
+
+- [Jev across Athena](features/jev-integration/00-overview.md) - Documentation-only portfolio, reconciliation of the existing continuity-branch integration, typed advisory boundaries, privacy scopes, operational budgets, evaluation gates and staged rollout. No implementation or activation performed.

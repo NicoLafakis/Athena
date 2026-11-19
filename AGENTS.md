@@ -1,3 +1,42 @@
+## Coding SOP: sole local coding-process gate (Nico, 2026-11-16)
+
+Before **every commit**, the complete applicable coding SOP must pass on the exact
+candidate tree, including all tests and all other required aspects. Running the SOP
+without passing it is not enough. Review, gap/bug and downstream-impact analysis,
+security checks, documentation consistency, tests, lint/type/format checks, build,
+and applicable local GitHub CI and Vercel/hosted-build rehearsals are components of
+this one SOP, not separate discretionary approvals. Discover the actual required
+commands and conditions from this project's instructions, scripts and CI/deployment
+configuration; do not substitute a generic or focused check for its required suite.
+
+Keep a real completed review record bound to the exact staged changes/candidate
+identity. It must cover intent, gaps, bugs, downstream effects, security and docs;
+an automatically generated claim that review passed is not review. Use the audited
+native SOP hook/profile and its evidence contract where installed. If coverage is
+not installed or incomplete, do not claim automatic enforcement or a complete pass.
+Changes to candidate content invalidate its prior review/check evidence: update the
+record and rerun the complete applicable SOP before committing the changed candidate.
+
+A required failed, blocked, missing, unrun or unexpectedly skipped check is not a
+pass, even if the failure predates this change. This dated rule supersedes earlier
+coding-process exceptions for pre-existing failures, docs-only abbreviated reruns,
+or checks deferred until after a commit/before a push. Explicitly non-applicable
+checks must be justified from the actual project configuration, never skipped for
+convenience. Do not weaken tests, bypass hooks, or mislabel evidence to pass.
+
+Preserve all substantive project checks and user work. This consolidation does not
+remove product/runtime protections, authorization for live data/spend/deployment,
+external platform policies, required user approvals, or system-file approval rules.
+A local pass is not proof of remote CI or deployment success: verify required remote
+checks for the exact published SHA before merging or claiming publication complete.
+
+On an unresolved SOP failure, tell Nico only **"SOP failed."** Keep detailed outcomes
+and diagnostics in local evidence for repair; explain only the minimum needed if an
+actual owner decision or approval is required. Do not invent extra coding approvals
+inside already-authorized work. Follow the shared `coding-sop` skill for procedure.
+
+---
+
 # AGENTS.md
 
 Repo-specific rules for any AI agent working in this repository, regardless of harness.
