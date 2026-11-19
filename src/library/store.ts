@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, mkdirSync, openSync, closeSync, writeFileSync, fsyncSync, renameSync, unlinkSync, realpathSync, lstatSync, statSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { NoteSchema, assertSafe, digest, type LibraryNote, type SensitivityCheck } from './core.js'
@@ -13,7 +13,21 @@ export interface LibrarySnapshot { revision: string; notes: LibraryNote[]; recov
  * side effect. Optimistic revision checks and an exclusive lock protect writers. */
 export class LibraryStore {
   readonly root: string
-  constructor(root: string, private readonly sensitive: SensitivityCheck) { this.root = resolve(root) }
+  constructor(root: string, private readonly sensitive: SensitivityCheck) {
+    const resolved = resolve(root)
+    let ancestor = resolved
+    while (!existsSync(ancestor) && dirname(ancestor) !== ancestor) ancestor = dirname(ancestor)
+    // Canonicalize OS-level symlinked prefixes above the store (e.g. macOS /var -> /private/var)
+    // when the nearest existing directory is itself a real directory, while refusing to unwrap
+    // a symlink at the store root or its immediate parent.
+    if (existsSync(ancestor) && !lstatSync(ancestor).isSymbolicLink()) {
+      const canonicalAncestor = realpathSync(ancestor)
+      const tail = relative(ancestor, resolved)
+      this.root = tail ? join(canonicalAncestor, tail) : canonicalAncestor
+    } else {
+      this.root = resolved
+    }
+  }
   private owned(file: string): void {
     let ancestor = this.root
     while (!existsSync(ancestor) && dirname(ancestor) !== ancestor) ancestor = dirname(ancestor)

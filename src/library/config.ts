@@ -12,8 +12,8 @@ export const LibraryConfigSchema = z.object({
 export type LibraryConfig = z.infer<typeof LibraryConfigSchema>
 export function projectFile(cwd: string, name: string): string {
   if (isAbsolute(name) || name.includes('\\') || name.split('/').some(part => !part || part === '.' || part === '..') || /(^|\/)(\.git|node_modules|\.env[^/]*|credentials[^/]*|[^/]*\.pem|[^/]*\.key)(\/|$)/i.test(name)) throw new Error('Library source path is not eligible')
-  const file = resolve(cwd, name)
   const root = realpathSync(cwd)
+  const file = resolve(root, name)
   const actual = realpathSync(file)
   const rel = relative(root, actual)
   if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel) || actual.toLowerCase() !== file.toLowerCase()) throw new Error('Library source is redirected')

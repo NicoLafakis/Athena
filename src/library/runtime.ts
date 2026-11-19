@@ -1,4 +1,5 @@
-import { join } from 'node:path'
+import { existsSync, realpathSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { z } from 'zod'
 import { NoteSchema, createNote, reviewNote, promoteNote, releaseRecovery, rejectNote, retrieveNotes, digest, type LibraryNote, type LibraryQuery } from './core.js'
 import { loadLibraryConfig, readProjectText, sensitiveText, type LibraryConfig } from './config.js'
@@ -13,14 +14,16 @@ export const SubmissionSchema = z.object({
   recovery: z.boolean().default(false),
 }).strict()
 export class LibraryRuntime {
+  readonly cwd: string
   readonly store: LibraryStore
   readonly verifier: GitLibraryVerifier
   readonly scope: string
   private query?: Omit<LibraryQuery, 'scope'>
-  constructor(readonly cwd: string, readonly config: LibraryConfig) {
-    this.scope = projectId(cwd)
-    this.store = new LibraryStore(join(cwd, '.athena', 'library'), sensitiveText)
-    this.verifier = new GitLibraryVerifier(cwd, config)
+  constructor(cwd: string, readonly config: LibraryConfig) {
+    this.cwd = existsSync(cwd) ? realpathSync(cwd) : resolve(cwd)
+    this.scope = projectId(this.cwd)
+    this.store = new LibraryStore(join(this.cwd, '.athena', 'library'), sensitiveText)
+    this.verifier = new GitLibraryVerifier(this.cwd, config)
   }
   static open(cwd: string, trusted: boolean): LibraryRuntime | null {
     const config = loadLibraryConfig(cwd, trusted)

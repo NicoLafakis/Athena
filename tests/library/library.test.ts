@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, renameSync, readdirSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, renameSync, readdirSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ZodError } from 'zod'
 import { createNote, digest, reviewNote, promoteNote, releaseRecovery, rejectNote, retrieveNotes, type LibraryNote, type Review } from '../../src/library/core.js'
+import { projectFile } from '../../src/library/config.js'
 import { LibraryStore } from '../../src/library/store.js'
 import { libraryCommand } from '../../src/library/cli.js'
 
@@ -160,5 +161,44 @@ describe('library CLI per-operation validation', () => {
       expect(() => libraryCommand(cwd, op, {}), `expected ${op} with {} to fail Zod validation`).toThrow(ZodError)
     }
     expect(existsSync(join(cwd, '.athena', 'library', 'library.json'))).toBe(false)
+  })
+
+  it('canonicalizes OS-level symlinked parent prefixes (e.g. macOS /var -> /private/var) while still rejecting symlinked project files or library roots', () => {
+    const outer = mkdtempSync(join(tmpdir(), 'athena-library-alias-'))
+    roots.push(outer)
+    const realParent = join(outer, 'real-parent')
+    const aliasParent = join(outer, 'alias-parent')
+    const projectReal = join(realParent, 'project')
+    mkdirSync(join(projectReal, '.athena'), { recursive: true })
+    writeFileSync(join(projectReal, 'detail.md'), 'Detail.\n')
+    writeFileSync(join(projectReal, 'summary.md'), 'Summary.\n')
+    writeFileSync(
+      join(projectReal, '.athena', 'library.config.json'),
+      JSON.stringify({
+        enabled: true,
+        publicSources: ['detail.md', 'summary.md'],
+        categories: ['context'],
+        checks: [{ id: 'ok', args: ['check.mjs'] }],
+      }),
+    )
+    symlinkSync(realParent, aliasParent, process.platform === 'win32' ? 'junction' : 'dir')
+
+    const aliasedCwd = join(aliasParent, 'project')
+    // Project accessed via symlinked ancestor prefix (like macOS /var -> /private/var) succeeds:
+    expect(projectFile(aliasedCwd, 'detail.md')).toContain('real-parent')
+    expect(libraryCommand(aliasedCwd, 'status')).toMatchObject({ enabled: true })
+
+    // Direct symlink at the library root itself is still rejected:
+    const targetDir = join(outer, 'redirect-target')
+    mkdirSync(targetDir)
+    writeFileSync(join(targetDir, 'outside.md'), 'Outside.\n')
+    const redirectedRoot = join(projectReal, '.athena', 'library-link')
+    symlinkSync(targetDir, redirectedRoot, process.platform === 'win32' ? 'junction' : 'dir')
+    expect(() => new LibraryStore(redirectedRoot, safe).read()).toThrow(/redirected/)
+
+    // Symlinked directory inside the project pointing outside is still rejected:
+    const internalLink = join(projectReal, 'sub-link')
+    symlinkSync(targetDir, internalLink, process.platform === 'win32' ? 'junction' : 'dir')
+    expect(() => projectFile(aliasedCwd, 'sub-link/outside.md')).toThrow(/redirected/)
   })
 })
