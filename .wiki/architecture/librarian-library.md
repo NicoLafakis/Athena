@@ -185,9 +185,13 @@ or paid model invocation is installed here. Global storage support is not implem
 ## Evidence
 
 `tests/library/library.test.ts` exercises core state, sensitive-content rejection,
-atomic-write failure, corruption, competing writers, tampering and rollback.
-`tests/library/integration.test.ts` uses disposable Git repositories to test actual
+atomic-write failure, corruption, competing writers, tampering, rollback, and CLI
+per-operation schema validation. `tests/library/integration-verifier.test.ts`,
+`tests/library/integration-lifecycle.test.ts`, and `tests/library/integration-controller.test.ts`
+(sharing `tests/helpers/library-fixture.ts`) use disposable Git repositories to test actual
 post-commit verification, failed checks, review/source invalidation, tool interfaces,
-operator CLI, default disablement, ephemeral controller retrieval, opt-in revocation,
-interruption, restart, bounded recovery, core.autocrlf=true CRLF/multiline provenance, child-agent exclusion and exact-check-definition changes. Providers are mocked; no real memories or
+operator CLI, default disablement, ephemeral controller retrieval, library-over-journal
+precedence, opt-in revocation, interruption, restart, bounded recovery,
+core.autocrlf=true CRLF/multiline provenance, child-agent exclusion and
+exact-check-definition changes. Providers are mocked; no real memories or
 credentials are read. Existing controller/context/journal/memory suites are regressions.

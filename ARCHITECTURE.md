@@ -6,7 +6,8 @@ This is the short structural map of the runtime. Behavioral rules live in
 ## Runtime composition
 
 `bin/athena.js` loads the built CLI in `dist/cli.js`; the TypeScript composition root is
-[`src/cli.ts`](src/cli.ts). It owns startup, trust and credential resolution, settings,
+[`src/cli.ts`](src/cli.ts) (backed by focused command, argument, slash, trust, client, and
+voice modules under `src/cli/`). It owns startup, trust and credential resolution, settings,
 plugins, presentation selection, shutdown ordering, and experience capture, then hands the
 session itself to `HarnessSessionController`
 ([`src/harness/controller.ts`](src/harness/controller.ts)).

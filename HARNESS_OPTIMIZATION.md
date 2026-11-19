@@ -76,7 +76,7 @@ Where items directly overlap with `SUGGESTED_REMEDIATION.md`, treat them here as
   1. Keep `baseSystemPrompt` clean (constitution + memory + projectContext + toolGuidance + skills + environment) and pass `baseSystemPrompt` to `AgentOrchestrator`. Append parent-only sections (`# Project librarian`, `outputSchema`) only to `parentSystemPrompt` passed to the parent `Engine`.
   2. Exclude `'Journal'` (and confirm whether `'Investigation'` should be excluded or given child-scoped context) in `AgentOrchestrator.buildChildRegistry()` (`agents.ts:177`), or register parent-only stateful tools (`LibraryRead`, `LibraryWrite`, `Journal`, `Agent`) on a parent-extended registry after `AgentOrchestrator` captures the shared base registry.
 - **Verification (TDD):**
-  - Add tests in `tests/harness/agents.test.ts` and `tests/library/integration.test.ts` asserting child prompts contain neither `# Project librarian` nor parent `outputSchema` instructions, and child registries exclude `Journal`.
+  - Add tests in `tests/harness/agents.test.ts` and `tests/library/integration-controller.test.ts` asserting child prompts contain neither `# Project librarian` nor parent `outputSchema` instructions, and child registries exclude `Journal`.
 
 ### 2.5 Prune or Quarantine Orphaned Voice Modules
 - **Locations:** `src/voice/context.ts`, `src/voice/session-router.ts`, `src/voice/input.ts`, `src/voice/speech.ts` (re-exported by `src/voice/index.ts`)
