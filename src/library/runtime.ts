@@ -22,7 +22,7 @@ export class LibraryRuntime {
   constructor(cwd: string, readonly config: LibraryConfig) {
     this.cwd = existsSync(cwd) ? realpathSync(cwd) : resolve(cwd)
     this.scope = projectId(this.cwd)
-    this.store = new LibraryStore(join(this.cwd, '.athena', 'library'), sensitiveText)
+    this.store = new LibraryStore(join(this.cwd, '.athena', 'library'), sensitiveText, this.cwd)
     this.verifier = new GitLibraryVerifier(this.cwd, config)
   }
   static open(cwd: string, trusted: boolean): LibraryRuntime | null {

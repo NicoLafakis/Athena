@@ -187,14 +187,23 @@ describe('library CLI per-operation validation', () => {
     // Project accessed via symlinked ancestor prefix (like macOS /var -> /private/var) succeeds:
     expect(projectFile(aliasedCwd, 'detail.md')).toContain('real-parent')
     expect(libraryCommand(aliasedCwd, 'status')).toMatchObject({ enabled: true })
+    // Direct LibraryStore under a symlinked OS ancestor prefix also succeeds:
+    expect(new LibraryStore(join(aliasedCwd, '.athena', 'library'), safe).read().notes).toEqual([])
 
     // Direct symlink at the library root itself is still rejected:
     const targetDir = join(outer, 'redirect-target')
-    mkdirSync(targetDir)
+    mkdirSync(join(targetDir, 'library'), { recursive: true })
     writeFileSync(join(targetDir, 'outside.md'), 'Outside.\n')
     const redirectedRoot = join(projectReal, '.athena', 'library-link')
     symlinkSync(targetDir, redirectedRoot, process.platform === 'win32' ? 'junction' : 'dir')
     expect(() => new LibraryStore(redirectedRoot, safe).read()).toThrow(/redirected/)
+
+    // Symlink at the immediate parent (.athena-link -> targetDir) when targetDir/library already
+    // exists must NEVER be unwrapped, with or without an explicit project boundary:
+    const redirectedParent = join(projectReal, '.athena-link')
+    symlinkSync(targetDir, redirectedParent, process.platform === 'win32' ? 'junction' : 'dir')
+    expect(() => new LibraryStore(join(redirectedParent, 'library'), safe).read()).toThrow(/redirected/)
+    expect(() => new LibraryStore(join(redirectedParent, 'library'), safe, projectReal).read()).toThrow(/redirected/)
 
     // Symlinked directory inside the project pointing outside is still rejected:
     const internalLink = join(projectReal, 'sub-link')

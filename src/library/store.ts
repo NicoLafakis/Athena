@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, mkdirSync, openSync, closeSync, writeFileSync, fsyncSync, renameSync, unlinkSync, realpathSync, lstatSync, statSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { NoteSchema, assertSafe, digest, type LibraryNote, type SensitivityCheck } from './core.js'
@@ -11,29 +11,54 @@ const MAX_BYTES = 8_000_000
 export interface LibrarySnapshot { revision: string; notes: LibraryNote[]; recoveries: RecoveryCheckpoint[] }
 /** Explicitly supplied project/test root only; no personal-brain default or startup
  * side effect. Optimistic revision checks and an exclusive lock protect writers. */
+function isSymlinkPath(path: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink()
+  } catch {
+    return false
+  }
+}
+
+function canonicalizeStoreRoot(root: string, boundary?: string): string {
+  const resolved = resolve(root)
+  if (boundary !== undefined) {
+    const resolvedBoundary = resolve(boundary)
+    if (!existsSync(resolvedBoundary)) return resolved
+    const canonicalBoundary = realpathSync(resolvedBoundary)
+    for (const base of [resolvedBoundary, canonicalBoundary]) {
+      const rel = relative(base, resolved)
+      if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) {
+        return rel ? join(canonicalBoundary, rel) : canonicalBoundary
+      }
+    }
+    return resolved
+  }
+  // Direct caller without a project boundary: canonicalize OS-level symlinked prefixes
+  // (e.g. macOS /var -> /private/var) while refusing to unwrap a symlink at the store
+  // root or its immediate parent.
+  if (isSymlinkPath(resolved) || isSymlinkPath(dirname(resolved))) return resolved
+  let ancestor = resolved
+  while (!existsSync(ancestor) && dirname(ancestor) !== ancestor) ancestor = dirname(ancestor)
+  if (existsSync(ancestor) && !isSymlinkPath(ancestor)) {
+    const canonicalAncestor = realpathSync(ancestor)
+    const tail = relative(ancestor, resolved)
+    return tail ? join(canonicalAncestor, tail) : canonicalAncestor
+  }
+  return resolved
+}
+
 export class LibraryStore {
   readonly root: string
-  constructor(root: string, private readonly sensitive: SensitivityCheck) {
-    const resolved = resolve(root)
-    let ancestor = resolved
-    while (!existsSync(ancestor) && dirname(ancestor) !== ancestor) ancestor = dirname(ancestor)
-    // Canonicalize OS-level symlinked prefixes above the store (e.g. macOS /var -> /private/var)
-    // when the nearest existing directory is itself a real directory, while refusing to unwrap
-    // a symlink at the store root or its immediate parent.
-    if (existsSync(ancestor) && !lstatSync(ancestor).isSymbolicLink()) {
-      const canonicalAncestor = realpathSync(ancestor)
-      const tail = relative(ancestor, resolved)
-      this.root = tail ? join(canonicalAncestor, tail) : canonicalAncestor
-    } else {
-      this.root = resolved
-    }
+  constructor(root: string, private readonly sensitive: SensitivityCheck, boundary?: string) {
+    this.root = canonicalizeStoreRoot(root, boundary)
   }
   private owned(file: string): void {
+    if (isSymlinkPath(this.root)) throw new Error('Library root is redirected')
+    if (isSymlinkPath(file)) throw new Error('Library file is redirected')
     let ancestor = this.root
     while (!existsSync(ancestor) && dirname(ancestor) !== ancestor) ancestor = dirname(ancestor)
     if (existsSync(ancestor) && realpathSync(ancestor).toLowerCase() !== ancestor.toLowerCase()) throw new Error('Library root ancestor is redirected')
-    if (existsSync(this.root) && (lstatSync(this.root).isSymbolicLink() || realpathSync(this.root).toLowerCase() !== this.root.toLowerCase())) throw new Error('Library root is redirected')
-    if (existsSync(file) && lstatSync(file).isSymbolicLink()) throw new Error('Library file is redirected')
+    if (existsSync(this.root) && realpathSync(this.root).toLowerCase() !== this.root.toLowerCase()) throw new Error('Library root is redirected')
   }
   read(): LibrarySnapshot {
     const file = join(this.root, 'library.json')
