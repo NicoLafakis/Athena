@@ -92,6 +92,23 @@ export {
   type VoiceTelemetryRecorder,
 } from './telemetry.js'
 export {
+  BRAIN_NODES,
+  createInitialBrainActivity,
+  decayBrainActivity,
+  hasActiveBrainHeat,
+  pulseBrainNodes,
+  renderBrainOrbitalLines,
+  routeEngineEventToBrain,
+  topFiringNodes,
+  type BrainActivityState,
+  type BrainArc,
+  type BrainNodeDef,
+  type BrainNodeId,
+  type BrainNodeState,
+  type ColoredSegment,
+  type RenderedOrbitalRow,
+} from './brain-map.js'
+export {
   computePcmEnvelope,
   createInitialVoiceHudState,
   formatHandoffElapsed,

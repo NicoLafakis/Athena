@@ -1,3 +1,12 @@
+import type { EngineEvent } from '../engine/types.js'
+import {
+  createInitialBrainActivity,
+  decayBrainActivity,
+  pulseBrainNodes,
+  routeEngineEventToBrain,
+  type BrainActivityState,
+} from './brain-map.js'
+
 export type VoiceHudPhase =
   | 'connecting'
   | 'standby'
@@ -36,6 +45,7 @@ export interface VoiceHudState {
   lastStatus: string
   handoffs: VoiceHudHandoff[]
   feed: VoiceHudFeedEntry[]
+  brain: BrainActivityState
 }
 
 export type VoiceHudEvent =
@@ -48,10 +58,12 @@ export type VoiceHudEvent =
   | { type: 'feed'; role: 'user' | 'athena' | 'system'; text: string }
   | { type: 'handoff-start'; id: string; label: string; target?: string; startedAt?: number }
   | { type: 'handoff-end'; id: string; status: 'completed' | 'failed'; detail?: string; finishedAt?: number }
+  | { type: 'engine-event'; event: EngineEvent; now?: number }
+  | { type: 'brain-decay'; now?: number }
 
 const BAR_RAMP = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'] as const
 const DEFAULT_HISTORY_WIDTH = 28
-const MAX_FEED_ENTRIES = 10
+const MAX_FEED_ENTRIES = 200
 const MAX_HANDOFF_ENTRIES = 4
 
 /** Format elapsed hand-off time as MM:SS.t (e.g. 00:04.2). */
@@ -146,6 +158,7 @@ export function createInitialVoiceHudState(options: {
     lastStatus: 'Connecting to OpenAI Realtime and opening microphone…',
     handoffs: [],
     feed: [],
+    brain: createInitialBrainActivity(),
   }
 }
 
@@ -166,18 +179,28 @@ export function reduceVoiceHudState(
       return { ...state, projectName: event.projectName }
     case 'mic-level': {
       const level = clampLevel(event.level)
+      const brain =
+        level >= 16
+          ? pulseBrainNodes(state.brain, ['voice'], Math.min(1, 0.35 + level / 120), 'Mic input')
+          : state.brain
       return {
         ...state,
         micLevel: level,
         micHistory: pushSample(state.micHistory, level, DEFAULT_HISTORY_WIDTH),
+        brain,
       }
     }
     case 'athena-level': {
       const level = clampLevel(event.level)
+      const brain =
+        level >= 8
+          ? pulseBrainNodes(state.brain, ['voice', 'core'], Math.min(1, 0.4 + level / 120), 'Speaking')
+          : state.brain
       return {
         ...state,
         athenaLevel: level,
         athenaHistory: pushSample(state.athenaHistory, level, DEFAULT_HISTORY_WIDTH),
+        brain,
       }
     }
     case 'hypothesis':
@@ -212,6 +235,7 @@ export function reduceVoiceHudState(
         ...state,
         phase: 'working',
         handoffs: [...withoutDup, entry].slice(-MAX_HANDOFF_ENTRIES),
+        brain: pulseBrainNodes(state.brain, ['voice', 'core', 'engine', 'harness'], 1.0, entry.label),
       }
     }
     case 'handoff-end': {
@@ -226,7 +250,28 @@ export function reduceVoiceHudState(
             }
           : h,
       )
-      return { ...state, handoffs }
+      return {
+        ...state,
+        handoffs,
+        brain: pulseBrainNodes(
+          state.brain,
+          event.status === 'completed' ? ['core', 'voice', 'journal'] : ['guards', 'core'],
+          0.85,
+          event.status === 'completed' ? 'Handoff returned' : 'Handoff failed',
+        ),
+      }
+    }
+    case 'engine-event': {
+      const routed = routeEngineEventToBrain(event.event)
+      return {
+        ...state,
+        brain: pulseBrainNodes(state.brain, routed.nodes, routed.intensity, routed.reason, event.now),
+      }
+    }
+    case 'brain-decay': {
+      const nextBrain = decayBrainActivity(state.brain, event.now)
+      if (nextBrain === state.brain) return state
+      return { ...state, brain: nextBrain }
     }
   }
 }

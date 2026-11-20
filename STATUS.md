@@ -7,6 +7,7 @@
 - [ ] Live speaker diarization backend acquisition & Phase 1+ -> [.wiki/features/speaker-diarization/implementation-status.md]
 
 ### Done
+- [x] Fullscreen split-screen Voice HUD with scrollable chat & live orbital EEG brain scan (2026-11-20) -> [.wiki/features/blind-first-jarvis/voice-hud-brain-scan.md]
 - [x] Direct 24 kHz PCM capture, `gpt-live-transcribe`, and `gpt-live-1.1` voice client (2026-11-20) -> [.wiki/features/blind-first-jarvis/gpt-live-voice-upgrade.md]
 - [x] Real-time Ink Voice HUD & dual mic/Athena waveform visualizers (2026-11-20) -> [src/tui/VoiceHud.tsx]
 - [x] Engine economics & ergonomics (tool prompt caching, parallel read-only tools, graduated pruning, /cost) (2026-11-20) -> [src/engine/loop.ts]

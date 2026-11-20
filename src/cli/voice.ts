@@ -210,6 +210,7 @@ export async function runVoiceCommand(
       if (carriedHistory.length > 0) {
         activeController.engine.loadMessages(carriedHistory)
       }
+      bindHudBus(activeController)
       const isProjectRoot = existsSync(join(targetCwd, '.git')) || existsSync(join(targetCwd, '.athena'))
       return {
         ok: true as const,
@@ -228,6 +229,16 @@ export async function runVoiceCommand(
       process.stdin.isTTY &&
       process.stdout.isTTY
 
+    const busSub: { dispose: (() => void) | null } = { dispose: null }
+    const bindHudBus = (controller: HarnessSessionController): void => {
+      busSub.dispose?.()
+      busSub.dispose = hudStore
+        ? controller.bus.on((event) => {
+            hudStore?.dispatch({ type: 'engine-event', event })
+          })
+        : null
+    }
+
     if (useVoiceHud) {
       hudStore = new VoiceHudStore(
         createInitialVoiceHudState({
@@ -235,6 +246,7 @@ export async function runVoiceCommand(
           projectName: basename(activeController.cwd) || activeController.cwd,
         }),
       )
+      bindHudBus(activeController)
       tuiInstance = render(React.createElement(VoiceHud, { store: hudStore }))
     } else if (cmd.tui && process.stdin.isTTY && process.stdout.isTTY) {
       const commands = new Map(loadCommandsIndexWithPlugins(effectivePaths).map((c) => [c.name, c]))
@@ -526,6 +538,7 @@ export async function runVoiceCommand(
       // failure would send the user to `athena voice probe` for something they did.
       if (!voiceInterrupted) throw error
     } finally {
+      busSub.dispose?.()
       process.off('SIGINT', onVoiceSigint)
       tuiInstance?.unmount()
       attention.close()

@@ -105,6 +105,7 @@ export async function runLiveVoiceSession(options: LiveVoiceSessionOptions): Pro
   let athenaTranscriptBuf = ''
   let athenaSpeaking = false
   let silentOutputFrames = 0
+  const seenDelegationIds = new Set<string>()
 
   const flushUserTranscript = (): void => {
     const text = userTranscriptBuf.trim()
@@ -262,7 +263,7 @@ export async function runLiveVoiceSession(options: LiveVoiceSessionOptions): Pro
       // reads the user's request from recent `session.input_transcript.delta` text.
       if (
         options.onDelegate &&
-        (event.type === 'session.delegation.created' || event.type.includes('delegation'))
+        event.type === 'session.delegation.created'
       ) {
         const delegationObj = event['delegation'] as { id?: unknown; target?: unknown } | undefined
         const delegationId =
@@ -271,7 +272,8 @@ export async function runLiveVoiceSession(options: LiveVoiceSessionOptions): Pro
             : typeof event['delegation_id'] === 'string'
               ? event['delegation_id']
               : null
-        if (!delegationId) return
+        if (!delegationId || seenDelegationIds.has(delegationId)) return
+        seenDelegationIds.add(delegationId)
         if (userTranscriptBuf.trim()) flushUserTranscript()
         const rawPrompt =
           typeof event['prompt'] === 'string' && event['prompt'].trim()
