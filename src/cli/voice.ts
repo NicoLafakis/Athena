@@ -13,6 +13,7 @@ import { makeTelemetryRecorder } from '../engine/telemetry.js'
 import { HarnessSessionController } from '../harness/controller.js'
 import { gitBranch } from '../harness/git.js'
 import { App, PermissionBridge } from '../tui/App.js'
+import { createSyncStdout } from '../tui/sync-stdout.js'
 import { VoiceHud } from '../tui/VoiceHud.js'
 import { CLI_EXIT, type CliCommand } from './args.js'
 import { makeClient } from './client.js'
@@ -247,7 +248,9 @@ export async function runVoiceCommand(
         }),
       )
       bindHudBus(activeController)
-      tuiInstance = render(React.createElement(VoiceHud, { store: hudStore }))
+      tuiInstance = render(React.createElement(VoiceHud, { store: hudStore }), {
+        stdout: createSyncStdout(process.stdout),
+      })
     } else if (cmd.tui && process.stdin.isTTY && process.stdout.isTTY) {
       const commands = new Map(loadCommandsIndexWithPlugins(effectivePaths).map((c) => [c.name, c]))
       const bridge = new PermissionBridge()

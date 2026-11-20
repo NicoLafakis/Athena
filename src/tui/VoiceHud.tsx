@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Text, useInput, useStdout } from 'ink'
 import { createFullscreenController } from './fullscreen.js'
 import { wrappedRowCount } from './viewport.js'
@@ -45,7 +45,10 @@ export interface VoiceHudProps {
 export function VoiceHud({ store }: VoiceHudProps) {
   const { stdout } = useStdout()
   const [state, setState] = useState<VoiceHudState>(() => store.getState())
+  const latestStateRef = useRef<VoiceHudState>(state)
+  const dirtyRef = useRef(false)
   const [tickNow, setTickNow] = useState<number>(() => Date.now())
+  const [phaseRad, setPhaseRad] = useState(0)
   const [spinIdx, setSpinIdx] = useState(0)
   const [scrollFromBottom, setScrollFromBottom] = useState(0)
   const [eegOverride, setEegOverride] = useState<boolean | null>(null)
@@ -68,31 +71,51 @@ export function VoiceHud({ store }: VoiceHudProps) {
     }
   }, [stdout])
 
+  // Buffer rapid store updates (mic/athena levels, bus events) into a ref so the
+  // single ~14 FPS animation clock paints one atomic DEC-2026 frame with zero flicker.
   useEffect(() => {
-    setState(store.getState())
-    return store.subscribe(setState)
+    latestStateRef.current = store.getState()
+    setState(latestStateRef.current)
+    return store.subscribe((next) => {
+      latestStateRef.current = next
+      dirtyRef.current = true
+    })
   }, [store])
-
-  const runningCount = state.handoffs.filter((h) => h.status === 'running').length
-  const brainHot = hasActiveBrainHeat(state.brain)
-
-  // Live spinner + elapsed timer + EEG cooling decay tick (0% CPU when idle!)
-  useEffect(() => {
-    if (runningCount === 0 && !brainHot) return
-    const timer = setInterval(() => {
-      const now = Date.now()
-      setTickNow(now)
-      if (runningCount > 0) setSpinIdx((i) => (i + 1) % SPINNER_FRAMES.length)
-      if (brainHot) store.dispatch({ type: 'brain-decay', now })
-    }, 150)
-    return () => clearInterval(timer)
-  }, [runningCount, brainHot, store])
 
   const cols = Math.max(60, dims.cols)
   const rows = Math.max(16, dims.rows)
   const canSplit = cols >= 92
   const showEeg = eegOverride ?? canSplit
   const showChat = canSplit || !showEeg
+
+  const runningCount = state.handoffs.filter((h) => h.status === 'running').length
+
+  // Single coalesced ~14 FPS (72 ms) render loop: spins the 3D Jarvis sphere smoothly,
+  // decays brain heat, ticks hand-off spinners, and flushes buffered audio/feed updates.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = Date.now()
+      const current = latestStateRef.current
+      const activeHandoffs = current.handoffs.some((h) => h.status === 'running')
+      const activeHeat = hasActiveBrainHeat(current.brain)
+
+      if (activeHeat) {
+        store.dispatch({ type: 'brain-decay', now })
+      }
+      if (dirtyRef.current) {
+        dirtyRef.current = false
+        setState(latestStateRef.current)
+      }
+      if (showEeg) {
+        setPhaseRad((p) => (p + 0.085) % (Math.PI * 200))
+      }
+      if (activeHandoffs) {
+        setTickNow(now)
+        setSpinIdx((i) => (i + 1) % SPINNER_FRAMES.length)
+      }
+    }, 72)
+    return () => clearInterval(timer)
+  }, [showEeg, store])
 
   // Strict fullscreen row budget (AGENTS.md §1):
   // Sticky header: 5 rows (border 2 + title 1 + dual meters 2)
@@ -164,12 +187,19 @@ export function VoiceHud({ store }: VoiceHudProps) {
     return picked
   }, [state.feed, entryHeights, clampedScroll, feedContentRows])
 
-  // Right pane: orbital Braille canvas + 2-line hot subsystems telemetry
+  // Right pane: 3D rotating Jarvis Braille sphere + 2-line hot subsystems telemetry
   const brainCanvasCols = Math.max(20, rightWidth - 4)
   const brainCanvasRows = Math.max(6, middleRows - 6) // border(2) + title(1) + telemetry(3)
   const orbitalRows = useMemo(
-    () => (showEeg ? renderBrainOrbitalLines(state.brain, brainCanvasCols, brainCanvasRows) : []),
-    [showEeg, state.brain, brainCanvasCols, brainCanvasRows],
+    () =>
+      showEeg
+        ? renderBrainOrbitalLines(state.brain, brainCanvasCols, brainCanvasRows, {
+            phaseRad,
+            micEnergy: state.micLevel / 100,
+            athenaEnergy: state.athenaLevel / 100,
+          })
+        : [],
+    [showEeg, state.brain, brainCanvasCols, brainCanvasRows, phaseRad, state.micLevel, state.athenaLevel],
   )
   const hotNodes = useMemo(() => topFiringNodes(state.brain, 3), [state.brain])
 
