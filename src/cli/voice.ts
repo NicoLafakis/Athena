@@ -13,6 +13,7 @@ import { makeTelemetryRecorder } from '../engine/telemetry.js'
 import { HarnessSessionController } from '../harness/controller.js'
 import { gitBranch } from '../harness/git.js'
 import { App, PermissionBridge } from '../tui/App.js'
+import { VoiceHud } from '../tui/VoiceHud.js'
 import { CLI_EXIT, type CliCommand } from './args.js'
 import { makeClient } from './client.js'
 import { prepareSessionEnvironment } from './session-bootstrap.js'
@@ -27,11 +28,14 @@ export async function runVoiceCommand(
   const {
     KeyboardVoiceCommandInput,
     VoiceAttentionBridge,
+    VoiceHudStore,
     VoiceTelemetry,
     WindowsPersistentWakeInput,
+    createInitialVoiceHudState,
     ensureVoiceKey,
     playListeningCue,
     playStandbyCue,
+    playWindowsPcm,
     runVoiceProbe,
     runVoiceSession,
     saveVoiceKey,
@@ -212,7 +216,23 @@ export async function runVoiceCommand(
     }
 
     let tuiInstance: ReturnType<typeof render> | null = null
-    if (cmd.tui && process.stdin.isTTY && process.stdout.isTTY) {
+    let hudStore: InstanceType<typeof VoiceHudStore> | null = null
+    const useVoiceHud =
+      !cmd.tui &&
+      !cmd.keyboard &&
+      settings.accessibility.presentation !== 'screen-reader' &&
+      process.stdin.isTTY &&
+      process.stdout.isTTY
+
+    if (useVoiceHud) {
+      hudStore = new VoiceHudStore(
+        createInitialVoiceHudState({
+          model: cmd.model,
+          projectName: basename(activeController.cwd) || activeController.cwd,
+        }),
+      )
+      tuiInstance = render(React.createElement(VoiceHud, { store: hudStore }))
+    } else if (cmd.tui && process.stdin.isTTY && process.stdout.isTTY) {
       const commands = new Map(loadCommandsIndexWithPlugins(effectivePaths).map((c) => [c.name, c]))
       const bridge = new PermissionBridge()
       const slashHandler = makeSlashHandler({
@@ -277,10 +297,47 @@ export async function runVoiceCommand(
     const voiceInput = cmd.keyboard
       ? new KeyboardVoiceCommandInput({ onInterrupt: onVoiceSigint })
       : new WindowsPersistentWakeInput({
-          onWarn: (message) => console.error(message),
+          onReady: (recognizer) => {
+            hudStore?.dispatch({ type: 'phase', phase: 'standby' })
+            hudStore?.dispatch({
+              type: 'status',
+              text: `Mic open (${recognizer ?? 'Windows Speech'}) — say "Athena"`,
+            })
+          },
+          onAudioLevel: (level) => {
+            hudStore?.dispatch({ type: 'mic-level', level })
+          },
+          onSpeechDetected: () => {
+            hudStore?.dispatch({ type: 'phase', phase: 'hearing' })
+          },
+          onHypothesis: (text) => {
+            hudStore?.dispatch({ type: 'hypothesis', text })
+          },
+          onRejected: (text, confidence) => {
+            hudStore?.dispatch({ type: 'phase', phase: 'standby' })
+            hudStore?.dispatch({
+              type: 'feed',
+              role: 'system',
+              text: text
+                ? `Heard "${text}" (${Math.round(confidence * 100)}% — ignored, say "Athena …")`
+                : 'Heard audio that did not match "Athena …"',
+            })
+          },
+          onWarn: (message) => {
+            if (hudStore) {
+              hudStore.dispatch({ type: 'feed', role: 'system', text: message })
+            } else {
+              console.error(message)
+            }
+          },
           telemetry: voiceTelemetry,
           onListening: () => {
-            if (!tuiInstance) console.log('Athena: listening…')
+            if (hudStore) {
+              hudStore.dispatch({ type: 'phase', phase: 'hearing' })
+              hudStore.dispatch({ type: 'status', text: 'Wake word heard — listening for command…' })
+            } else if (!tuiInstance) {
+              console.log('Athena: listening…')
+            }
             void playListeningCue().catch(() => {})
           },
         })
@@ -291,14 +348,45 @@ export async function runVoiceCommand(
         model: cmd.model,
         controller: activeController,
         getController: () => activeController,
-        switchProject,
+        switchProject: async (requestedPath) => {
+          const result = await switchProject(requestedPath)
+          if (result.ok) {
+            hudStore?.dispatch({ type: 'project', projectName: result.projectName })
+            hudStore?.dispatch({ type: 'feed', role: 'system', text: `Switched project -> ${result.cwd}` })
+          }
+          return result
+        },
         attention,
         persona: loadConstitution(effectivePaths) ?? undefined,
         input: voiceInput,
+        ...(hudStore
+          ? {
+              onStatus: (message) => {
+                if (message.startsWith('Athena: ')) {
+                  hudStore.dispatch({ type: 'feed', role: 'athena', text: message.slice(8) })
+                } else {
+                  hudStore.dispatch({ type: 'status', text: message })
+                }
+              },
+              play: async (audio) => {
+                const stopAnim = hudStore.animateAthenaPcm(audio)
+                try {
+                  await playWindowsPcm(audio)
+                } finally {
+                  stopAnim()
+                }
+              },
+            }
+          : {}),
         onStandby: cmd.keyboard
           ? undefined
           : () => {
-              if (!tuiInstance) console.log('Athena: wake standby')
+              if (hudStore) {
+                hudStore.dispatch({ type: 'phase', phase: 'standby' })
+                hudStore.dispatch({ type: 'status', text: 'Ready — say "Athena"' })
+              } else if (!tuiInstance) {
+                console.log('Athena: wake standby')
+              }
               void playStandbyCue().catch(() => {})
             },
         telemetry: voiceTelemetry,

@@ -180,6 +180,60 @@ using System.Speech.Recognition;
 
 public static class AthenaWakeSink
 {
+    private static readonly object OutLock = new object();
+    private static long LastLevelTicks = 0;
+
+    private static void Emit(string json)
+    {
+        lock (OutLock)
+        {
+            Console.Out.WriteLine(json);
+            Console.Out.Flush();
+        }
+    }
+
+    public static void AudioLevel(object sender, AudioLevelUpdatedEventArgs e)
+    {
+        try
+        {
+            long now = DateTime.UtcNow.Ticks;
+            // Throttle to ~16 FPS (60ms) so stdout stays lean while feeding a smooth live visualizer.
+            if (now - LastLevelTicks < 600000L) return;
+            LastLevelTicks = now;
+            Emit("{\"level\":" + e.AudioLevel.ToString(CultureInfo.InvariantCulture) + "}");
+        }
+        catch {}
+    }
+
+    public static void Detected(object sender, SpeechDetectedEventArgs e)
+    {
+        try { Emit("{\"speech\":\"detected\"}"); } catch {}
+    }
+
+    public static void Hypothesized(object sender, SpeechHypothesizedEventArgs e)
+    {
+        try
+        {
+            var result = e.Result;
+            if (result == null || string.IsNullOrWhiteSpace(result.Text)) return;
+            Emit("{\"hypothesis\":" + Quote(result.Text) + "}");
+        }
+        catch {}
+    }
+
+    public static void Rejected(object sender, SpeechRecognitionRejectedEventArgs e)
+    {
+        try
+        {
+            var result = e.Result;
+            string text = (result != null && result.Text != null) ? result.Text : "";
+            float conf = result != null ? result.Confidence : 0f;
+            Emit("{\"rejected\":true,\"text\":" + Quote(text)
+                + ",\"confidence\":" + conf.ToString("R", CultureInfo.InvariantCulture) + "}");
+        }
+        catch {}
+    }
+
     public static void Recognized(object sender, SpeechRecognizedEventArgs e)
     {
         try
@@ -189,10 +243,9 @@ public static class AthenaWakeSink
             using (var ms = new MemoryStream())
             {
                 result.Audio.WriteToWaveStream(ms);
-                Console.Out.WriteLine("{\"text\":" + Quote(result.Text)
+                Emit("{\"text\":" + Quote(result.Text)
                     + ",\"confidence\":" + result.Confidence.ToString("R", CultureInfo.InvariantCulture)
                     + ",\"wave\":\"" + Convert.ToBase64String(ms.ToArray()) + "\"}");
-                Console.Out.Flush();
             }
         }
         catch (Exception ex)
@@ -232,6 +285,10 @@ try {
   # Grammars: 'Athena' + dictation carries a fluid wake-and-command phrase; free
   # dictation carries the command that follows a bare wake word. The Node side owns
   # the wake/listen state machine — pre-wake audio still never leaves the machine.
+  $wakeOnly=New-Object System.Speech.Recognition.GrammarBuilder
+  $wakeOnly.Culture=$recognizer.RecognizerInfo.Culture
+  $wakeOnly.Append('Athena')
+  $recognizer.LoadGrammar((New-Object System.Speech.Recognition.Grammar -ArgumentList $wakeOnly))
   $wakeCommand=New-Object System.Speech.Recognition.GrammarBuilder
   $wakeCommand.Culture=$recognizer.RecognizerInfo.Culture
   $wakeCommand.Append('Athena')
@@ -257,6 +314,14 @@ try {
   $handlerType=[System.EventHandler[System.Speech.Recognition.SpeechRecognizedEventArgs]]
   $handler=[Delegate]::CreateDelegate($handlerType, [AthenaWakeSink].GetMethod('Recognized'))
   $recognizer.add_SpeechRecognized($handler)
+  $levelType=[System.EventHandler[System.Speech.Recognition.AudioLevelUpdatedEventArgs]]
+  $recognizer.add_AudioLevelUpdated([Delegate]::CreateDelegate($levelType, [AthenaWakeSink].GetMethod('AudioLevel')))
+  $detectType=[System.EventHandler[System.Speech.Recognition.SpeechDetectedEventArgs]]
+  $recognizer.add_SpeechDetected([Delegate]::CreateDelegate($detectType, [AthenaWakeSink].GetMethod('Detected')))
+  $hypType=[System.EventHandler[System.Speech.Recognition.SpeechHypothesizedEventArgs]]
+  $recognizer.add_SpeechHypothesized([Delegate]::CreateDelegate($hypType, [AthenaWakeSink].GetMethod('Hypothesized')))
+  $rejType=[System.EventHandler[System.Speech.Recognition.SpeechRecognitionRejectedEventArgs]]
+  $recognizer.add_SpeechRecognitionRejected([Delegate]::CreateDelegate($rejType, [AthenaWakeSink].GetMethod('Rejected')))
   # One continuous recognition: the microphone opens once and stays open while the
   # parent voice session is alive. stdin EOF (parent exit) or an 'exit' line stops it.
   $recognizer.RecognizeAsync([System.Speech.Recognition.RecognizeMode]::Multiple)
@@ -370,6 +435,57 @@ export async function recognizeWindowsPhrase(
     if ((error as { code?: unknown }).code === 2) return null
     throw error
   }
+}
+
+export type WakeListenerEvent =
+  | { kind: 'ready'; recognizer: string | null }
+  | { kind: 'level'; level: number }
+  | { kind: 'speech-detected' }
+  | { kind: 'hypothesis'; text: string }
+  | { kind: 'rejected'; text: string; confidence: number }
+  | { kind: 'phrase'; text: string; confidence: number; wave: string }
+
+/** Parse one JSONL event emitted by the persistent Windows wake listener. */
+export function parseWakeListenerLine(line: string): WakeListenerEvent | null {
+  const trimmed = line.trim()
+  if (!trimmed) return null
+  let parsed: Record<string, unknown>
+  try {
+    parsed = JSON.parse(trimmed) as Record<string, unknown>
+  } catch {
+    return null
+  }
+  if (parsed['ready'] === true) {
+    const rec = typeof parsed['recognizer'] === 'string' ? parsed['recognizer'].trim() : ''
+    return { kind: 'ready', recognizer: rec || null }
+  }
+  if (typeof parsed['level'] === 'number' && Number.isFinite(parsed['level'])) {
+    return { kind: 'level', level: Math.max(0, Math.min(100, Math.round(parsed['level']))) }
+  }
+  if (parsed['speech'] === 'detected') {
+    return { kind: 'speech-detected' }
+  }
+  if (typeof parsed['hypothesis'] === 'string' && parsed['hypothesis'].trim()) {
+    return { kind: 'hypothesis', text: parsed['hypothesis'].trim() }
+  }
+  if (parsed['rejected'] === true) {
+    return {
+      kind: 'rejected',
+      text: typeof parsed['text'] === 'string' ? parsed['text'].trim() : '',
+      confidence: Number(parsed['confidence'] ?? 0),
+    }
+  }
+  if (typeof parsed['text'] === 'string' && typeof parsed['wave'] === 'string') {
+    const text = parsed['text'].trim()
+    if (!text || !parsed['wave']) return null
+    return {
+      kind: 'phrase',
+      text,
+      confidence: Number(parsed['confidence'] ?? 0),
+      wave: parsed['wave'],
+    }
+  }
+  return null
 }
 
 /** Convert the PCM WAV emitted by System.Speech into Realtime's required 24 kHz mono PCM. */

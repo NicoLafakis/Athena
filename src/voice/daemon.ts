@@ -28,6 +28,7 @@ import {
   type VoiceTelemetryRecorder,
 } from './telemetry.js'
 import {
+  parseWakeListenerLine,
   playWindowsPcm,
   probeWindowsSpeech,
   realtimePcmFromWave,
@@ -85,6 +86,14 @@ export interface WindowsPersistentWakeOptions {
    */
   onReady?: (recognizer: string | null) => void
   onWarn?: (message: string) => void
+  /** Real-time 0..100 microphone audio level (~16 FPS) for live visualizers. */
+  onAudioLevel?: (level: number) => void
+  /** Fired when the local speech engine detects voice activity. */
+  onSpeechDetected?: () => void
+  /** Live partial speech hypothesis while the user is speaking. */
+  onHypothesis?: (text: string) => void
+  /** Fired when Windows heard speech that did not match or fell below threshold. */
+  onRejected?: (text: string, confidence: number) => void
   sleep?: (ms: number) => Promise<void>
   /** Lifecycle counters. Wake events are counted locally and never carry what was said. */
   telemetry?: VoiceTelemetryRecorder
@@ -119,6 +128,10 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
   private readonly onListening: () => void
   private readonly onReady: (recognizer: string | null) => void
   private readonly onWarn: (message: string) => void
+  private readonly onAudioLevel: (level: number) => void
+  private readonly onSpeechDetected: () => void
+  private readonly onHypothesis: (text: string) => void
+  private readonly onRejected: (text: string, confidence: number) => void
   private readonly sleep: (ms: number) => Promise<void>
   private readonly meter: VoiceTelemetryRecorder
 
@@ -150,6 +163,10 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
     this.onListening = options.onListening ?? (() => {})
     this.onReady = options.onReady ?? (() => {})
     this.onWarn = options.onWarn ?? (() => {})
+    this.onAudioLevel = options.onAudioLevel ?? (() => {})
+    this.onSpeechDetected = options.onSpeechDetected ?? (() => {})
+    this.onHypothesis = options.onHypothesis ?? (() => {})
+    this.onRejected = options.onRejected ?? (() => {})
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
     this.meter = options.telemetry ?? NULL_VOICE_TELEMETRY
   }
@@ -225,36 +242,38 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
   }
 
   private onLine(attempt: WakeAttempt, line: string): void {
-    const trimmed = line.trim()
-    if (!trimmed) return
-    let parsed: {
-      ready?: unknown
-      recognizer?: unknown
-      text?: unknown
-      confidence?: unknown
-      wave?: unknown
-    }
-    try {
-      parsed = JSON.parse(trimmed) as typeof parsed
-    } catch {
-      return
-    }
+    const event = parseWakeListenerLine(line)
+    if (!event) return
     if (this.attempt !== attempt) return
     if (!attempt.settled) {
       // The first structured line must be the listener's real readiness round trip.
-      if (parsed.ready === true) {
+      if (event.kind === 'ready') {
         attempt.settled = true
         if (attempt.timer) clearTimeout(attempt.timer)
         attempt.timer = null
-        const recognizer = typeof parsed.recognizer === 'string' ? parsed.recognizer.trim() : ''
-        this.onReady(recognizer || null)
+        this.onReady(event.recognizer)
       }
       return
     }
-    if (typeof parsed.text !== 'string') return
-    const text = parsed.text.trim()
-    const wave = typeof parsed.wave === 'string' ? Buffer.from(parsed.wave, 'base64') : Buffer.alloc(0)
-    if (!text || wave.length === 0) return
+    if (event.kind === 'level') {
+      if (!this.muted) this.onAudioLevel(event.level)
+      return
+    }
+    if (event.kind === 'speech-detected') {
+      if (!this.muted) this.onSpeechDetected()
+      return
+    }
+    if (event.kind === 'hypothesis') {
+      if (!this.muted) this.onHypothesis(event.text)
+      return
+    }
+    if (event.kind === 'rejected') {
+      if (!this.muted) this.onRejected(event.text, event.confidence)
+      return
+    }
+    if (event.kind !== 'phrase') return
+    const wave = Buffer.from(event.wave, 'base64')
+    if (wave.length === 0) return
     let audio: Buffer
     try {
       audio = realtimePcmFromWave(wave)
@@ -263,7 +282,7 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
       this.onWarn(`Athena voice skipped malformed wake audio: ${(error as Error).message}`)
       return
     }
-    this.handlePhrase({ text, confidence: Number(parsed.confidence ?? 0), audio })
+    this.handlePhrase({ text: event.text, confidence: event.confidence, audio })
   }
 
   /**

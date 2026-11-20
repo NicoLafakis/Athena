@@ -78,6 +78,20 @@ export {
   type VoiceTelemetryRecorder,
 } from './telemetry.js'
 export {
+  computePcmEnvelope,
+  createInitialVoiceHudState,
+  pushSample,
+  reduceVoiceHudState,
+  renderLevelBar,
+  renderWaveformBars,
+  VoiceHudStore,
+  type VoiceHudEvent,
+  type VoiceHudFeedEntry,
+  type VoiceHudPhase,
+  type VoiceHudState,
+} from './visualizer.js'
+export {
+  parseWakeListenerLine,
   probeWindowsSpeech,
   recognizeWindowsPhrase,
   spawnWindowsWakeListener,
@@ -91,6 +105,7 @@ export {
   type PowerShellRunner,
   type RecognizedPhrase,
   type SpeechBackendProbe,
+  type WakeListenerEvent,
 } from './windows-speech.js'
 export {
   KeyboardVoiceCommandInput,
