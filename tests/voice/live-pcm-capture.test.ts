@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events'
 import { describe, expect, it } from 'vitest'
 import type WebSocket from 'ws'
 import { parseArgs } from '../../src/cli/args.js'
-import { PcmVadSegmenter } from '../../src/voice/windows-pcm-capture.js'
+import { PcmVadSegmenter, normalizePcmForSpeech } from '../../src/voice/windows-pcm-capture.js'
 import { LiveVoiceClient } from '../../src/voice/live-client.js'
 import { RealtimeVoiceClient } from '../../src/voice/realtime.js'
 
@@ -92,6 +92,21 @@ describe('PcmVadSegmenter', () => {
     vad.pushFrame(quiet, 0)
     vad.pushFrame(quiet, 0)
     expect(utterances).toHaveLength(0)
+  })
+
+  it('normalizes quiet laptop mic array PCM without amplifying silence', () => {
+    const quietSpeech = makeTonePcm(120, 1_000) // ~-30 dBFS
+    const boosted = normalizePcmForSpeech(quietSpeech)
+    let peak = 0
+    for (let i = 0; i + 1 < boosted.length; i += 2) {
+      peak = Math.max(peak, Math.abs(boosted.readInt16LE(i)))
+    }
+    // Capped at 8x gain -> 8_000 peak
+    expect(peak).toBeGreaterThanOrEqual(7_500)
+    expect(peak).toBeLessThanOrEqual(8_500)
+
+    const nearSilence = makeTonePcm(120, 40)
+    expect(normalizePcmForSpeech(nearSilence)).toBe(nearSilence)
   })
 })
 

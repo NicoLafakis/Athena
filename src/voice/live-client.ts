@@ -14,7 +14,7 @@ const ServerEventSchema = z.object({ type: z.string() }).passthrough()
 
 const PCM_CHUNK_BYTES = 4_800 // 100ms at 24 kHz 16-bit mono
 const INPUT_SILENCE_TAIL_CHUNKS = 12 // 1.2s trailing silence to trigger end-of-turn
-const OUTPUT_SILENCE_TAIL_FRAMES = 8 // ~800ms silent output frames after speech ends
+const OUTPUT_SILENCE_TAIL_FRAMES = 12 // ~1.2s silent output frames after speech ends
 const SPEECH_PEAK_THRESHOLD = 50
 
 function hasSpeechEnergy(pcm: Buffer): boolean {

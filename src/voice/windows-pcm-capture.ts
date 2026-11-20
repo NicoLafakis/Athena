@@ -104,9 +104,35 @@ export class PcmVadSegmenter {
 }
 
 /**
+ * Softly normalizes quiet laptop microphone array PCM16LE utterances up to a comfortable
+ * speech level (~-6 dBFS peak, capped at 8x gain) so OpenAI receives clear audio without
+ * amplifying near-silence into static.
+ */
+export function normalizePcmForSpeech(pcm: Buffer): Buffer {
+  if (pcm.length < 2) return pcm
+  let peak = 0
+  for (let i = 0; i + 1 < pcm.length; i += 2) {
+    const abs = Math.abs(pcm.readInt16LE(i))
+    if (abs > peak) peak = abs
+  }
+  // Ignore near-silence (< ~-44 dBFS) or already-strong signals (>= ~-10 dBFS)
+  if (peak < 200 || peak >= 10_000) return pcm
+  const targetPeak = 16_384 // -6 dBFS
+  const gain = Math.min(8, targetPeak / peak)
+  if (gain <= 1.1) return pcm
+  const out = Buffer.allocUnsafe(pcm.length)
+  for (let i = 0; i + 1 < pcm.length; i += 2) {
+    const scaled = Math.round(pcm.readInt16LE(i) * gain)
+    out.writeInt16LE(Math.max(-32_768, Math.min(32_767, scaled)), i)
+  }
+  return out
+}
+
+/**
  * Native Windows winmm.dll (waveInOpen/waveInAddBuffer) 24 kHz 16-bit mono PCM capture.
- * Zero System.Speech dictation, zero npm native build dependencies; emits 60ms JSONL frames
- * with both raw base64 PCM and perceptual 0..100 audio level for live visualizers.
+ * Uses CALLBACK_EVENT + a dedicated worker thread (never calling waveInAddBuffer inside
+ * waveInProc, which Microsoft documents as a deadlock/glitch hazard). Emits 60ms JSONL
+ * frames with raw base64 PCM and perceptual dBFS 0..100 level for live visualizers.
  */
 const WINDOWS_DIRECT_PCM_SCRIPT = String.raw`
 $ErrorActionPreference='Stop'
@@ -120,9 +146,9 @@ public static class AthenaWinMmCapture
 {
     private const int WAVE_MAPPER = -1;
     private const int WAVE_FORMAT_PCM = 1;
-    private const int CALLBACK_FUNCTION = 0x00030000;
-    private const int WIM_DATA = 0x3C0;
-    private const int BUFFER_COUNT = 6;
+    private const int CALLBACK_EVENT = 0x00050000;
+    private const uint WHDR_DONE = 0x00000001;
+    private const int BUFFER_COUNT = 8;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct WAVEFORMATEX
@@ -149,10 +175,8 @@ public static class AthenaWinMmCapture
         public IntPtr reserved;
     }
 
-    private delegate void WaveInProc(IntPtr hwi, uint uMsg, IntPtr dwInstance, IntPtr dwParam1, IntPtr dwParam2);
-
     [DllImport("winmm.dll")]
-    private static extern int waveInOpen(out IntPtr phwi, int uDeviceID, ref WAVEFORMATEX pwfx, WaveInProc dwCallback, IntPtr dwInstance, int fdwOpen);
+    private static extern int waveInOpen(out IntPtr phwi, int uDeviceID, ref WAVEFORMATEX pwfx, IntPtr dwCallback, IntPtr dwInstance, int fdwOpen);
     [DllImport("winmm.dll")]
     private static extern int waveInPrepareHeader(IntPtr hwi, IntPtr pwh, int cbwh);
     [DllImport("winmm.dll")]
@@ -169,16 +193,11 @@ public static class AthenaWinMmCapture
     private static extern int waveInClose(IntPtr hwi);
 
     private static volatile bool Stopping = false;
-    private static readonly object OutLock = new object();
-    private static WaveInProc CallbackDelegate;
 
     private static void Emit(string json)
     {
-        lock (OutLock)
-        {
-            Console.Out.WriteLine(json);
-            Console.Out.Flush();
-        }
+        Console.Out.WriteLine(json);
+        Console.Out.Flush();
     }
 
     public static void Run(int sampleRate, int frameMs)
@@ -199,39 +218,19 @@ public static class AthenaWinMmCapture
         IntPtr[] hdrPtrs = new IntPtr[BUFFER_COUNT];
         IntPtr[] dataPtrs = new IntPtr[BUFFER_COUNT];
         int hdrSize = Marshal.SizeOf(typeof(WAVEHDR));
+        var dataEvent = new AutoResetEvent(false);
 
-        CallbackDelegate = (hwi, uMsg, inst, p1, p2) =>
-        {
-            if (uMsg != WIM_DATA || Stopping) return;
-            try
-            {
-                var hdr = (WAVEHDR)Marshal.PtrToStructure(p1, typeof(WAVEHDR));
-                int len = (int)hdr.dwBytesRecorded;
-                if (len >= 2)
-                {
-                    byte[] pcm = new byte[len];
-                    Marshal.Copy(hdr.lpData, pcm, 0, len);
-                    double sumSq = 0;
-                    int samples = len / 2;
-                    for (int i = 0; i < samples; i++)
-                    {
-                        short s = (short)(pcm[i * 2] | (pcm[i * 2 + 1] << 8));
-                        double norm = s / 32768.0;
-                        sumSq += norm * norm;
-                    }
-                    double rms = Math.Sqrt(sumSq / samples);
-                    int level = (int)Math.Min(100, Math.Round(Math.Pow(rms, 0.65) * 140));
-                    Emit("{\"level\":" + level.ToString(CultureInfo.InvariantCulture)
-                        + ",\"pcm\":\"" + Convert.ToBase64String(pcm) + "\"}");
-                }
-                if (!Stopping) waveInAddBuffer(hwi, p1, hdrSize);
-            }
-            catch {}
-        };
-
-        int openRes = waveInOpen(out hWaveIn, WAVE_MAPPER, ref fmt, CallbackDelegate, IntPtr.Zero, CALLBACK_FUNCTION);
+        int openRes = waveInOpen(
+            out hWaveIn,
+            WAVE_MAPPER,
+            ref fmt,
+            dataEvent.SafeWaitHandle.DangerousGetHandle(),
+            IntPtr.Zero,
+            CALLBACK_EVENT
+        );
         if (openRes != 0) throw new InvalidOperationException("waveInOpen failed with code " + openRes);
 
+        Thread worker = null;
         try
         {
             for (int i = 0; i < BUFFER_COUNT; i++)
@@ -248,6 +247,43 @@ public static class AthenaWinMmCapture
                 waveInAddBuffer(hWaveIn, hdrPtrs[i], hdrSize);
             }
 
+            worker = new Thread(() =>
+            {
+                byte[] pcm = new byte[bytesPerFrame];
+                while (!Stopping)
+                {
+                    dataEvent.WaitOne(100);
+                    if (Stopping) break;
+                    for (int i = 0; i < BUFFER_COUNT; i++)
+                    {
+                        var hdr = (WAVEHDR)Marshal.PtrToStructure(hdrPtrs[i], typeof(WAVEHDR));
+                        if ((hdr.dwFlags & WHDR_DONE) == 0) continue;
+                        int len = (int)hdr.dwBytesRecorded;
+                        if (len >= 2 && len <= pcm.Length)
+                        {
+                            Marshal.Copy(hdr.lpData, pcm, 0, len);
+                            double sumSq = 0;
+                            int samples = len / 2;
+                            for (int sIdx = 0; sIdx < samples; sIdx++)
+                            {
+                                short s = (short)(pcm[sIdx * 2] | (pcm[sIdx * 2 + 1] << 8));
+                                double norm = s / 32768.0;
+                                sumSq += norm * norm;
+                            }
+                            double rms = Math.Sqrt(sumSq / samples);
+                            double dbfs = rms > 1e-6 ? 20.0 * Math.Log10(rms) : -96.0;
+                            // Map -58 dBFS -> 0%, -14 dBFS -> 100% (matches speech AGC meter feel)
+                            int level = (int)Math.Max(0, Math.Min(100, Math.Round((dbfs + 58.0) / 44.0 * 100.0)));
+                            Emit("{\"level\":" + level.ToString(CultureInfo.InvariantCulture)
+                                + ",\"pcm\":\"" + Convert.ToBase64String(pcm, 0, len) + "\"}");
+                        }
+                        if (!Stopping) waveInAddBuffer(hWaveIn, hdrPtrs[i], hdrSize);
+                    }
+                }
+            });
+            worker.IsBackground = true;
+            worker.Start();
+
             int startRes = waveInStart(hWaveIn);
             if (startRes != 0) throw new InvalidOperationException("waveInStart failed with code " + startRes);
 
@@ -262,6 +298,8 @@ public static class AthenaWinMmCapture
         finally
         {
             Stopping = true;
+            try { dataEvent.Set(); } catch {}
+            try { if (worker != null) worker.Join(500); } catch {}
             try { waveInStop(hWaveIn); } catch {}
             try { waveInReset(hWaveIn); } catch {}
             for (int i = 0; i < BUFFER_COUNT; i++)
@@ -274,6 +312,7 @@ public static class AthenaWinMmCapture
                 if (dataPtrs[i] != IntPtr.Zero) Marshal.FreeHGlobal(dataPtrs[i]);
             }
             try { waveInClose(hWaveIn); } catch {}
+            try { dataEvent.Dispose(); } catch {}
         }
     }
 }
@@ -325,13 +364,13 @@ export class WindowsDirectPcmInput implements VoiceCommandInput {
     this.onWarn = options.onWarn ?? (() => {})
     const onUtteranceCaptured = options.onUtteranceCaptured ?? (() => {})
     this.vad = new PcmVadSegmenter({
-      speechThreshold: options.speechThreshold ?? 10,
+      speechThreshold: options.speechThreshold ?? 18,
       silenceTailMs: options.silenceTailMs ?? 850,
       minSpeechMs: options.minSpeechMs ?? 240,
       onSpeechStart: options.onSpeechStart,
       onUtterance: (pcm) => {
         onUtteranceCaptured()
-        this.deliver({ kind: 'audio', pcm })
+        this.deliver({ kind: 'audio', pcm: normalizePcmForSpeech(pcm) })
       },
     })
   }
