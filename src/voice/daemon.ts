@@ -620,6 +620,10 @@ export interface VoiceSessionOptions {
   onStatus?: (message: string) => void
   /** Called with OpenAI's real input audio transcription when returned on a voice turn. */
   onUserTranscript?: (text: string) => void
+  /** Called when a voice turn hands off work to the Athena harness. */
+  onHandoffStart?: (info: { id: string; label: string }) => void
+  /** Called when a handed-off harness turn settles. */
+  onHandoffEnd?: (info: { id: string; status: 'completed' | 'failed'; detail?: string }) => void
   /**
    * Lifecycle counters, provider usage, and latency. Optional and non-fatal by
    * construction: a ledger that cannot be written must never cost a turn.
@@ -1037,15 +1041,18 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
       context.submitted = true
       const record = admission.record
       status(`Athena harness: ${text} (${record.id})`)
+      options.onHandoffStart?.({ id: record.id, label: text })
       meter.record({ event: 'turn.submitted', voiceTurnId: record.id, source: context.source })
       const submittedAt = meter.now()
       void controller.submitTurn(text)
         .then((turnResult) => {
+          const outcome = turnResult.status === 'completed' ? 'completed' : 'failed'
           turns.settle(
             record.id,
-            turnResult.status === 'completed' ? 'completed' : 'failed',
+            outcome,
             turnResult.sessionId,
           )
+          options.onHandoffEnd?.({ id: record.id, status: outcome, detail: turnResult.summary })
           // The voice turn ID is the key that ties this meter to the Athena session and run
           // the trace already holds the real evidence for.
           meter.record({
@@ -1059,6 +1066,7 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
         })
         .catch((error: unknown) => {
           turns.settle(record.id, 'failed')
+          options.onHandoffEnd?.({ id: record.id, status: 'failed', detail: (error as Error).message })
           meter.record({
             event: 'turn.failed',
             voiceTurnId: record.id,

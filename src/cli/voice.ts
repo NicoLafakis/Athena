@@ -351,9 +351,23 @@ export async function runVoiceCommand(
               console.error(message)
             }
           },
+          onDelegateStart: ({ id, prompt }) => {
+            hudStore?.dispatch({
+              type: 'handoff-start',
+              id,
+              label: prompt,
+              target: 'Athena Harness',
+            })
+            hudStore?.dispatch({ type: 'status', text: 'Handed off to Athena Harness…' })
+          },
+          onDelegateEnd: ({ id, status, detail }) => {
+            hudStore?.dispatch({ type: 'handoff-end', id, status, detail })
+            hudStore?.dispatch({
+              type: 'status',
+              text: status === 'completed' ? 'Harness returned — speaking result…' : 'Harness task failed',
+            })
+          },
           onDelegate: async (prompt) => {
-            hudStore?.dispatch({ type: 'phase', phase: 'working' })
-            hudStore?.dispatch({ type: 'status', text: 'Running harness task…' })
             const res = await activeController.submitTurn(prompt)
             return res.summary
           },
@@ -459,6 +473,17 @@ export async function runVoiceCommand(
           input: voiceInput,
           ...(hudStore
             ? {
+                onHandoffStart: ({ id, label }) => {
+                  hudStore.dispatch({
+                    type: 'handoff-start',
+                    id,
+                    label,
+                    target: 'Athena Harness',
+                  })
+                },
+                onHandoffEnd: ({ id, status, detail }) => {
+                  hudStore.dispatch({ type: 'handoff-end', id, status, detail })
+                },
                 onUserTranscript: (text) => {
                   hudStore.dispatch({ type: 'feed', role: 'user', text })
                 },

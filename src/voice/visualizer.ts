@@ -14,6 +14,16 @@ export interface VoiceHudFeedEntry {
   text: string
 }
 
+export interface VoiceHudHandoff {
+  id: string
+  label: string
+  target: string
+  status: 'running' | 'completed' | 'failed'
+  startedAt: number
+  finishedAt: number | null
+  detail?: string
+}
+
 export interface VoiceHudState {
   model: string
   projectName: string
@@ -24,6 +34,7 @@ export interface VoiceHudState {
   athenaHistory: number[]
   liveHypothesis: string
   lastStatus: string
+  handoffs: VoiceHudHandoff[]
   feed: VoiceHudFeedEntry[]
 }
 
@@ -35,10 +46,24 @@ export type VoiceHudEvent =
   | { type: 'hypothesis'; text: string }
   | { type: 'status'; text: string }
   | { type: 'feed'; role: 'user' | 'athena' | 'system'; text: string }
+  | { type: 'handoff-start'; id: string; label: string; target?: string; startedAt?: number }
+  | { type: 'handoff-end'; id: string; status: 'completed' | 'failed'; detail?: string; finishedAt?: number }
 
 const BAR_RAMP = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'] as const
 const DEFAULT_HISTORY_WIDTH = 28
 const MAX_FEED_ENTRIES = 10
+const MAX_HANDOFF_ENTRIES = 4
+
+/** Format elapsed hand-off time as MM:SS.t (e.g. 00:04.2). */
+export function formatHandoffElapsed(startedAt: number, now: number): string {
+  const ms = Math.max(0, now - startedAt)
+  const totalTenths = Math.floor(ms / 100)
+  const tenths = totalTenths % 10
+  const totalSeconds = Math.floor(totalTenths / 10)
+  const seconds = totalSeconds % 60
+  const minutes = Math.floor(totalSeconds / 60)
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${tenths}`
+}
 
 function clampLevel(level: number): number {
   if (!Number.isFinite(level)) return 0
@@ -119,6 +144,7 @@ export function createInitialVoiceHudState(options: {
     athenaHistory: new Array<number>(DEFAULT_HISTORY_WIDTH).fill(0),
     liveHypothesis: '',
     lastStatus: 'Connecting to OpenAI Realtime and opening microphone…',
+    handoffs: [],
     feed: [],
   }
 }
@@ -171,6 +197,36 @@ export function reduceVoiceHudState(
       }
       const feed = [...state.feed, entry].slice(-MAX_FEED_ENTRIES)
       return { ...state, feed }
+    }
+    case 'handoff-start': {
+      const entry: VoiceHudHandoff = {
+        id: event.id,
+        label: event.label.trim().slice(0, 140) || 'Delegated task',
+        target: event.target ?? 'Athena Harness',
+        status: 'running',
+        startedAt: event.startedAt ?? Date.now(),
+        finishedAt: null,
+      }
+      const withoutDup = state.handoffs.filter((h) => h.id !== event.id)
+      return {
+        ...state,
+        phase: 'working',
+        handoffs: [...withoutDup, entry].slice(-MAX_HANDOFF_ENTRIES),
+      }
+    }
+    case 'handoff-end': {
+      const finishedAt = event.finishedAt ?? Date.now()
+      const handoffs = state.handoffs.map((h) =>
+        h.id === event.id
+          ? {
+              ...h,
+              status: event.status,
+              finishedAt,
+              ...(event.detail ? { detail: event.detail.slice(0, 120) } : {}),
+            }
+          : h,
+      )
+      return { ...state, handoffs }
     }
   }
 }

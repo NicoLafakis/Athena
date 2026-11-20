@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   computePcmEnvelope,
   createInitialVoiceHudState,
+  formatHandoffElapsed,
   pushSample,
   reduceVoiceHudState,
   renderWaveformBars,
@@ -77,5 +78,39 @@ describe('parseWakeListenerLine live telemetry events', () => {
       { type: 'feed', role: 'athena', text: longReply },
     )
     expect(state.feed[0]!.text).toBe(longReply)
+  })
+
+  it('tracks active hand-offs and formats elapsed timer cleanly', () => {
+    expect(formatHandoffElapsed(1_000, 5_250)).toBe('00:04.2')
+    expect(formatHandoffElapsed(0, 72_500)).toBe('01:12.5')
+
+    let state = createInitialVoiceHudState({ model: 'gpt-live-1.1', projectName: 'Athena' })
+    state = reduceVoiceHudState(state, {
+      type: 'handoff-start',
+      id: 'item_1',
+      label: 'Check git status',
+      startedAt: 10_000,
+    })
+    expect(state.phase).toBe('working')
+    expect(state.handoffs).toHaveLength(1)
+    expect(state.handoffs[0]).toMatchObject({
+      id: 'item_1',
+      status: 'running',
+      target: 'Athena Harness',
+      startedAt: 10_000,
+      finishedAt: null,
+    })
+
+    state = reduceVoiceHudState(state, {
+      type: 'handoff-end',
+      id: 'item_1',
+      status: 'completed',
+      finishedAt: 14_300,
+    })
+    expect(state.handoffs[0]).toMatchObject({
+      id: 'item_1',
+      status: 'completed',
+      finishedAt: 14_300,
+    })
   })
 })

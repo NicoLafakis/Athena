@@ -94,6 +94,7 @@ export {
 export {
   computePcmEnvelope,
   createInitialVoiceHudState,
+  formatHandoffElapsed,
   pushSample,
   reduceVoiceHudState,
   renderLevelBar,
@@ -101,6 +102,7 @@ export {
   VoiceHudStore,
   type VoiceHudEvent,
   type VoiceHudFeedEntry,
+  type VoiceHudHandoff,
   type VoiceHudPhase,
   type VoiceHudState,
 } from './visualizer.js'

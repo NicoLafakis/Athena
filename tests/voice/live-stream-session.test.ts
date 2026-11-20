@@ -118,4 +118,51 @@ describe('Full-duplex runLiveVoiceSession (gpt-live-1.1)', () => {
     await sessionPromise
     expect(fakeAudio.closed).toBe(true)
   })
+
+  it('handles session.delegation.created using event.delegation.id + user transcript and returns session.commentary.append', async () => {
+    const fakeWs = new FakeSocket()
+    const fakeAudio = new FakeDuplexAudio()
+    const starts: Array<{ id: string; prompt: string }> = []
+    const ends: Array<{ id: string; status: string }> = []
+    const abort = new AbortController()
+
+    const sessionPromise = runLiveVoiceSession({
+      apiKey: 'sk-test',
+      model: 'gpt-live-1.1',
+      duplex: fakeAudio,
+      signal: abort.signal,
+      webSocketFactory: () => fakeWs as unknown as WebSocket,
+      onDelegateStart: (info) => starts.push(info),
+      onDelegateEnd: (info) => ends.push({ id: info.id, status: info.status }),
+      onDelegate: async (prompt) => `Checked: ${prompt} — all green.`,
+    })
+
+    fakeWs.emit('open')
+    fakeWs.serverSend({ type: 'session.started', session: { id: 'live_del_1' } })
+    await new Promise((r) => setImmediate(r))
+
+    // User speaks a request, then OpenAI emits official session.delegation.created
+    fakeWs.serverSend({ type: 'session.input_transcript.delta', delta: 'Check git status on this repo.' })
+    fakeWs.serverSend({
+      type: 'session.delegation.created',
+      event_id: 'event_del_1',
+      delegation: { id: 'item_9tA2bF3h', type: 'delegation', target: 'client' },
+    })
+
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+
+    expect(starts).toEqual([{ id: 'item_9tA2bF3h', prompt: 'Check git status on this repo.' }])
+    expect(ends).toEqual([{ id: 'item_9tA2bF3h', status: 'completed' }])
+    expect(fakeWs.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'session.commentary.append',
+        delegation_id: 'item_9tA2bF3h',
+        content: 'Checked: Check git status on this repo. — all green.',
+      }),
+    )
+
+    abort.abort()
+    await sessionPromise
+  })
 })

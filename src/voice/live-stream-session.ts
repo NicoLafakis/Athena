@@ -1,7 +1,7 @@
 import WebSocket from 'ws'
 import { z } from 'zod'
 import { plainBounded } from '../interaction/format.js'
-import { buildVoiceInstructions, RealtimeTransportError, type RealtimeVoiceModel } from './realtime.js'
+import { RealtimeTransportError, type RealtimeVoiceModel } from './realtime.js'
 
 const ServerEventSchema = z.object({ type: z.string() }).passthrough()
 
@@ -37,8 +37,23 @@ export interface LiveVoiceSessionOptions {
   onAthenaSpeaking?: (speaking: boolean) => void
   onStatus?: (text: string) => void
   onWarn?: (message: string) => void
-  /** Optional asynchronous harness delegation callback when GPT-Live requests backend work. */
-  onDelegate?: (prompt: string) => Promise<string>
+  /** Optional asynchronous harness delegation callback when GPT-Live emits session.delegation.created. */
+  onDelegate?: (prompt: string, delegationId: string) => Promise<string>
+  onDelegateStart?: (info: { id: string; prompt: string }) => void
+  onDelegateEnd?: (info: { id: string; status: 'completed' | 'failed'; detail?: string }) => void
+}
+
+function buildLiveVoiceInstructions(persona?: string): string {
+  const rules = [
+    'You are Athena, the terminal coding agent in this session, speaking directly with the user by voice in first person ("I", "me", "my").',
+    'Never describe Athena, the harness, or the engine as a separate person or assistant standing between you and the user.',
+    'Whenever the user asks you to inspect files, check git status, run commands, edit code, search the repository, or perform any project task, trigger client delegation immediately rather than guessing or promising to check without delegating.',
+    'When a delegated task starts, tell the user briefly that you are on it. When the result arrives via commentary, report it concisely and faithfully in first person as your own completed work.',
+    'Keep spoken replies concise, natural, and direct — a colleague, not a narrator.',
+  ]
+  const trimmed = persona?.trim().slice(0, 2_048)
+  if (!trimmed) return rules.join(' ')
+  return [...rules, `Athena's constitution:\n${trimmed}`].join(' ')
 }
 
 function measurePcmLevel(pcm: Buffer): { hasSpeech: boolean; level: number } {
@@ -86,6 +101,7 @@ export async function runLiveVoiceSession(options: LiveVoiceSessionOptions): Pro
   let closed = false
   let sessionStarted = false
   let userTranscriptBuf = ''
+  let lastUserUtterance = ''
   let athenaTranscriptBuf = ''
   let athenaSpeaking = false
   let silentOutputFrames = 0
@@ -93,7 +109,10 @@ export async function runLiveVoiceSession(options: LiveVoiceSessionOptions): Pro
   const flushUserTranscript = (): void => {
     const text = userTranscriptBuf.trim()
     userTranscriptBuf = ''
-    if (text) options.onUserTranscript?.(text)
+    if (text) {
+      lastUserUtterance = text
+      options.onUserTranscript?.(text)
+    }
   }
 
   const flushAthenaTranscript = (): void => {
@@ -151,7 +170,7 @@ export async function runLiveVoiceSession(options: LiveVoiceSessionOptions): Pro
         event_id: nextEventId('start'),
         session: {
           model: options.model,
-          instructions: buildVoiceInstructions(options.persona),
+          instructions: buildLiveVoiceInstructions(options.persona),
           audio: {
             format: { type: 'audio/pcm', rate: 24_000 },
             output: { voice: options.voice ?? 'marin' },
@@ -238,42 +257,52 @@ export async function runLiveVoiceSession(options: LiveVoiceSessionOptions): Pro
         return
       }
 
-      // Handle asynchronous client delegation requests if emitted by GPT-Live
+      // Handle OpenAI GPT-Live client delegation (`session.delegation.created`)
+      // Per OpenAI docs, `session.delegation.created` carries `delegation.id` and the client
+      // reads the user's request from recent `session.input_transcript.delta` text.
       if (
         options.onDelegate &&
-        event.type.includes('delegation') &&
-        typeof event['delegation_id'] === 'string'
+        (event.type === 'session.delegation.created' || event.type.includes('delegation'))
       ) {
-        const delegationId = event['delegation_id']
+        const delegationObj = event['delegation'] as { id?: unknown; target?: unknown } | undefined
+        const delegationId =
+          typeof delegationObj?.id === 'string'
+            ? delegationObj.id
+            : typeof event['delegation_id'] === 'string'
+              ? event['delegation_id']
+              : null
+        if (!delegationId) return
+        if (userTranscriptBuf.trim()) flushUserTranscript()
         const rawPrompt =
-          typeof event['prompt'] === 'string'
+          typeof event['prompt'] === 'string' && event['prompt'].trim()
             ? event['prompt']
-            : typeof event['content'] === 'string'
+            : typeof event['content'] === 'string' && event['content'].trim()
               ? event['content']
-              : typeof event['input'] === 'string'
-                ? event['input']
-                : ''
-        const prompt = plainBounded(rawPrompt, 4_096)
-        if (prompt) {
-          void options.onDelegate(prompt).then(
-            (summary) => {
-              sendJson({
-                type: 'session.commentary.append',
-                event_id: nextEventId('commentary'),
-                delegation_id: delegationId,
-                content: plainBounded(summary, 1_500),
-              })
-            },
-            (err: unknown) => {
-              sendJson({
-                type: 'session.commentary.append',
-                event_id: nextEventId('commentary'),
-                delegation_id: delegationId,
-                content: `That task failed: ${plainBounded((err as Error).message, 400)}`,
-              })
-            },
-          )
-        }
+              : lastUserUtterance
+        const prompt = plainBounded(rawPrompt || 'Inspect the current request from the user.', 4_096)
+        options.onDelegateStart?.({ id: delegationId, prompt })
+        void options.onDelegate(prompt, delegationId).then(
+          (summary) => {
+            const bounded = plainBounded(summary, 1_500)
+            options.onDelegateEnd?.({ id: delegationId, status: 'completed', detail: bounded })
+            sendJson({
+              type: 'session.commentary.append',
+              event_id: nextEventId('commentary'),
+              delegation_id: delegationId,
+              content: bounded || 'Task completed.',
+            })
+          },
+          (err: unknown) => {
+            const msg = plainBounded((err as Error).message, 400)
+            options.onDelegateEnd?.({ id: delegationId, status: 'failed', detail: msg })
+            sendJson({
+              type: 'session.commentary.append',
+              event_id: nextEventId('commentary'),
+              delegation_id: delegationId,
+              content: `That task failed: ${msg}`,
+            })
+          },
+        )
       }
     })
 
