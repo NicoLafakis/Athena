@@ -2,7 +2,7 @@
 
 **Tier:** 3 - paid provider, screen contents, synthetic input, machine-wide reach
 **Date:** 2026-08-13
-**Status:** Design only. Nothing is implemented. Approval gate before any code.
+**Status:** Core bounded actuator foundation implemented in `src/computer-use/` and `src/tools/computer-use.ts` (hard deny-list policy, real Windows PNG-sentinel capability probe, `gpt-5.6` Responses API CUA loop with step/token ceilings, kill switch, and SHA-256 screenshot digest telemetry). Disabled by default in normal sessions until explicitly enabled with a live client/backend.
 **Parent:** [Wiki index](../../INDEX.md)
 **Related:** [Direct-harness voice](../blind-first-jarvis/direct-harness-voice.md) |
 [ADR 0003](../blind-first-jarvis/adr/0003-realtime-as-audio-adapter.md) |

@@ -222,6 +222,8 @@ export type VmpConnectorSettings = z.infer<typeof VmpConnectorSchema>
  * redacted request to an external decision service. Project settings cannot opt in. */
 export const JevDecisionSettingsSchema = z.object({
   enabled: z.boolean().default(false),
+  workflowHintShadow: z.boolean().optional(),
+  skillSuggestionShadow: z.boolean().optional(),
 }).strict()
 export type JevDecisionSettings = z.infer<typeof JevDecisionSettingsSchema>
 

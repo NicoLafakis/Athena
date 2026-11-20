@@ -1,7 +1,7 @@
 # Jev integration across Athena: planning overview
 
 **Date:** 2026-11-16
-**Status:** Stage 1 reconciliation integrated on branch; new scopes, live/paid evaluation, and deployment remain gated.
+**Status:** Stage 1 reconciliation and Stage 2 offline shadow foundation (`JevBudgetGuard`, `evaluateWorkflowHintShadow`, `evaluateSkillSuggestionShadow`, default-off settings flags) implemented on branch; live/paid evaluation and deployment remain gated.
 **Tier:** 3, external decision service and cross-cutting harness behavior.
 **Project:** Athena terminal coding-agent harness on Helios.
 

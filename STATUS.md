@@ -4,10 +4,12 @@
 - [ ] Blind-first Jarvis voice live acceptance run -> [.wiki/features/blind-first-jarvis/acceptance-runbook.md]
 
 ### Planned
-- [ ] Jev Stage 2 shadow workflow/skill hints & root budgets -> [.wiki/features/jev-integration/00-overview.md]
-- [ ] Computer use actuator -> [.wiki/features/computer-use/00-overview.md]
+- [ ] Voice project switching pieces 2-3 -> [.wiki/features/voice-project-switching/00-overview.md]
+- [ ] Active-session transcript search -> [.wiki/features/transcript-reader/00-overview.md]
 
 ### Done
+- [x] Computer use bounded actuator foundation (2026-11-20) -> [.wiki/features/computer-use/00-overview.md]
+- [x] Jev Stage 2 root budgets, circuit breaker & shadow advisory adapters (2026-11-20) -> [.wiki/features/jev-integration/00-overview.md]
 - [x] Free-text memory hygiene / anti-rot (2026-11-20) -> [.wiki/architecture/memory-hygiene.md]
 - [x] Conversational continuity & opt-in Jev Stage 1 reconciliation (2026-11-20) -> [.wiki/features/conversational-continuity/00-overview.md]
 - [x] Harness structural consolidation & optimization (2026-11-19) -> [HARNESS_OPTIMIZATION.md]
