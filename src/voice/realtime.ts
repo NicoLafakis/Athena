@@ -192,6 +192,7 @@ export class RealtimeVoiceClient {
     const factory = options.webSocketFactory ?? ((target, socketOptions) => new WebSocket(target, socketOptions))
     this.socket = factory(url, {
       headers: { Authorization: `Bearer ${options.apiKey}` },
+      family: 4,
     })
     const connectTimer = setTimeout(() => {
       this.rejectConnected(new RealtimeTransportError('Realtime connection timed out.', 'connection_timeout'))

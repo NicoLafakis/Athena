@@ -107,12 +107,13 @@ describe('LiveVoiceClient (gpt-live-1.1) and RealtimeVoiceClient transcription',
     })
   })
 
-  it('LiveVoiceClient initializes wss://api.openai.com/v1/live/sessions with session.start and returns userTranscript + transcript', async () => {
+  it('LiveVoiceClient initializes wss://api.openai.com/v1/live/sessions with session.start (no session.tools) and streams native session.* events', async () => {
     const fake = new FakeSocket()
     let connectedUrl = ''
     const client = new LiveVoiceClient({
       apiKey: 'sk-test',
       model: 'gpt-live-1.1',
+      silenceTailFrames: 2,
       webSocketFactory: (url) => {
         connectedUrl = url
         return fake as unknown as WebSocket
@@ -122,38 +123,35 @@ describe('LiveVoiceClient (gpt-live-1.1) and RealtimeVoiceClient transcription',
     const connectPromise = client.connect()
     fake.emit('open')
     expect(connectedUrl).toBe('wss://api.openai.com/v1/live/sessions')
-    expect(fake.sent[0]).toMatchObject({
+    const startEvent = fake.sent[0] as { type?: string; session?: Record<string, unknown> }
+    expect(startEvent).toMatchObject({
       type: 'session.start',
       session: {
         model: 'gpt-live-1.1',
         delegation: { type: 'client' },
       },
     })
+    expect(startEvent.session?.['tools']).toBeUndefined()
     fake.serverSend({ type: 'session.started', session: { id: 'live_1', model: 'gpt-live-1.1' } })
     await connectPromise
 
     const turnPromise = client.askAudio(makeTonePcm(120, 10_000), async () => ({}))
-    fake.serverSend({
-      type: 'conversation.item.input_audio_transcription.completed',
-      transcript: 'Check the git status please.',
-    })
-    fake.serverSend({
-      type: 'response.output_audio_transcript.delta',
-      delta: 'Checking git status now.',
-    })
-    fake.serverSend({
-      type: 'response.output_audio.delta',
-      delta: Buffer.from([1, 2, 3, 4]).toString('base64'),
-    })
-    fake.serverSend({
-      type: 'response.done',
-      response: { status: 'completed', output: [], usage: { total_tokens: 42 } },
-    })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(fake.sent.some((m) => m['type'] === 'session.input_audio.append')).toBe(true)
+
+    const speechChunk = makeTonePcm(60, 8_000)
+    const silenceChunk = Buffer.alloc(4_800)
+    fake.serverSend({ type: 'session.input_transcript.delta', delta: 'Check the ' })
+    fake.serverSend({ type: 'session.input_transcript.delta', delta: 'git status please.' })
+    fake.serverSend({ type: 'session.output_transcript.delta', delta: 'Checking git status now.' })
+    fake.serverSend({ type: 'session.output_audio.delta', delta: speechChunk.toString('base64') })
+    fake.serverSend({ type: 'session.output_audio.delta', delta: silenceChunk.toString('base64') })
+    fake.serverSend({ type: 'session.output_audio.delta', delta: silenceChunk.toString('base64') })
 
     const turn = await turnPromise
     expect(turn.userTranscript).toBe('Check the git status please.')
     expect(turn.transcript).toBe('Checking git status now.')
-    expect(turn.audio).toEqual(Buffer.from([1, 2, 3, 4]))
+    expect(turn.audio.length).toBe(speechChunk.length + silenceChunk.length * 2)
     client.close()
   })
 
