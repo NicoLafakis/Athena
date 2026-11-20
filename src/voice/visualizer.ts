@@ -167,7 +167,7 @@ export function reduceVoiceHudState(
         id: nextFeedId++,
         timestamp: new Date().toISOString().slice(11, 19),
         role: event.role,
-        text: event.text.slice(0, 240),
+        text: event.text.slice(0, 2_000),
       }
       const feed = [...state.feed, entry].slice(-MAX_FEED_ENTRIES)
       return { ...state, feed }

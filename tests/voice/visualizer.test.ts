@@ -69,4 +69,13 @@ describe('parseWakeListenerLine live telemetry events', () => {
       confidence: 0.2,
     })
   })
+
+  it('keeps long feed entries unwrapped up to 2000 chars for full conversational visibility', () => {
+    const longReply = 'This is a long Athena response. '.repeat(20)
+    const state = reduceVoiceHudState(
+      createInitialVoiceHudState({ model: 'gpt-realtime-2.1-mini', projectName: 'Athena' }),
+      { type: 'feed', role: 'athena', text: longReply },
+    )
+    expect(state.feed[0]!.text).toBe(longReply)
+  })
 })

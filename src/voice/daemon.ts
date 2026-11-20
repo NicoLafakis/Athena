@@ -76,6 +76,8 @@ export interface WindowsPersistentWakeOptions {
   maxQueue?: number
   /** How long a bare wake word holds the command-capture window open. */
   listeningWindowMs?: number
+  /** When false, any phrase above confidence is delivered directly for natural back-and-forth conversation (default true). */
+  requireWakeWord?: boolean
   now?: () => number
   /** Fired when a bare wake word opens the capture window (cue hook). */
   onListening?: () => void
@@ -94,6 +96,8 @@ export interface WindowsPersistentWakeOptions {
   onHypothesis?: (text: string) => void
   /** Fired when Windows heard speech that did not match or fell below threshold. */
   onRejected?: (text: string, confidence: number) => void
+  /** Fired with the recognized user text right as a voice turn is delivered. */
+  onUserUtterance?: (text: string) => void
   sleep?: (ms: number) => Promise<void>
   /** Lifecycle counters. Wake events are counted locally and never carry what was said. */
   telemetry?: VoiceTelemetryRecorder
@@ -124,6 +128,7 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
   private readonly closeGraceMs: number
   private readonly maxQueue: number
   private readonly listeningWindowMs: number
+  private readonly requireWakeWord: boolean
   private readonly now: () => number
   private readonly onListening: () => void
   private readonly onReady: (recognizer: string | null) => void
@@ -132,6 +137,7 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
   private readonly onSpeechDetected: () => void
   private readonly onHypothesis: (text: string) => void
   private readonly onRejected: (text: string, confidence: number) => void
+  private readonly onUserUtterance: (text: string) => void
   private readonly sleep: (ms: number) => Promise<void>
   private readonly meter: VoiceTelemetryRecorder
 
@@ -159,6 +165,7 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
     this.closeGraceMs = options.closeGraceMs ?? 1_000
     this.maxQueue = options.maxQueue ?? 8
     this.listeningWindowMs = options.listeningWindowMs ?? 6_000
+    this.requireWakeWord = options.requireWakeWord ?? true
     this.now = options.now ?? (() => Date.now())
     this.onListening = options.onListening ?? (() => {})
     this.onReady = options.onReady ?? (() => {})
@@ -167,6 +174,7 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
     this.onSpeechDetected = options.onSpeechDetected ?? (() => {})
     this.onHypothesis = options.onHypothesis ?? (() => {})
     this.onRejected = options.onRejected ?? (() => {})
+    this.onUserUtterance = options.onUserUtterance ?? (() => {})
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
     this.meter = options.telemetry ?? NULL_VOICE_TELEMETRY
   }
@@ -301,6 +309,12 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
       return
     }
     const text = phrase.text.trim()
+    if (!this.requireWakeWord) {
+      this.listeningUntil = 0
+      this.meter.record({ event: 'wake.accepted', label: 'wake-phrase' })
+      this.deliver({ kind: 'audio', pcm: phrase.audio, wakeTranscript: text })
+      return
+    }
     if (stripWakePhrase(text)) {
       this.listeningUntil = 0
       this.meter.record({ event: 'wake.accepted', label: 'wake-phrase' })
@@ -323,6 +337,9 @@ export class WindowsPersistentWakeInput implements VoiceCommandInput {
   }
 
   private deliver(command: VoiceCommand): void {
+    if (command.kind === 'audio' && command.wakeTranscript) {
+      this.onUserUtterance(command.wakeTranscript)
+    }
     const waiter = this.waiters.shift()
     if (waiter) waiter.resolve(command)
     else {

@@ -10,7 +10,7 @@ import {
 
 const PHASE_BADGE: Record<VoiceHudPhase, { label: string; color: string }> = {
   connecting: { label: '◌ CONNECTING', color: 'yellow' },
-  standby: { label: '● STANDBY — Say "Athena"', color: 'green' },
+  standby: { label: '● READY — Speak anytime', color: 'green' },
   hearing: { label: '◉ HEARING YOU', color: 'greenBright' },
   working: { label: '◈ WORKING', color: 'blueBright' },
   speaking: { label: '◉ ATHENA SPEAKING', color: 'cyanBright' },
@@ -72,8 +72,8 @@ export function VoiceHud({ store }: VoiceHudProps) {
           <Text color={micActive ? 'greenBright' : 'gray'}>
             {renderWaveformBars(state.micHistory, 28)}
           </Text>
-          <Text dimColor={!state.liveHypothesis} color={state.liveHypothesis ? 'yellow' : undefined}>
-            {state.liveHypothesis ? `“${state.liveHypothesis}”` : 'Listening for wake phrase…'}
+          <Text dimColor={!state.liveHypothesis} color={state.liveHypothesis ? 'yellow' : undefined} wrap="wrap">
+            {state.liveHypothesis ? `“${state.liveHypothesis}”` : 'Speak naturally — mic is live…'}
           </Text>
         </Box>
 
@@ -110,25 +110,27 @@ export function VoiceHud({ store }: VoiceHudProps) {
           LIVE FEED
         </Text>
         {state.feed.length === 0 ? (
-          <Text dimColor>Say &quot;Athena, what repository are we in?&quot; to begin.</Text>
+          <Text dimColor>Just start speaking — no wake word needed.</Text>
         ) : (
           state.feed.map((entry) => (
-            <Text key={entry.id} wrap="truncate-end">
-              <Text dimColor>[{entry.timestamp}] </Text>
-              <Text
-                bold
-                color={
-                  entry.role === 'user'
-                    ? 'greenBright'
-                    : entry.role === 'athena'
-                      ? 'cyanBright'
-                      : 'yellow'
-                }
-              >
-                {entry.role === 'user' ? 'You' : entry.role === 'athena' ? 'Athena' : 'Sys'}:{' '}
+            <Box key={entry.id} flexDirection="row">
+              <Text wrap="wrap">
+                <Text dimColor>[{entry.timestamp}] </Text>
+                <Text
+                  bold
+                  color={
+                    entry.role === 'user'
+                      ? 'greenBright'
+                      : entry.role === 'athena'
+                        ? 'cyanBright'
+                        : 'yellow'
+                  }
+                >
+                  {entry.role === 'user' ? 'You' : entry.role === 'athena' ? 'Athena' : 'Sys'}:{' '}
+                </Text>
+                <Text>{entry.text}</Text>
               </Text>
-              <Text>{entry.text}</Text>
-            </Text>
+            </Box>
           ))
         )}
       </Box>
@@ -136,7 +138,7 @@ export function VoiceHud({ store }: VoiceHudProps) {
       {/* Footer */}
       <Box marginTop={0} paddingX={1}>
         <Text dimColor>
-          Say &quot;Athena &lt;request&gt;&quot; · &quot;Athena status&quot; · &quot;Athena stop listening&quot; · Ctrl+C to exit
+          Open conversation mode (pass --wake-word to gate on &quot;Athena&quot;) · Say &quot;stop listening&quot; or Ctrl+C to exit
         </Text>
       </Box>
     </Box>

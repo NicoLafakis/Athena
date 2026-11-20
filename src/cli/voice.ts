@@ -297,11 +297,14 @@ export async function runVoiceCommand(
     const voiceInput = cmd.keyboard
       ? new KeyboardVoiceCommandInput({ onInterrupt: onVoiceSigint })
       : new WindowsPersistentWakeInput({
+          requireWakeWord: cmd.wakeWord === true,
           onReady: (recognizer) => {
             hudStore?.dispatch({ type: 'phase', phase: 'standby' })
             hudStore?.dispatch({
               type: 'status',
-              text: `Mic open (${recognizer ?? 'Windows Speech'}) — say "Athena"`,
+              text: cmd.wakeWord
+                ? `Mic open (${recognizer ?? 'Windows Speech'}) — say "Athena"`
+                : `Mic open (${recognizer ?? 'Windows Speech'}) — speak anytime`,
             })
           },
           onAudioLevel: (level) => {
@@ -313,15 +316,22 @@ export async function runVoiceCommand(
           onHypothesis: (text) => {
             hudStore?.dispatch({ type: 'hypothesis', text })
           },
+          onUserUtterance: (text) => {
+            hudStore?.dispatch({ type: 'feed', role: 'user', text })
+            hudStore?.dispatch({ type: 'phase', phase: 'working' })
+            hudStore?.dispatch({ type: 'status', text: 'Thinking…' })
+          },
           onRejected: (text, confidence) => {
             hudStore?.dispatch({ type: 'phase', phase: 'standby' })
-            hudStore?.dispatch({
-              type: 'feed',
-              role: 'system',
-              text: text
-                ? `Heard "${text}" (${Math.round(confidence * 100)}% — ignored, say "Athena …")`
-                : 'Heard audio that did not match "Athena …"',
-            })
+            if (cmd.wakeWord) {
+              hudStore?.dispatch({
+                type: 'feed',
+                role: 'system',
+                text: text
+                  ? `Heard "${text}" (${Math.round(confidence * 100)}% — ignored, say "Athena …")`
+                  : 'Heard audio that did not match "Athena …"',
+              })
+            }
           },
           onWarn: (message) => {
             if (hudStore) {
@@ -383,7 +393,10 @@ export async function runVoiceCommand(
           : () => {
               if (hudStore) {
                 hudStore.dispatch({ type: 'phase', phase: 'standby' })
-                hudStore.dispatch({ type: 'status', text: 'Ready — say "Athena"' })
+                hudStore.dispatch({
+                  type: 'status',
+                  text: cmd.wakeWord ? 'Ready — say "Athena"' : 'Ready — speak anytime',
+                })
               } else if (!tuiInstance) {
                 console.log('Athena: wake standby')
               }
