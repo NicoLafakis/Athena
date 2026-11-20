@@ -39,8 +39,9 @@ Wake-word gated (--wake-word):
 3. **`src/voice/realtime.ts`**
    - Enables `audio.input.transcription: { model: 'gpt-live-transcribe' }` in `session.update` and captures `conversation.item.input_audio_transcription.completed` into `RealtimeTurnResult.userTranscript`.
 4. **CLI & HUD (`src/cli/args.ts`, `src/cli/voice.ts`)**
+   - Bare `athena` and `athena voice` default to `gpt-live-1.1` (use `athena tui` for the classic text TUI).
    - Supports `--model gpt-live-1.1|gpt-live-1|gpt-realtime-2.1|gpt-realtime-2.1-mini`.
-   - Default open conversation uses `WindowsDirectPcmInput` (direct 24 kHz PCM, no `System.Speech` dictation) and displays OpenAI's real `userTranscript` in `VoiceHud`.
+   - Default open conversation uses full-duplex `WindowsDuplexAudio` + `runLiveVoiceSession` on `gpt-live-1.1`/`gpt-live-1`, or `WindowsDirectPcmInput` on Realtime models, and displays OpenAI's real `userTranscript` in `VoiceHud`.
 
 ## Invariants preserved
 

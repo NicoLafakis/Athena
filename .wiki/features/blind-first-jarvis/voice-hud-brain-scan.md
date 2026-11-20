@@ -2,7 +2,7 @@
 
 ## Overview
 
-When running `athena voice` on an interactive TTY (without `--keyboard`, `--tui`, or `--accessibility screen-reader`), `VoiceHud` (`src/tui/VoiceHud.tsx`) enters the terminal's alternate screen buffer via `createFullscreenController()` and renders a strictly row-budgeted fullscreen split-screen interface:
+When running `athena` (bare default) or `athena voice` on an interactive TTY (without `--keyboard`, `--tui`, or `--accessibility screen-reader`), `VoiceHud` (`src/tui/VoiceHud.tsx`) launches with `gpt-live-1.1` by default, enters the terminal's alternate screen buffer via `createFullscreenController()`, and renders a strictly row-budgeted fullscreen split-screen interface (use `athena tui` for the classic text TUI):
 
 1. **Sticky Top Header** — Always pinned at the top: `ATHENA VOICE` status badge, active project and model, and compact dual live `YOU (MIC)` / `ATHENA (VOICE)` waveforms.
 2. **Left Pane (~56% width) — Scrollable Conversation & Hand-Off Strip** — Retains up to 200 turns in a scrollable container (`PageUp`/`PageDown` to scroll, `Ctrl+PageUp`/`Ctrl+PageDown` to jump top/latest; obeys `AGENTS.md §5` platform limits). Pinned at the bottom of the left pane is the live `HAND-OFFS & BACKGROUND TASKS` strip with spinner and ticking `MM:SS.t` timer.

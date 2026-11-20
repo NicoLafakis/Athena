@@ -16,12 +16,12 @@ export type VoiceModel =
   | 'gpt-live-1'
 
 const VOICE_MODELS: readonly VoiceModel[] = [
-  'gpt-realtime-2.1-mini',
-  'gpt-realtime-2.1',
   'gpt-live-1.1',
   'gpt-live-1',
+  'gpt-realtime-2.1-mini',
+  'gpt-realtime-2.1',
 ]
-const DEFAULT_VOICE_MODEL: VoiceModel = 'gpt-realtime-2.1-mini'
+const DEFAULT_VOICE_MODEL: VoiceModel = 'gpt-live-1.1'
 const SEMANTIC_MEMORY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 export type CliCommand =
@@ -134,7 +134,7 @@ export const EXEC_USAGE =
   '[--session|--resume id] [--provider id] [--model key] [--effort level]'
 
 const VOICE_USAGE =
-  'Usage: athena voice [probe|auth] [--model gpt-realtime-2.1-mini|gpt-realtime-2.1|gpt-live-1.1|gpt-live-1] [--keyboard] [--tui] [--wake-word]'
+  'Usage: athena voice [probe|auth] [--model gpt-live-1.1|gpt-live-1|gpt-realtime-2.1|gpt-realtime-2.1-mini] [--keyboard] [--tui] [--wake-word]'
 
 const AUTH_USAGE =
   `Usage: athena auth [status] [--provider <${PROVIDER_IDS.join('|')}>] ` +
@@ -143,7 +143,8 @@ const AUTH_USAGE =
 export const HELP_TEXT = `athena — standalone terminal coding agent
 
 Usage:
-  athena                 new session in the current project
+  athena                 live full-duplex voice HUD + orbital brain scan (gpt-live-1.1)
+  athena tui             classic text TUI session in the current project
   athena exec [prompt]   non-interactive run; reads stdin when prompt is omitted
   athena exec --help     automation flags and budgets
   athena --continue      resume the most recent session here
@@ -152,7 +153,7 @@ Usage:
   athena --accessibility <screen-reader|standard>  session-only presentation override
   athena auth            add/replace API keys, switch the default provider
   athena auth status     show configured providers and redacted keys
-  athena voice           hands-free “Athena” wake conversation (pastes/sets up the OpenAI key on first run)
+  athena voice           hands-free live voice conversation (defaults to gpt-live-1.1; sets up the OpenAI key on first run)
   athena voice --keyboard  equivalent stable-text input for keyboard/Braille use
   athena voice probe     round-trip local speech and verify the Realtime connection
   athena voice auth      replace the saved per-machine OpenAI voice key
@@ -365,6 +366,7 @@ function parseVoiceArgs(argv: string[]): CliCommand {
 }
 
 export function parseArgs(argv: string[]): CliCommand {
+  if (argv.length === 0) return parseVoiceArgs([])
   if (argv[0] === 'exec') return parseExecArgs(argv.slice(1))
   if (argv[0] === 'voice') return parseVoiceArgs(argv.slice(1))
   if (argv[0] === 'watch') {
@@ -627,7 +629,7 @@ export function parseArgs(argv: string[]): CliCommand {
       ...(accessibility ? { accessibility } : {}),
     }
   }
-  const rest = [...argv]
+  const rest = argv[0] === 'tui' ? argv.slice(1) : [...argv]
   let provider: ProviderId | undefined
   let accessibility: AccessibilityPresentation | undefined
   const pi = rest.indexOf('--provider')

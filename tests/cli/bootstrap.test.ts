@@ -83,8 +83,14 @@ describe('ensureBrainScaffold', () => {
 })
 
 describe('parseArgs', () => {
-  it('handles default run, --resume, --continue, and import <path>', () => {
-    expect(parseArgs([])).toEqual({ command: 'run' })
+  it('handles default live voice, tui, --resume, --continue, and import <path>', () => {
+    expect(parseArgs([])).toEqual({
+      command: 'voice',
+      action: 'start',
+      model: 'gpt-live-1.1',
+      keyboard: false,
+    })
+    expect(parseArgs(['tui'])).toEqual({ command: 'run' })
     expect(parseArgs(['--resume'])).toEqual({ command: 'resume' })
     expect(parseArgs(['--continue'])).toEqual({ command: 'continue' })
     expect(parseArgs(['import', 'C:/old/ares', '--force'])).toEqual({

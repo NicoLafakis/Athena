@@ -102,7 +102,7 @@ describe('parseArgs — auth and --provider', () => {
   })
 
   it('uses the persisted screen-reader presentation for cold-start auth unless overridden', () => {
-    const ordinary = parseArgs([])
+    const ordinary = parseArgs(['tui'])
     const overridden = parseArgs(['--accessibility', 'standard'])
     if (ordinary.command !== 'run' || overridden.command !== 'run') throw new Error('expected run')
     expect(resolveAuthPresentation(ordinary, 'screen-reader')).toBe('screen-reader')
@@ -131,8 +131,22 @@ describe('parseArgs — auth and --provider', () => {
     })
   })
 
-  it('existing commands still parse (no provider key when the flag is absent)', () => {
-    expect(parseArgs([])).toEqual({ command: 'run', provider: undefined })
+  it('bare athena launches fullscreen live voice with gpt-live-1.1, while tui and existing commands still parse', () => {
+    expect(parseArgs([])).toEqual({
+      command: 'voice',
+      action: 'start',
+      model: 'gpt-live-1.1',
+      keyboard: false,
+    })
+    expect(parseArgs(['tui'])).toEqual({ command: 'run', provider: undefined })
+    expect(parseArgs(['tui', '--provider', 'kimi'])).toEqual({ command: 'run', provider: 'kimi' })
+    expect(parseArgs(['tui', '--continue'])).toEqual({ command: 'continue', provider: undefined })
+    expect(parseArgs(['tui', '--resume'])).toEqual({ command: 'resume', provider: undefined })
+    expect(parseArgs(['tui', '--accessibility', 'screen-reader'])).toEqual({
+      command: 'run',
+      provider: undefined,
+      accessibility: 'screen-reader',
+    })
     expect(parseArgs(['--help'])).toEqual({ command: 'help' })
     expect(parseArgs(['import', 'x'])).toEqual({ command: 'import', sourceDir: 'x', force: false })
     expect(parseArgs(['bogus'])).toEqual({
@@ -304,7 +318,7 @@ describe('parseArgs — memory continuity commands', () => {
 describe('parseArgs — voice', () => {
   it('parses microphone, keyboard, probe, auth, and quality model paths', () => {
     expect(parseArgs(['voice'])).toEqual({
-      command: 'voice', action: 'start', model: 'gpt-realtime-2.1-mini', keyboard: false,
+      command: 'voice', action: 'start', model: 'gpt-live-1.1', keyboard: false,
     })
     expect(parseArgs(['voice', '--keyboard'])).toMatchObject({ command: 'voice', keyboard: true })
     expect(parseArgs(['voice', 'probe', '--model', 'gpt-realtime-2.1'])).toEqual({
