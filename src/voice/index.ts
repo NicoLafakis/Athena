@@ -64,6 +64,12 @@ export {
 } from './realtime.js'
 export { LiveVoiceClient } from './live-client.js'
 export {
+  runLiveVoiceSession,
+  type DuplexAudioTransport,
+  type LiveVoiceSessionOptions,
+} from './live-stream-session.js'
+export { WindowsDuplexAudio } from './windows-duplex-audio.js'
+export {
   PcmVadSegmenter,
   WindowsDirectPcmInput,
   type PcmVadSegmenterOptions,

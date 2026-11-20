@@ -47,3 +47,11 @@ Wake-word gated (--wake-word):
 - **Permissions & authority:** Unchanged. Neither `gpt-live-1.1` nor `gpt-realtime-2.1` holds file tools or permission authority; all work runs through `HarnessSessionController` and `VoiceAttentionBridge`.
 - **Accessibility:** `--accessibility screen-reader` and `--keyboard` remain append-only and never mount the visual HUD.
 - **Privacy & wake-word mode:** `--wake-word` retains strict on-device `"Athena"` gating before any audio leaves the machine.
+
+## Full-Duplex Streaming Architecture for `gpt-live-1.1` / `gpt-live-1`
+
+Because GPT-Live is a continuous full-duplex audio model rather than a half-duplex turn-by-turn model, `athena voice --model gpt-live-1.1` (without `--keyboard` or `--wake-word`) bypasses the turn-buffered `daemon.ts` loop and runs `runLiveVoiceSession()` (`src/voice/live-stream-session.ts`) backed by `WindowsDuplexAudio` (`src/voice/windows-duplex-audio.ts`):
+
+- **Single persistent `winmm.dll` duplex process**: holds both `waveInOpen` (`CALLBACK_EVENT` worker thread, 24 kHz mono PCM16LE, 60ms frames, perceptual dBFS metering) and `waveOutOpen` (zero-cold-start streaming `waveOutWrite` queue + instant `flush` via `waveOutReset`).
+- **Continuous upstream/downstream streaming**: mic frames flow continuously to `session.input_audio.append`, and incoming `session.output_audio.delta` speech chunks write directly to `waveOutWrite` the millisecond they arrive (eliminating local VAD silence wait, synthetic trailing silence, full-reply buffering, and per-turn PowerShell playback spawns).
+- **Live transcripts & async delegation**: `session.input_transcript.delta` and `session.output_transcript.delta` stream into `VoiceHud`, while client delegation requests run asynchronously against `HarnessSessionController` and report back via `session.commentary.append`.

@@ -31,12 +31,15 @@ export async function runVoiceCommand(
     VoiceHudStore,
     VoiceTelemetry,
     WindowsDirectPcmInput,
+    WindowsDuplexAudio,
     WindowsPersistentWakeInput,
     createInitialVoiceHudState,
     ensureVoiceKey,
+    isLiveSessionModel,
     playListeningCue,
     playStandbyCue,
     playWindowsPcm,
+    runLiveVoiceSession,
     runVoiceProbe,
     runVoiceSession,
     saveVoiceKey,
@@ -284,7 +287,10 @@ export async function runVoiceCommand(
     // trace's closing record, which are the evidence a shut-down session is meant to
     // keep. Abort the turn, release the microphone, and let the normal teardown run.
     // A second Ctrl+C is the hard escape for a teardown that is itself stuck.
+    const useFullDuplexLive = isLiveSessionModel(cmd.model) && !cmd.keyboard && !cmd.wakeWord
+    const liveAbort = new AbortController()
     let voiceInterrupted = false
+    let closeInput: () => void = () => liveAbort.abort()
     function onVoiceSigint(): void {
       if (voiceInterrupted) {
         process.exit(CLI_EXIT.aborted)
@@ -293,145 +299,203 @@ export async function runVoiceCommand(
       voiceInterrupted = true
       console.error('Athena voice stopping: aborting the current turn and closing the session.')
       activeController.abort()
-      voiceInput.close()
+      closeInput()
     }
-    const voiceInput = cmd.keyboard
-      ? new KeyboardVoiceCommandInput({ onInterrupt: onVoiceSigint })
-      : !cmd.wakeWord
-        ? new WindowsDirectPcmInput({
-            onReady: (backend) => {
-              hudStore?.dispatch({ type: 'phase', phase: 'standby' })
-              hudStore?.dispatch({
-                type: 'status',
-                text: `Mic open (${backend}) — speak anytime`,
-              })
-            },
-            onAudioLevel: (level) => {
-              hudStore?.dispatch({ type: 'mic-level', level })
-            },
-            onSpeechStart: () => {
-              hudStore?.dispatch({ type: 'phase', phase: 'hearing' })
-              hudStore?.dispatch({ type: 'status', text: 'Listening…' })
-            },
-            onUtteranceCaptured: () => {
-              hudStore?.dispatch({ type: 'phase', phase: 'working' })
-              hudStore?.dispatch({ type: 'status', text: 'Transcribing & thinking…' })
-            },
-            onWarn: (message) => {
-              if (hudStore) {
-                hudStore.dispatch({ type: 'feed', role: 'system', text: message })
-              } else {
-                console.error(message)
-              }
-            },
-          })
-        : new WindowsPersistentWakeInput({
-            requireWakeWord: true,
-            onReady: (recognizer) => {
-              hudStore?.dispatch({ type: 'phase', phase: 'standby' })
-              hudStore?.dispatch({
-                type: 'status',
-                text: `Mic open (${recognizer ?? 'Windows Speech'}) — say "Athena"`,
-              })
-            },
-            onAudioLevel: (level) => {
-              hudStore?.dispatch({ type: 'mic-level', level })
-            },
-            onSpeechDetected: () => {
-              hudStore?.dispatch({ type: 'phase', phase: 'hearing' })
-            },
-            onHypothesis: (text) => {
-              hudStore?.dispatch({ type: 'hypothesis', text })
-            },
-            onUserUtterance: (text) => {
-              hudStore?.dispatch({ type: 'feed', role: 'user', text })
-              hudStore?.dispatch({ type: 'phase', phase: 'working' })
-              hudStore?.dispatch({ type: 'status', text: 'Thinking…' })
-            },
-            onRejected: (text, confidence) => {
-              hudStore?.dispatch({ type: 'phase', phase: 'standby' })
-              hudStore?.dispatch({
-                type: 'feed',
-                role: 'system',
-                text: text
-                  ? `Heard "${text}" (${Math.round(confidence * 100)}% — ignored, say "Athena …")`
-                  : 'Heard audio that did not match "Athena …"',
-              })
-            },
-            onWarn: (message) => {
-              if (hudStore) {
-                hudStore.dispatch({ type: 'feed', role: 'system', text: message })
-              } else {
-                console.error(message)
-              }
-            },
-            telemetry: voiceTelemetry,
-            onListening: () => {
-              if (hudStore) {
-                hudStore.dispatch({ type: 'phase', phase: 'hearing' })
-                hudStore.dispatch({ type: 'status', text: 'Wake word heard — listening for command…' })
-              } else if (!tuiInstance) {
-                console.log('Athena: listening…')
-              }
-              void playListeningCue().catch(() => {})
-            },
-          })
     process.on('SIGINT', onVoiceSigint)
     try {
-      await runVoiceSession({
-        apiKey: resolvedVoice.key,
-        model: cmd.model,
-        controller: activeController,
-        getController: () => activeController,
-        switchProject: async (requestedPath) => {
-          const result = await switchProject(requestedPath)
-          if (result.ok) {
-            hudStore?.dispatch({ type: 'project', projectName: result.projectName })
-            hudStore?.dispatch({ type: 'feed', role: 'system', text: `Switched project -> ${result.cwd}` })
-          }
-          return result
-        },
-        attention,
-        persona: loadConstitution(effectivePaths) ?? undefined,
-        input: voiceInput,
-        ...(hudStore
-          ? {
-              onUserTranscript: (text) => {
-                hudStore.dispatch({ type: 'feed', role: 'user', text })
-              },
-              onStatus: (message) => {
-                if (message.startsWith('Athena: ')) {
-                  hudStore.dispatch({ type: 'feed', role: 'athena', text: message.slice(8) })
-                } else {
-                  hudStore.dispatch({ type: 'status', text: message })
-                }
-              },
-              play: async (audio) => {
-                const stopAnim = hudStore.animateAthenaPcm(audio)
-                try {
-                  await playWindowsPcm(audio)
-                } finally {
-                  stopAnim()
-                }
-              },
+      if (useFullDuplexLive) {
+        await runLiveVoiceSession({
+          apiKey: resolvedVoice.key,
+          model: cmd.model,
+          duplex: new WindowsDuplexAudio(),
+          persona: loadConstitution(effectivePaths) ?? undefined,
+          signal: liveAbort.signal,
+          onReady: (backend) => {
+            hudStore?.dispatch({ type: 'phase', phase: 'standby' })
+            hudStore?.dispatch({
+              type: 'status',
+              text: `Live full-duplex (${backend}) — speak naturally anytime`,
+            })
+          },
+          onMicLevel: (level) => {
+            hudStore?.dispatch({ type: 'mic-level', level })
+          },
+          onAthenaLevel: (level) => {
+            hudStore?.dispatch({ type: 'athena-level', level })
+          },
+          onUserHypothesis: (text) => {
+            hudStore?.dispatch({ type: 'hypothesis', text })
+          },
+          onUserTranscript: (text) => {
+            hudStore?.dispatch({ type: 'feed', role: 'user', text })
+            if (!hudStore && !tuiInstance) console.log(`You: ${text}`)
+          },
+          onAthenaTranscript: (text) => {
+            hudStore?.dispatch({ type: 'feed', role: 'athena', text })
+            if (!hudStore && !tuiInstance) console.log(`Athena: ${text}`)
+          },
+          onAthenaSpeaking: (speaking) => {
+            hudStore?.dispatch({ type: 'phase', phase: speaking ? 'speaking' : 'standby' })
+            hudStore?.dispatch({
+              type: 'status',
+              text: speaking ? 'Speaking… (interrupt anytime)' : 'Live full-duplex — speak naturally',
+            })
+          },
+          onStatus: (text) => {
+            hudStore?.dispatch({ type: 'status', text })
+          },
+          onWarn: (message) => {
+            if (hudStore) {
+              hudStore.dispatch({ type: 'feed', role: 'system', text: message })
+            } else {
+              console.error(message)
             }
-          : {}),
-        onStandby: cmd.keyboard
-          ? undefined
-          : () => {
-              if (hudStore) {
-                hudStore.dispatch({ type: 'phase', phase: 'standby' })
-                hudStore.dispatch({
-                  type: 'status',
-                  text: cmd.wakeWord ? 'Ready — say "Athena"' : 'Ready — speak anytime',
-                })
-              } else if (!tuiInstance) {
-                console.log('Athena: wake standby')
+          },
+          onDelegate: async (prompt) => {
+            hudStore?.dispatch({ type: 'phase', phase: 'working' })
+            hudStore?.dispatch({ type: 'status', text: 'Running harness task…' })
+            const res = await activeController.submitTurn(prompt)
+            return res.summary
+          },
+        })
+      } else {
+        const voiceInput = cmd.keyboard
+          ? new KeyboardVoiceCommandInput({ onInterrupt: onVoiceSigint })
+          : !cmd.wakeWord
+            ? new WindowsDirectPcmInput({
+                onReady: (backend) => {
+                  hudStore?.dispatch({ type: 'phase', phase: 'standby' })
+                  hudStore?.dispatch({
+                    type: 'status',
+                    text: `Mic open (${backend}) — speak anytime`,
+                  })
+                },
+                onAudioLevel: (level) => {
+                  hudStore?.dispatch({ type: 'mic-level', level })
+                },
+                onSpeechStart: () => {
+                  hudStore?.dispatch({ type: 'phase', phase: 'hearing' })
+                  hudStore?.dispatch({ type: 'status', text: 'Listening…' })
+                },
+                onUtteranceCaptured: () => {
+                  hudStore?.dispatch({ type: 'phase', phase: 'working' })
+                  hudStore?.dispatch({ type: 'status', text: 'Transcribing & thinking…' })
+                },
+                onWarn: (message) => {
+                  if (hudStore) {
+                    hudStore.dispatch({ type: 'feed', role: 'system', text: message })
+                  } else {
+                    console.error(message)
+                  }
+                },
+              })
+            : new WindowsPersistentWakeInput({
+                requireWakeWord: true,
+                onReady: (recognizer) => {
+                  hudStore?.dispatch({ type: 'phase', phase: 'standby' })
+                  hudStore?.dispatch({
+                    type: 'status',
+                    text: `Mic open (${recognizer ?? 'Windows Speech'}) — say "Athena"`,
+                  })
+                },
+                onAudioLevel: (level) => {
+                  hudStore?.dispatch({ type: 'mic-level', level })
+                },
+                onSpeechDetected: () => {
+                  hudStore?.dispatch({ type: 'phase', phase: 'hearing' })
+                },
+                onHypothesis: (text) => {
+                  hudStore?.dispatch({ type: 'hypothesis', text })
+                },
+                onUserUtterance: (text) => {
+                  hudStore?.dispatch({ type: 'feed', role: 'user', text })
+                  hudStore?.dispatch({ type: 'phase', phase: 'working' })
+                  hudStore?.dispatch({ type: 'status', text: 'Thinking…' })
+                },
+                onRejected: (text, confidence) => {
+                  hudStore?.dispatch({ type: 'phase', phase: 'standby' })
+                  hudStore?.dispatch({
+                    type: 'feed',
+                    role: 'system',
+                    text: text
+                      ? `Heard "${text}" (${Math.round(confidence * 100)}% — ignored, say "Athena …")`
+                      : 'Heard audio that did not match "Athena …"',
+                  })
+                },
+                onWarn: (message) => {
+                  if (hudStore) {
+                    hudStore.dispatch({ type: 'feed', role: 'system', text: message })
+                  } else {
+                    console.error(message)
+                  }
+                },
+                telemetry: voiceTelemetry,
+                onListening: () => {
+                  if (hudStore) {
+                    hudStore.dispatch({ type: 'phase', phase: 'hearing' })
+                    hudStore.dispatch({ type: 'status', text: 'Wake word heard — listening for command…' })
+                  } else if (!tuiInstance) {
+                    console.log('Athena: listening…')
+                  }
+                  void playListeningCue().catch(() => {})
+                },
+              })
+        closeInput = () => voiceInput.close()
+        await runVoiceSession({
+          apiKey: resolvedVoice.key,
+          model: cmd.model,
+          controller: activeController,
+          getController: () => activeController,
+          switchProject: async (requestedPath) => {
+            const result = await switchProject(requestedPath)
+            if (result.ok) {
+              hudStore?.dispatch({ type: 'project', projectName: result.projectName })
+              hudStore?.dispatch({ type: 'feed', role: 'system', text: `Switched project -> ${result.cwd}` })
+            }
+            return result
+          },
+          attention,
+          persona: loadConstitution(effectivePaths) ?? undefined,
+          input: voiceInput,
+          ...(hudStore
+            ? {
+                onUserTranscript: (text) => {
+                  hudStore.dispatch({ type: 'feed', role: 'user', text })
+                },
+                onStatus: (message) => {
+                  if (message.startsWith('Athena: ')) {
+                    hudStore.dispatch({ type: 'feed', role: 'athena', text: message.slice(8) })
+                  } else {
+                    hudStore.dispatch({ type: 'status', text: message })
+                  }
+                },
+                play: async (audio) => {
+                  const stopAnim = hudStore.animateAthenaPcm(audio)
+                  try {
+                    await playWindowsPcm(audio)
+                  } finally {
+                    stopAnim()
+                  }
+                },
               }
-              void playStandbyCue().catch(() => {})
-            },
-        telemetry: voiceTelemetry,
-      })
+            : {}),
+          onStandby: cmd.keyboard
+            ? undefined
+            : () => {
+                if (hudStore) {
+                  hudStore.dispatch({ type: 'phase', phase: 'standby' })
+                  hudStore.dispatch({
+                    type: 'status',
+                    text: cmd.wakeWord ? 'Ready — say "Athena"' : 'Ready — speak anytime',
+                  })
+                } else if (!tuiInstance) {
+                  console.log('Athena: wake standby')
+                }
+                void playStandbyCue().catch(() => {})
+              },
+          telemetry: voiceTelemetry,
+        })
+      }
     } catch (error) {
       // An interrupt tears the wake listener down on purpose; reporting that as a voice
       // failure would send the user to `athena voice probe` for something they did.
