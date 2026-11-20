@@ -13,6 +13,12 @@ import {
 } from '../brain/credential-vault.js'
 import { importBrain } from '../brain/import.js'
 import { MemoryHygieneStore } from '../brain/hygiene.js'
+import {
+  formatFreeTextReviewList,
+  restoreFreeTextMemory,
+  tombstoneFreeTextMemory,
+  verifyCitations,
+} from '../brain/free-text-hygiene.js'
 import { modelCapabilities } from '../brain/models.js'
 import type { BrainPaths } from '../brain/paths.js'
 import { loadGlobalTimeZone, loadSettings, readProjectSettingsCapabilities } from '../brain/settings.js'
@@ -368,10 +374,33 @@ export function runMemoryCommand(
       console.log(formatSemanticCandidateReview(result, semanticStore.listAll()))
       return
     }
+    if (cmd.action === 'hygiene') {
+      const result = verifyCitations(paths.memoryDir, cwd)
+      console.log(
+        `Checked ${result.checked} memory file(s); relocated ${result.relocated} citation(s); flagged ${result.flagged.length}.`,
+      )
+      console.log(formatFreeTextReviewList(paths.memoryDir))
+      return
+    }
     if (cmd.action === 'review') {
+      if (cmd.args[0] === '--list') {
+        console.log(formatFreeTextReviewList(paths.memoryDir))
+        return
+      }
+      if (cmd.args[0] === '--keep' && cmd.args[1]) {
+        restoreFreeTextMemory(paths.memoryDir, cmd.args[1])
+        console.log(`Restored free-text memory ${cmd.args[1]} to active.`)
+        return
+      }
+      if (cmd.args[0] === '--tombstone' && cmd.args[1]) {
+        const reason = cmd.args.slice(2).join(' ') || 'tombstoned via review'
+        tombstoneFreeTextMemory(paths.memoryDir, cmd.args[1], reason)
+        console.log(`Tombstoned free-text memory ${cmd.args[1]}.`)
+        return
+      }
       const [memoryId, action] = cmd.args
       if (!memoryId || (action !== 'promote' && action !== 'reject')) {
-        throw new Error('Usage: athena memory review <memory-id> <promote|reject>')
+        throw new Error('Usage: athena memory review <memory-id> <promote|reject> | --list | --keep <path> | --tombstone <path> [reason]')
       }
       const semanticStore = new MemoryHygieneStore(paths.memoryDir, {
         onWarn: (warning) => console.error(warning),

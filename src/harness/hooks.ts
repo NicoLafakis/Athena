@@ -160,11 +160,22 @@ function isGateEvent(event: HookEventName): boolean {
   return event === 'PreToolUse' || event === 'UserPromptSubmit' || event === 'PermissionRequest'
 }
 
+export type InternalHookHandler = (
+  payload: HookEventPayload,
+) => HookDecision | Promise<HookDecision>
+
+interface RegisteredInternalHook {
+  event: HookEventName
+  matcher?: string
+  handler: InternalHookHandler
+}
+
 /** Versioned, deterministic hook dispatcher. Matching hooks run concurrently,
  * then decisions merge in declaration order; the first deny wins. */
 export class HookRunner {
   private adapters: HookAdapters
   private activeAgentHook = false
+  private readonly internalHooks: RegisteredInternalHook[] = []
 
   constructor(
     private readonly hooks: HookDef[],
@@ -173,8 +184,25 @@ export class HookRunner {
     this.adapters = adapters
   }
 
+  /** Register an in-process harness hook (zero subprocess cost, cannot be disabled by hooks.json). */
+  registerInternal(event: HookEventName, handler: InternalHookHandler, matcher?: string): void {
+    this.internalHooks.push({ event, handler, ...(matcher ? { matcher } : {}) })
+  }
+
   configure(adapters: HookAdapters): void {
     this.adapters = { ...this.adapters, ...adapters }
+  }
+
+  private selectInternal(event: HookEventName, toolName: string | undefined): RegisteredInternalHook[] {
+    return this.internalHooks.filter((hook) => {
+      if (hook.event !== event) return false
+      if (!hook.matcher || hook.matcher === '*') return true
+      if (toolName === undefined) return false
+      return hook.matcher
+        .split('|')
+        .map((part) => part.trim())
+        .includes(toolName)
+    })
   }
 
   private select(event: HookEventName, toolName: string | undefined): HookDef[] {
@@ -259,7 +287,8 @@ export class HookRunner {
 
   async run(event: HookEventName, payload: HookEventPayload): Promise<HookOutcome> {
     const matching = this.select(event, payload.toolName)
-    if (matching.length === 0) return { allowed: true }
+    const internalMatching = this.selectInternal(event, payload.toolName)
+    if (matching.length === 0 && internalMatching.length === 0) return { allowed: true }
     const invocation: HookInvocation = {
       schemaVersion: 1,
       invocationId: randomUUID(),
@@ -270,11 +299,36 @@ export class HookRunner {
       ...payload,
       payload,
     }
-    const results = await Promise.all(matching.map((hook) => this.execute(hook, invocation)))
+    const [results, internalResults] = await Promise.all([
+      Promise.all(matching.map((hook) => this.execute(hook, invocation))),
+      Promise.all(
+        internalMatching.map(async (hook): Promise<HookExecutionResult> => {
+          try {
+            return { failed: false, decision: await hook.handler(payload) }
+          } catch (error) {
+            return { failed: true, failure: (error as Error).message }
+          }
+        }),
+      ),
+    ])
     const contexts: string[] = []
     const messages: string[] = []
     const warnings: string[] = []
     let updatedInput: unknown
+
+    for (const result of internalResults) {
+      if (result.failed) {
+        warnings.push(`internal hook failed (${result.failure ?? 'unknown failure'})`)
+        continue
+      }
+      const decision = result.decision ?? {}
+      if (decision.decision === 'deny') {
+        return { allowed: false, reason: decision.reason ?? 'Denied by internal hook' }
+      }
+      if (decision.addedContext) contexts.push(decision.addedContext)
+      if (decision.systemMessage) messages.push(decision.systemMessage)
+      if (decision.updatedInput !== undefined) updatedInput = decision.updatedInput
+    }
 
     for (let index = 0; index < results.length; index++) {
       const result = results[index]!

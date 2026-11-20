@@ -5,6 +5,12 @@ import type { BrainPaths } from '../brain/paths.js'
 import { loadCredentials, resolveApiKey } from '../brain/credentials.js'
 import type { CredentialVault } from '../brain/credential-vault.js'
 import { MemoryHygieneStore } from '../brain/hygiene.js'
+import {
+  formatFreeTextReviewList,
+  restoreFreeTextMemory,
+  tombstoneFreeTextMemory,
+  verifyCitations,
+} from '../brain/free-text-hygiene.js'
 import { loadMemoryIndex } from '../brain/loader.js'
 import { generateSemanticCandidates, reviewSemanticCandidate } from '../continuity/candidates.js'
 import {
@@ -356,6 +362,12 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         const memoryStore = continuityStore ?? new ContinuityStore(paths.continuityDir, { onWarn: info })
         if (cmd.action === 'status') {
           info(formatContinuityStatus(memoryStore))
+        } else if (cmd.action === 'hygiene') {
+          const result = verifyCitations(paths.memoryDir, process.cwd())
+          info(
+            `Checked ${result.checked} memory file(s); relocated ${result.relocated} citation(s); flagged ${result.flagged.length}.\n` +
+              formatFreeTextReviewList(paths.memoryDir),
+          )
         } else if (cmd.action === 'rebuild') {
           const result = memoryStore.rebuild(paths.sessionsDir)
           info(`Indexed ${result.episodeCount} episode(s) from ${result.sessionCount} session(s).`)
@@ -368,9 +380,32 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
             info(`Could not generate semantic candidates: ${(error as Error).message}`)
           }
         } else if (cmd.action === 'review') {
-          const [memoryId, action] = (cmd.value ?? '').split(/\s+/)
+          const parts = (cmd.value ?? '').split(/\s+/).filter(Boolean)
+          if (parts[0] === '--list') {
+            info(formatFreeTextReviewList(paths.memoryDir))
+            break
+          }
+          if (parts[0] === '--keep' && parts[1]) {
+            try {
+              restoreFreeTextMemory(paths.memoryDir, parts[1])
+              info(`Restored free-text memory ${parts[1]} to active.`)
+            } catch (error) {
+              info(`Could not restore memory: ${(error as Error).message}`)
+            }
+            break
+          }
+          if (parts[0] === '--tombstone' && parts[1]) {
+            try {
+              tombstoneFreeTextMemory(paths.memoryDir, parts[1], parts.slice(2).join(' ') || 'tombstoned via review')
+              info(`Tombstoned free-text memory ${parts[1]}.`)
+            } catch (error) {
+              info(`Could not tombstone memory: ${(error as Error).message}`)
+            }
+            break
+          }
+          const [memoryId, action] = parts
           if (!memoryId || (action !== 'promote' && action !== 'reject')) {
-            info('Usage: /memory review <memory-id> <promote|reject>')
+            info('Usage: /memory review <memory-id> <promote|reject> | --list | --keep <path> | --tombstone <path> [reason]')
             break
           }
           try {

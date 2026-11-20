@@ -11,16 +11,38 @@ import { join, resolve, relative, dirname, sep } from 'node:path'
 import { z } from 'zod'
 import type { ToolDefinition } from '../engine/types.js'
 import { MemoryHygieneStore } from '../brain/hygiene.js'
+import {
+  flagFreeTextMemory,
+  formatFreeTextReadBanner,
+  rebuildFreeTextMemoryIndex,
+  recordMemoryWriteForHygiene,
+  restoreFreeTextMemory,
+  supersedeFreeTextMemory,
+  tombstoneFreeTextMemory,
+} from '../brain/free-text-hygiene.js'
 import { SpeechActSchema } from '../continuity/schemas.js'
 import { ContinuityStore } from '../continuity/store.js'
 import { reviewSemanticCandidate } from '../continuity/candidates.js'
 import { semanticSourcesAvailable } from '../continuity/semantic-source.js'
 
 const MemoryInput = z.object({
-  op: z.enum(['list', 'read', 'write', 'delete', 'remember', 'review', 'supersede', 'forget']),
-  path: z.string().optional(), // relative to memory dir; required for read/write/delete
+  op: z.enum([
+    'list',
+    'read',
+    'write',
+    'delete',
+    'remember',
+    'review',
+    'supersede',
+    'forget',
+    'flag',
+    'tombstone',
+    'restore',
+  ]),
+  path: z.string().optional(), // relative to memory dir; required for read/write/delete/flag/tombstone/restore
+  replacementPath: z.string().optional(), // for free-text supersede
   content: z.string().optional(), // required for write
-  description: z.string().optional(), // index line annotation for write
+  description: z.string().optional(), // index line annotation for write, or reason for flag/tombstone
   speechAct: SpeechActSchema.optional(),
   scope: z.enum(['global', 'project']).optional(),
   sensitivity: z.enum(['ordinary', 'sensitive']).optional(),
@@ -146,6 +168,17 @@ export const memoryTool: ToolDefinition<z.infer<typeof MemoryInput>> = {
       }
     }
     if (input.op === 'supersede') {
+      if (input.path && input.replacementPath && !input.memoryId) {
+        try {
+          supersedeFreeTextMemory(memDir, input.path, input.replacementPath)
+          return {
+            output: `Free-text memory ${input.path} superseded by ${input.replacementPath}.`,
+            isError: false,
+          }
+        } catch (error) {
+          return { output: `Could not supersede memory: ${(error as Error).message}`, isError: true }
+        }
+      }
       if (!input.memoryId || !input.content?.trim()) {
         return { output: 'supersede requires an active memoryId and replacement content', isError: true }
       }
@@ -190,22 +223,46 @@ export const memoryTool: ToolDefinition<z.infer<typeof MemoryInput>> = {
     // MEMORY.md is the index this tool maintains; direct writes/deletes would corrupt it.
     const isIndex = rel.replaceAll('\\', '/').toLowerCase() === 'memory.md'
     const isJournal = rel.replaceAll('\\', '/').toLowerCase().split('/')[0] === 'journal'
-    if (isJournal && (input.op === 'write' || input.op === 'delete')) {
+    if (isJournal && input.op !== 'read') {
       return { output: 'memory/journal is reserved generated data; review or reject with athena journal memory/reject', isError: true }
     }
-    if (isIndex && (input.op === 'write' || input.op === 'delete')) {
+    if (isIndex && input.op !== 'read') {
       return {
         output: 'MEMORY.md is the reserved index maintained by this tool; write facts to another file',
         isError: true,
       }
     }
-    if (relPosix.toLowerCase().startsWith('semantic/') && (input.op === 'write' || input.op === 'delete')) {
+    if (relPosix.toLowerCase().startsWith('semantic/') && input.op !== 'read') {
       return {
         output: 'Managed semantic memories cannot be edited or deleted as free text; use their lifecycle actions.',
         isError: true,
       }
     }
     switch (input.op) {
+      case 'flag': {
+        try {
+          flagFreeTextMemory(memDir, relPosix, input.description ?? 'flagged for review')
+          return { output: `Memory flagged: ${relPosix}`, isError: false }
+        } catch (error) {
+          return { output: (error as Error).message, isError: true }
+        }
+      }
+      case 'tombstone': {
+        try {
+          tombstoneFreeTextMemory(memDir, relPosix, input.description ?? 'tombstoned')
+          return { output: `Memory tombstoned: ${relPosix}`, isError: false }
+        } catch (error) {
+          return { output: (error as Error).message, isError: true }
+        }
+      }
+      case 'restore': {
+        try {
+          restoreFreeTextMemory(memDir, relPosix)
+          return { output: `Memory restored to active: ${relPosix}`, isError: false }
+        } catch (error) {
+          return { output: (error as Error).message, isError: true }
+        }
+      }
       case 'read': {
         if (!existsSync(abs)) return { output: `No memory at ${rel}`, isError: true }
         if (relPosix.toLowerCase().startsWith('semantic/')) {
@@ -248,13 +305,20 @@ export const memoryTool: ToolDefinition<z.infer<typeof MemoryInput>> = {
             isError: false,
           }
         }
-        return { output: readFileSync(abs, 'utf8'), isError: false }
+        return { output: formatFreeTextReadBanner(readFileSync(abs, 'utf8')), isError: false }
       }
       case 'write': {
         if (input.content === undefined) return { output: 'write requires content', isError: true }
         mkdirSync(dirname(abs), { recursive: true })
         writeFileSync(abs, input.content, 'utf8')
         updateIndex(ctx.brainDir, rel, 'add', input.description ?? input.content.split('\n')[0] ?? '')
+        if (relPosix.toLowerCase().endsWith('.md')) {
+          recordMemoryWriteForHygiene(memDir)
+          rebuildFreeTextMemoryIndex(
+            memDir,
+            new Map([[relPosix, input.description ?? input.content.split('\n')[0] ?? relPosix]]),
+          )
+        }
         return { output: `Memory written: ${rel} (index updated)`, isError: false }
       }
       case 'delete': {

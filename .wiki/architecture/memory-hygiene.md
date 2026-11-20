@@ -13,6 +13,32 @@ memory are specified separately in
 semantic-memory implementation extends this tree under `memory/semantic/`; it does not
 create a second root or a full-transcript archive.
 
+## Implemented free-text hygiene (2026-11-20)
+
+`src/brain/free-text-hygiene.ts` implements the free-text anti-rot lifecycle over
+`~/.athena/memory/*.md` (and project `.athena/memory/*.md`), skipping `MEMORY.md`,
+`LEARNED.md`, `journal/`, and `semantic/`:
+
+- `extractCitations` and `verifyCitations`: mechanical verification of `file:line`,
+  bare repo paths, backticked flags, and `athena <cmd>` citations with normalized-line
+  SHA-256 fingerprinting, ±10 line-drift auto-relocation, and `git log --follow`
+  rename recovery. Never mutates body prose.
+- Pure frontmatter lifecycle ops (`flagFreeTextMemory`, `restoreFreeTextMemory`,
+  `supersedeFreeTextMemory`, `tombstoneFreeTextMemory`) with terminal-state enforcement,
+  same-citation contradiction hints (`detectSameCitationContradictions`), ordered
+  `MEMORY.md` status markers (`rebuildFreeTextMemoryIndex`), read banners on
+  `flagged`/`superseded`/`tombstoned` entries (`formatFreeTextReadBanner`), and
+  count-triggered consolidation tracking (`.hygiene-state.json`).
+- `Memory` tool adds `flag`, `tombstone`, `restore`, and free-text `supersede`
+  (`path` + `replacementPath`).
+- `HookRunner.registerInternal` wires zero-subprocess internal hooks in
+  `HarnessSessionController`: `SessionStart` full citation sweep, `PostToolUse` scoped
+  re-check on `Edit|Write|ApplyPatch|Bash|PowerShell`, and `UserPromptSubmit`
+  correction-language nudge.
+- CLI and slash review surface: `athena memory hygiene`,
+  `athena memory review --list|--keep <path>|--tombstone <path> [reason]`, and matching
+  `/memory` slash commands.
+
 ## Implemented semantic-memory foundation
 
 `src/continuity/schemas.ts` defines the strict versioned `SemanticMemoryRecordSchema`.

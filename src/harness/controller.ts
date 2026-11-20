@@ -65,6 +65,10 @@ import { ContinuityStore } from '../continuity/store.js'
 import { prepareAnswerTimeRecall } from '../continuity/answer-recall.js'
 import { createJevRecallRouter, JEV_MODEL, type RecallIntentRouter, type RecallRouteDecision } from '../decision/jev.js'
 import { JevSpeechActEventSchema, JEV_SPEECH_ACT_PERSISTENCE_CONFIDENCE } from '../continuity/schemas.js'
+import {
+  CORRECTION_PROMPT_RE,
+  verifyCitations,
+} from '../brain/free-text-hygiene.js'
 import { ensureBrainScaffold } from './bootstrap.js'
 import { composeHistoricalContext, formatExperienceGuidance } from './context-budget.js'
 import type { WatchObservation } from './watchers/types.js'
@@ -287,6 +291,54 @@ export class HarnessSessionController {
     })
 
     const hooks = new HookRunner(settings.hooks)
+    const memoryDirsForHygiene = [
+      paths.memoryDir,
+      ...(effectivePaths.projectBrainDir ? [join(effectivePaths.projectBrainDir, 'memory')] : []),
+    ]
+    hooks.registerInternal('SessionStart', () => {
+      for (const memDir of memoryDirsForHygiene) {
+        try {
+          verifyCitations(memDir, cwd)
+        } catch {
+          // Best-effort mechanical hygiene never blocks session boot.
+        }
+      }
+      return {}
+    })
+    hooks.registerInternal(
+      'PostToolUse',
+      (payload) => {
+        const inputObj = typeof payload.input === 'object' && payload.input !== null
+          ? (payload.input as Record<string, unknown>)
+          : null
+        const touched: string[] = []
+        if (typeof inputObj?.['path'] === 'string') touched.push(inputObj['path'])
+        if (typeof inputObj?.['file_path'] === 'string') touched.push(inputObj['file_path'])
+        const isRenameOrDeleteShell =
+          (payload.toolName === 'Bash' || payload.toolName === 'PowerShell') &&
+          typeof inputObj?.['command'] === 'string' &&
+          /\b(git\s+(?:mv|rm)|mv|rm|Remove-Item|Move-Item|Rename-Item)\b/i.test(inputObj['command'])
+        if (touched.length === 0 && !isRenameOrDeleteShell) return {}
+        for (const memDir of memoryDirsForHygiene) {
+          try {
+            verifyCitations(memDir, cwd, touched.length > 0 ? { touchedFiles: touched } : {})
+          } catch {
+            // Nonfatal post-tool hygiene check.
+          }
+        }
+        return {}
+      },
+      'Edit|Write|ApplyPatch|Bash|PowerShell',
+    )
+    hooks.registerInternal('UserPromptSubmit', (payload) => {
+      if (typeof payload.prompt === 'string' && CORRECTION_PROMPT_RE.test(payload.prompt)) {
+        return {
+          addedContext:
+            'The user prompt may correct or invalidate a stored memory. Check relevant memory files and flag or supersede any outdated fact.',
+        }
+      }
+      return {}
+    })
     const bus = new EngineEventBus()
     let library: LibraryRuntime | null = null
     try { library = LibraryRuntime.open(cwd, projectTrust.trusted) }

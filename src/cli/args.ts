@@ -54,7 +54,7 @@ export type CliCommand =
     }
   | {
       command: 'memory'
-      action: 'rebuild' | 'status' | 'timeline' | 'search' | 'show' | 'rollup' | 'rank' | 'candidates' | 'review' | 'forget'
+      action: 'rebuild' | 'status' | 'timeline' | 'search' | 'show' | 'rollup' | 'rank' | 'candidates' | 'review' | 'forget' | 'hygiene'
       args: string[]
       projectId?: string
     }
@@ -466,11 +466,11 @@ export function parseArgs(argv: string[]): CliCommand {
   }
   if (argv[0] === 'memory') {
     const action = argv[1] ?? 'status'
-    const actions = new Set(['rebuild', 'status', 'timeline', 'search', 'show', 'rollup', 'rank', 'candidates', 'review', 'forget'])
+    const actions = new Set(['rebuild', 'status', 'timeline', 'search', 'show', 'rollup', 'rank', 'candidates', 'review', 'forget', 'hygiene'])
     if (!actions.has(action)) {
       return {
         command: 'error',
-        message: 'Usage: athena memory <rebuild|status|timeline|search|rank|show|rollup|candidates|review|forget> [query|episode-id|granularity|memory-id] [--project <project-id>]',
+        message: 'Usage: athena memory <rebuild|status|timeline|search|rank|show|rollup|candidates|review|forget|hygiene> [query|episode-id|granularity|memory-id] [--project <project-id>]',
       }
     }
     const args: string[] = []
@@ -483,23 +483,33 @@ export function parseArgs(argv: string[]): CliCommand {
         if (!value || value.startsWith('--')) return { command: 'error', message: '--project requires a project ID' }
         projectId = value
         index++
+      } else if (action === 'review' && (arg === '--list' || arg === '--keep' || arg === '--tombstone')) {
+        args.push(arg)
       } else if (arg.startsWith('--')) {
         return { command: 'error', message: `Unknown memory argument: ${arg}` }
       } else {
         args.push(arg)
       }
     }
-    if (['rebuild', 'status'].includes(action) && args.length > 0) {
+    if (['rebuild', 'status', 'hygiene'].includes(action) && args.length > 0) {
       return { command: 'error', message: `Usage: athena memory ${action}` }
     }
     if (action === 'candidates' && (projectId !== undefined || args.length > 0)) {
       return { command: 'error', message: 'Usage: athena memory candidates' }
     }
-    if (action === 'review' && (
-      projectId !== undefined || args.length !== 2 || !SEMANTIC_MEMORY_ID.test(args[0]!) ||
-      !['promote', 'reject'].includes(args[1]!)
-    )) {
-      return { command: 'error', message: 'Usage: athena memory review <memory-id> <promote|reject>' }
+    if (action === 'review') {
+      const isFreeTextFlag =
+        (args[0] === '--list' && args.length === 1) ||
+        (args[0] === '--keep' && args.length === 2) ||
+        (args[0] === '--tombstone' && args.length >= 2)
+      const isSemanticReview =
+        args.length === 2 && SEMANTIC_MEMORY_ID.test(args[0]!) && ['promote', 'reject'].includes(args[1]!)
+      if (projectId !== undefined || (!isFreeTextFlag && !isSemanticReview)) {
+        return {
+          command: 'error',
+          message: 'Usage: athena memory review <memory-id> <promote|reject> | --list | --keep <path> | --tombstone <path> [reason]',
+        }
+      }
     }
     if (action === 'forget' && (
       projectId !== undefined || args.length !== 1 || !SEMANTIC_MEMORY_ID.test(args[0]!)

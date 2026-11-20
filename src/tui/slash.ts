@@ -21,7 +21,7 @@ export type SlashCommand =
   | { kind: 'compact' }
   | {
       kind: 'memory'
-      action?: 'status' | 'rebuild' | 'timeline' | 'search' | 'show' | 'rollup' | 'rank' | 'candidates' | 'review' | 'forget'
+      action?: 'status' | 'rebuild' | 'timeline' | 'search' | 'show' | 'rollup' | 'rank' | 'candidates' | 'review' | 'forget' | 'hygiene'
       value?: string
       projectId?: string
     }
@@ -69,8 +69,8 @@ export function parseSlash(
   if (cmd === 'memory') {
     if (rest.length === 0) return { kind: 'memory' }
     const action = rest[0]
-    if (!['status', 'rebuild', 'timeline', 'search', 'show', 'rollup', 'rank', 'candidates', 'review', 'forget'].includes(action!)) {
-      return { kind: 'error', value: 'Usage: /memory [status|rebuild|timeline [range]|search <query>|rank <query>|show <episode-id>|rollup [day|week|month|quarter|year]|candidates|review <memory-id> <promote|reject>|forget <memory-id>]' }
+    if (!['status', 'rebuild', 'timeline', 'search', 'show', 'rollup', 'rank', 'candidates', 'review', 'forget', 'hygiene'].includes(action!)) {
+      return { kind: 'error', value: 'Usage: /memory [status|rebuild|hygiene|timeline [range]|search <query>|rank <query>|show <episode-id>|rollup [day|week|month|quarter|year]|candidates|review <memory-id> <promote|reject>|--list|forget <memory-id>]' }
     }
     const valueParts: string[] = []
     let projectId: string | undefined
@@ -80,6 +80,8 @@ export function parseSlash(
         if (!next || next.startsWith('--')) return { kind: 'error', value: '/memory --project requires a project ID' }
         projectId = next
         index++
+      } else if (action === 'review' && (rest[index] === '--list' || rest[index] === '--keep' || rest[index] === '--tombstone')) {
+        valueParts.push(rest[index]!)
       } else if (rest[index]!.startsWith('--')) {
         return { kind: 'error', value: `Unknown /memory argument: ${rest[index]}` }
       } else {
@@ -91,12 +93,21 @@ export function parseSlash(
       return { kind: 'error', value: 'Usage: /memory candidates' }
     }
     if (action === 'review') {
-      if (
-        projectId !== undefined || valueParts.length !== 2 ||
-        !SEMANTIC_MEMORY_ID.test(valueParts[0]!) ||
-        !['promote', 'reject'].includes(valueParts[1]!)
-      ) {
-        return { kind: 'error', value: 'Usage: /memory review <memory-id> <promote|reject>' }
+      const isFreeTextFlag =
+        (valueParts[0] === '--list' && valueParts.length === 1) ||
+        (valueParts[0] === '--keep' && valueParts.length === 2) ||
+        (valueParts[0] === '--tombstone' && valueParts.length >= 2)
+      const isSemantic =
+        valueParts.length === 2 &&
+        SEMANTIC_MEMORY_ID.test(valueParts[0]!) &&
+        ['promote', 'reject'].includes(valueParts[1]!)
+      if (projectId !== undefined || (!isFreeTextFlag && !isSemantic)) {
+        return {
+          kind: 'error',
+          value: valueParts[0]?.startsWith('--')
+            ? 'Usage: /memory review --list | --keep <path> | --tombstone <path> [reason]'
+            : 'Usage: /memory review <memory-id> <promote|reject>',
+        }
       }
     }
     if (action === 'forget' && (
@@ -104,7 +115,7 @@ export function parseSlash(
     )) {
       return { kind: 'error', value: 'Usage: /memory forget <memory-id>' }
     }
-    if ((action === 'status' || action === 'rebuild') && value) {
+    if ((action === 'status' || action === 'rebuild' || action === 'hygiene') && value) {
       return { kind: 'error', value: `Usage: /memory ${action}` }
     }
     if ((action === 'search' || action === 'rank' || action === 'show') && !value) {
