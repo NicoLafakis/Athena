@@ -1,6 +1,9 @@
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { BrainPaths } from './paths.js'
+import { RESERVED_COMMAND_NAMES } from './commands.js'
+
+export { RESERVED_COMMAND_NAMES }
 
 export interface SkillIndexEntry {
   name: string
@@ -16,28 +19,6 @@ export interface CommandDef {
   template: string
   file: string
 }
-
-/** Built-in slash command names — a directory-defined command sharing one of these
- *  names is skipped (never shadows a built-in). Kept in sync with tui/slash.ts. */
-export const RESERVED_COMMAND_NAMES = new Set([
-  'help',
-  'clear',
-  'resume',
-  'compact',
-  'memory',
-  'skills',
-  'agents',
-  'status',
-  'repeat',
-  'details',
-  'verbosity',
-  'quit',
-  'model',
-  'provider',
-  'effort',
-  'mode',
-  'tui',
-])
 
 export interface AgentDef {
   name: string
@@ -71,12 +52,56 @@ export function loadConstitution(paths: BrainPaths): string | null {
   return existsSync(paths.constitutionFile) ? readFileSync(paths.constitutionFile, 'utf8') : null
 }
 
-export function loadMemoryIndex(paths: BrainPaths): string | null {
-  const files = [paths.memoryIndexFile, join(paths.memoryDir, 'LEARNED.md')]
-  const parts = files
-    .filter((file) => existsSync(file))
-    .map((file) => readFileSync(file, 'utf8').slice(0, 200_000))
-  return parts.length > 0 ? parts.join('\n\n---\n\n') : null
+export const DEFAULT_MEMORY_INDEX_MAX_CHARS = 64_000
+
+export interface LoadMemoryIndexOptions {
+  maxChars?: number
+  warn?: (message: string) => void
+}
+
+export function loadMemoryIndex(
+  paths: BrainPaths,
+  options: LoadMemoryIndexOptions = {},
+): string | null {
+  const maxChars = Math.max(128, options.maxChars ?? DEFAULT_MEMORY_INDEX_MAX_CHARS)
+  const files = [paths.memoryIndexFile, join(paths.memoryDir, 'LEARNED.md')].filter((file) =>
+    existsSync(file),
+  )
+  if (files.length === 0) return null
+
+  const separator = '\n\n---\n\n'
+  const truncationNotice = '\n…[memory index truncated to fit context budget]'
+  const parts: string[] = []
+  let used = 0
+  let truncated = false
+
+  for (const file of files) {
+    const raw = readFileSync(file, 'utf8')
+    const sepLen = parts.length > 0 ? separator.length : 0
+    const remaining = maxChars - used - sepLen
+    if (remaining <= 0) {
+      if (raw.length > 0) truncated = true
+      break
+    }
+    if (raw.length <= remaining) {
+      parts.push(raw)
+      used += sepLen + raw.length
+    } else {
+      truncated = true
+      const sliceLen = Math.max(0, remaining - truncationNotice.length)
+      parts.push(
+        sliceLen > 0 ? raw.slice(0, sliceLen) + truncationNotice : raw.slice(0, remaining),
+      )
+      used = maxChars
+      break
+    }
+  }
+  if (truncated) {
+    options.warn?.(
+      `Memory index (MEMORY.md + LEARNED.md) exceeded ${maxChars} chars and was truncated to protect conversation context.`,
+    )
+  }
+  return parts.length > 0 ? parts.join(separator) : null
 }
 
 /** Skill files under a directory: a bare `<name>.md`, or a subdir holding `SKILL.md`.
@@ -132,6 +157,17 @@ export function parseAgentFile(file: string): AgentDef | null {
   const { attrs, body } = parseFrontmatter(readFileSync(file, 'utf8'))
   const name = attrs['name']
   if (!name) return null
+  const limits: NonNullable<AgentDef['limits']> = {}
+  const maxModelCalls = positiveInt(attrs['max-turns'])
+  const maxToolCalls = nonNegativeInt(attrs['max-tool-calls'])
+  const maxTokens = positiveInt(attrs['max-tokens'])
+  const maxCostUsd = positiveNumber(attrs['max-cost-usd'])
+  const maxDurationMs = positiveInt(attrs['timeout-ms'])
+  if (maxModelCalls !== undefined) limits.maxModelCalls = maxModelCalls
+  if (maxToolCalls !== undefined) limits.maxToolCalls = maxToolCalls
+  if (maxTokens !== undefined) limits.maxTokens = maxTokens
+  if (maxCostUsd !== undefined) limits.maxCostUsd = maxCostUsd
+  if (maxDurationMs !== undefined) limits.maxDurationMs = maxDurationMs
   return {
     name,
     description: attrs['description'] ?? '',
@@ -145,13 +181,7 @@ export function parseAgentFile(file: string): AgentDef | null {
     isolation: attrs['isolation'] === 'worktree' ? 'worktree' : 'shared',
     systemPrompt: body.trim(),
     file,
-    limits: {
-      maxModelCalls: positiveInt(attrs['max-turns']),
-      maxToolCalls: nonNegativeInt(attrs['max-tool-calls']),
-      maxTokens: positiveInt(attrs['max-tokens']),
-      maxCostUsd: positiveNumber(attrs['max-cost-usd']),
-      maxDurationMs: positiveInt(attrs['timeout-ms']),
-    },
+    limits,
   }
 }
 

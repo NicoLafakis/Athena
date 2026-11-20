@@ -4,10 +4,10 @@
 - [ ] Blind-first Jarvis voice live acceptance run -> [.wiki/features/blind-first-jarvis/acceptance-runbook.md]
 
 ### Planned
-- [ ] Harness structural consolidation & optimization -> [HARNESS_OPTIMIZATION.md]
 - [ ] Cross-project conversational continuity -> [.wiki/architecture/memory-hygiene.md]
 
 ### Done
+- [x] Harness structural consolidation & optimization (2026-11-19) -> [HARNESS_OPTIMIZATION.md]
 - [x] Codebase review remediation (IPv6 SSRF, CLI decomposition, library validation & sharded tests) (2026-11-19) -> [SUGGESTED_REMEDIATION.md]
 - [x] Source-linked project librarian (2026-10-28) -> [.wiki/architecture/librarian-library.md]
 - [x] GPT-6.1 Sol and model-specific reasoning efforts (2026-10-10) -> [.wiki/architecture/model-selection.md]

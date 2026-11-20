@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { delimiter, join, resolve } from 'node:path'
 import type { BrainPaths } from '../brain/paths.js'
+import { runGit } from '../harness/git.js'
 import { atomicWriteFileSync } from '../tools/files.js'
 import { CandidateStore } from './candidates.js'
 import { killProcessTree } from '../tools/shell.js'
@@ -172,17 +173,7 @@ function runProcess(
 }
 
 function git(repo: string, args: string[], input?: string): string {
-  const result = spawnSync('git', args, {
-    cwd: repo,
-    input,
-    encoding: 'utf8',
-    windowsHide: true,
-    maxBuffer: 10 * 1024 * 1024,
-  })
-  if (result.status !== 0) {
-    throw new Error(`git ${args.join(' ')} failed: ${result.stderr.trim()}`)
-  }
-  return result.stdout.trim()
+  return runGit(repo, args, { input })
 }
 
 export function protectedPatchPaths(patch: string): string[] {

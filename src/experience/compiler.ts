@@ -1,14 +1,10 @@
-import { createHash } from 'node:crypto'
 import type { RunResult } from '../engine/types.js'
+import { digest } from '../harness/hash.js'
 import { readRunTrace, verifyRunTrace, type RunTraceEnvelope } from '../harness/traces.js'
 import { projectId } from '../harness/trust.js'
 import { redactSessionValue } from '../harness/redaction.js'
 import { ExperienceRecordSchema, GuidanceRecordSchema } from './schemas.js'
 import type { ExperienceRecord, GuidanceRecord } from './types.js'
-
-function digest(value: unknown): string {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex')
-}
 
 function plain(value: unknown, max: number): string {
   return String(redactSessionValue(value))

@@ -27,11 +27,16 @@ receipts. Detailed source notes are returned unless `shape: summary` is explicit
 Whole records that exceed the result budget are omitted, never silently summarized.
 
 `LibraryRead` returns selected IDs; detailed text is supplied through the engine's
-existing request-time historical-context seam. It is revalidated for every outgoing
+existing request-time historical-context seam via `composeHistoricalContext()`
+(`src/harness/context-budget.ts`). It is revalidated for every outgoing
 request, excluded from session history/compaction, and cleared at the next turn. While
 an explicit library selection is active, provisional journal recall is not mixed into
-that same request context. Startup personal-memory behavior remains unchanged. Library
-writes do not copy notes into `MEMORY.md`, `LEARNED.md`, journal or experience stores.
+that same request context (bounded repeated-failure `<experience-guidance>` hints still
+compose cleanly under the shared character cap). Child agents do not receive the parent
+`# Project librarian` prompt section, `outputSchema` constraints, `Journal`, or
+`Library*` tools. Startup personal-memory behavior stays bounded by `loadMemoryIndex()`'s
+combined cap. Library writes do not copy notes into `MEMORY.md`, `LEARNED.md`, journal or
+experience stores.
 Normal assistant answers and explicit source-reading tool results still follow the
 existing transcript policy; their possible paraphrases are not automatically erased.
 

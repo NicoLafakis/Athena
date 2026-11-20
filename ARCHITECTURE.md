@@ -6,20 +6,24 @@ This is the short structural map of the runtime. Behavioral rules live in
 ## Runtime composition
 
 `bin/athena.js` loads the built CLI in `dist/cli.js`; the TypeScript composition root is
-[`src/cli.ts`](src/cli.ts) (backed by focused command, argument, slash, trust, client, and
-voice modules under `src/cli/`). It owns startup, trust and credential resolution, settings,
-plugins, presentation selection, shutdown ordering, and experience capture, then hands the
-session itself to `HarnessSessionController`
+[`src/cli.ts`](src/cli.ts) (backed by focused command, argument, slash, trust, client,
+session-bootstrap, and voice modules under `src/cli/`). Shared session bootstrap
+([`src/cli/session-bootstrap.ts`](src/cli/session-bootstrap.ts)) resolves staleness
+warnings, trust, `effectivePaths`, settings, and plugin runtime extensions once for all
+surfaces, then hands the session itself to `HarnessSessionController`
 ([`src/harness/controller.ts`](src/harness/controller.ts)).
 
 The controller is the single session composition: tool and MCP registration, the
 permission gate, resource policy, protected-paths fence, hooks, sessions, tracing,
-semantic interaction state, the agent orchestrator, the context manager, and the engine.
-Every path builds it — `athena exec`, the append-only screen-reader loop, the Ink TUI, and
-`athena voice` — so a session is assembled in one place and its guarantees are configured
-in one place. Presentation-specific wiring stays with the caller: the Ink
-`PermissionBridge`, the screen-reader approver, slash-command handling, the `--continue`
-and `--resume` selection callback, and the teardown order each surface needs.
+semantic interaction state, the agent orchestrator, the context manager, multi-store
+context budgeting ([`src/harness/context-budget.ts`](src/harness/context-budget.ts)), and
+the engine. Every path builds it — `athena exec`, the append-only screen-reader loop, the
+Ink TUI, and `athena voice` — routes turns through `controller.runTurn()` /
+`controller.submitTurn()`, and tears down through one deterministic `controller.close()`
+sequence (background tasks, interaction detach, `SessionEnd` + journal stop, MCP shutdown,
+trace close, and optional experience capture). Presentation-specific wiring stays with the
+caller: the Ink `PermissionBridge`, the screen-reader approver, slash-command handling,
+and the `--continue` / `--resume` selection callback.
 
 ```text
 CLI / settings
@@ -61,8 +65,14 @@ and local slash-command handler.
   Slash commands are parsed here but handled by shared CLI dependencies. Read the
   fullscreen row-budget page before changing layout.
 - `src/harness/` — the shared session controller plus permissions, resource policy, the
-  protected-paths fence, hooks, sessions, traces, MCP, agents, trust, plugins, staleness
-  checks, and opt-in watcher primitives.
+  protected-paths fence, shared boundary redaction (`redaction.ts`), bounded historical
+  context arbitration (`context-budget.ts`), shared SHA-256/Git helpers (`hash.ts`,
+  `git.ts`), hooks, sessions, traces, MCP, agents (excluding parent-only `Journal` /
+  `Library*` tools and parent prompt suffixes, with child `RunUsage` debited against
+  parent `RunBudget`), trust, plugins, staleness checks, and opt-in watcher primitives.
+  `athena watch` is a standalone foreground CLI primitive fenced by `ProtectedPaths` +
+  `ResourcePolicy`; `HarnessSessionController.recordWatchObservation()` exposes the
+  opt-in seam into `InteractionEventAdapter` for live sessions.
 - `src/tools/` — built-in tool definitions and the registry used by the main engine and
   delegated agents.
 - `src/brain/` — paths, settings, credentials and vaults, models, plugins, and local brain
@@ -71,12 +81,14 @@ and local slash-command handler.
   `.wiki/features/conversational-continuity/`; the current runtime has project-scoped
   resumable sessions and memory surfaces, not yet a unified temporal conversation index.
 - `src/experience/` — deterministic capture, compilation, storage, and retrieval of
-  bounded experiential guidance.
-- `src/voice/` — provider-neutral optional voice contracts and routing over semantic
-  state, plus the opt-in `athena voice` session: a persistent local wake listener, a
-  bounded OpenAI Realtime audio/intent adapter advertising only `submit_turn` and
-  `local_control`, and `VoiceAttentionBridge`, the permission approver it hands to the
-  shared controller. No default boot-time audio or network activity.
+  bounded experiential guidance. On repeated identical tool failures, active guidance
+  reaches both human announcements and the next outbound model request ephemerally via
+  `<experience-guidance>` without persisting raw prompts.
+- `src/voice/` — opt-in `athena voice` session and speech-ownership policy (`speech.ts`):
+  a persistent local wake listener, a bounded OpenAI Realtime audio/intent adapter
+  advertising only `submit_turn` and `local_control`, `VoiceAttentionBridge` (the
+  permission approver it hands to the shared controller), and Phase 0 speaker-diarization
+  contracts (`attribution*.ts`). No default boot-time audio or network activity.
 - `src/learning/` — governed learning candidates, evaluation, promotion, and warehouse.
 - `src/investigation/` - bounded source-text evidence contracts, revision capture,
   append-only ledgers, and deterministic verification. The bundled `source-investigation`

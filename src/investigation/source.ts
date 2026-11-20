@@ -3,13 +3,12 @@ import { createHash } from 'node:crypto'
 import { open, realpath } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import type { ToolContext } from '../engine/types.js'
+import { digest } from '../harness/hash.js'
 import { resolveToolPath } from '../tools/files.js'
 import { realPathForAccess } from '../harness/resource-policy.js'
 import type { SourceRevision } from './types.js'
 
-export function digest(value: unknown): string {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex')
-}
+export { digest }
 
 export function sourcePath(ctx: ToolContext, path: string): { path: string; absolute: string } {
   const absolute = realPathForAccess(resolveToolPath(ctx, path, 'read'), ctx.cwd)

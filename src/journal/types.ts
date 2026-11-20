@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto'
 import { z } from 'zod'
+import { digest as jsonDigest, sha256Text } from '../harness/hash.js'
 
 export const JOURNAL_VERSION = 1
 export const JOURNAL_LIMITS = {
@@ -9,7 +9,7 @@ export const JOURNAL_LIMITS = {
   dailyAttempts: 2, memoriesPerPass: 8, retrievalChars: 4000, retrievalItems: 4,
 } as const
 export function digest(value: unknown): string {
-  return createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex')
+  return typeof value === 'string' ? sha256Text(value) : jsonDigest(value)
 }
 export function normalize(text: string): string { return text.trim().toLowerCase().replace(/\s+/g, ' ') }
 const hash = z.string().regex(/^[a-f0-9]{64}$/)

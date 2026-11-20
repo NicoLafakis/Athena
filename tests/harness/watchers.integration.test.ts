@@ -1,13 +1,16 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { EventEmitter } from 'node:events'
 import type { FSWatcher } from 'node:fs'
 import {
+  createExplicitFilesystemWatch,
   probeFilesystemWatch,
   runForegroundFilesystemWatch,
 } from '../../src/harness/watchers/index.js'
+import { createWatchResourcePolicy } from '../../src/cli/commands.js'
+import { resolveBrainPaths } from '../../src/brain/paths.js'
 
 const roots: string[] = []
 afterEach(() => {
@@ -92,5 +95,25 @@ describe('real filesystem watcher backend', () => {
     listener?.()
     expect(closed).toBe(true)
     expect(observations).toEqual([])
+  })
+
+  it('constructs athena watch ResourcePolicy with ProtectedPaths and rejects protected roots', () => {
+    const root = mkdtempSync(join(tmpdir(), 'athena-watch-fence-'))
+    roots.push(root)
+    const fencedDir = join(root, 'protected-os-root')
+    mkdirSync(fencedDir, { recursive: true })
+    const targetFile = join(fencedDir, 'config.sys')
+    writeFileSync(targetFile, 'system')
+    const paths = resolveBrainPaths({ cwd: root, homeOverride: root })
+    const policy = createWatchResourcePolicy(root, paths, [fencedDir])
+
+    expect(() =>
+      createExplicitFilesystemWatch({
+        requestedBy: 'user',
+        projectRoot: root,
+        resource: targetFile,
+        policy,
+      }),
+    ).toThrow(/Protected system directory/i)
   })
 })

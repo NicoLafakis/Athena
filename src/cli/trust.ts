@@ -46,14 +46,16 @@ async function confirm(question: string): Promise<boolean> {
   }
 }
 
-export async function resolveProjectTrust(
-  paths: BrainPaths,
-  cwd: string,
-): Promise<{
+export interface ResolvedProjectTrust {
   trusted: boolean
   allowProjectHooks: boolean
   allowProjectMcp: boolean
-}> {
+}
+
+export async function resolveProjectTrust(
+  paths: BrainPaths,
+  cwd: string,
+): Promise<ResolvedProjectTrust> {
   if (!paths.projectBrainDir) {
     return { trusted: true, allowProjectHooks: true, allowProjectMcp: true }
   }
@@ -95,11 +97,7 @@ export async function resolveProjectTrust(
 export function resolveStoredProjectTrust(
   paths: BrainPaths,
   cwd: string,
-): {
-  trusted: boolean
-  allowProjectHooks: boolean
-  allowProjectMcp: boolean
-} {
+): ResolvedProjectTrust {
   if (!paths.projectBrainDir) {
     return { trusted: true, allowProjectHooks: true, allowProjectMcp: true }
   }

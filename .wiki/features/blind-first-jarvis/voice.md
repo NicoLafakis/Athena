@@ -54,20 +54,22 @@ microphone -> persistent local Athena wake gate
 `athena voice` is a separate entrypoint. Ordinary `athena` and `athena exec` boot paths
 do not import, probe, or start voice dependencies.
 
-## Reusable session-routing seam
+## Deferred multi-session routing contract
 
-`VoiceSessionRouter` exists and implements this provider-neutral resolution order:
+If voice later becomes a client of an independently running TUI over an authenticated
+named-pipe or socket control channel, target selection must follow this provider-neutral
+resolution order:
 
 1. an explicitly selected session;
 2. a foreground-window hint, when supported and proven;
 3. the most recently active unambiguous session;
 4. an audible request for clarification.
 
-`athena voice` owns one harness session directly and does not currently need the router;
-it is retained for the deferred case where voice becomes a client of an independently
-running TUI over an authenticated named-pipe or socket control channel. That IPC work
-stays deferred: the single-writer invariant means a later controller must not open a
-competing engine writer.
+`athena voice` owns one `HarnessSessionController` session directly and does not need a
+multi-session router. The unused pre-refactor conductor modules (`session-router.ts`,
+`context.ts`, `input.ts`, `types.ts`) were pruned during harness consolidation
+(2026-11-19); IPC control-channel work remains deferred under the single-writer
+invariant (a later client must not open a competing engine writer).
 
 ## Voice permissions
 
@@ -170,23 +172,21 @@ This sequence produced the working audio proof. Phase 7.6 now follows the separa
 [direct-harness implementation sequence](direct-harness-voice.md#implementation-sequence),
 which is authoritative for subsequent voice work.
 
-## Implementation status (2026-08-13)
+## Implementation status (2026-08-13; updated 2026-11-19)
 
-Provider-neutral building blocks live in `src/voice/`. `buildVoiceContext` accepts only an
-`InteractionSnapshot` and optional `Announcement`, then emits a strict bounded/redacted
-context containing semantic objective, phase, pending attention, verified outcome, and
-latest material announcement. No raw engine event, tool input/output, or independent
-status digest enters that context seam. The live session serves `status` and `repeat` from
-the same semantic sources rather than from this context object.
+Live voice runtime modules in `src/voice/` (`daemon.ts`, `realtime.ts`, `attention.ts`,
+`speech.ts`, `turns.ts`, `schemas.ts`, `telemetry.ts`, `credentials.ts`,
+`windows-speech.ts`, plus Phase 0 speaker-diarization `attribution*.ts`) serve `status`
+and `repeat` directly from `HarnessSessionController`'s semantic snapshot and
+announcement plane. The unused pre-refactor conductor scaffolding (`context.ts`,
+`session-router.ts`, `input.ts`, `types.ts`) was removed on 2026-11-19.
 
-`VoiceSessionRouter` implements the planned order: explicit session, proven foreground
-hint, then an unambiguous recent session. Unknown or near-simultaneous candidates return
-clarification rather than silently choosing. It is retained for the deferred multi-session
-case. The speech ownership rule is shared rather than re-derived per caller: direct speech
-off is removable; exclusive ownership yields to an active screen reader; supplemental
-ownership suppresses routine speech and allows only blocking interruption when a screen
-reader is active. `athena voice` treats `off` as `supplemental`, because running it is
-itself a request for spoken output and it is the one mode with no screen to fall back on.
+The speech ownership rule (`src/voice/speech.ts`) is shared rather than re-derived per
+caller: direct speech off is removable; exclusive ownership yields to an active screen
+reader; supplemental ownership suppresses routine speech and allows only blocking
+interruption when a screen reader is active. `athena voice` treats `off` as
+`supplemental`, because running it is itself a request for spoken output and it is the
+one mode with no screen to fall back on.
 
 The announcement plane is wired: the controller's `onAnnouncement` reaches the voice
 session, which speaks under that ownership policy and always emits stable text for Braille

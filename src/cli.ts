@@ -23,19 +23,18 @@ import {
   resolveModelRequest,
   type ProviderId,
 } from './brain/models.js'
-import { resolveBrainPaths, type BrainPaths } from './brain/paths.js'
-import { loadCommandsIndexWithPlugins, loadPluginRuntimeExtensions } from './brain/plugins.js'
+import { resolveBrainPaths } from './brain/paths.js'
+import { loadCommandsIndexWithPlugins } from './brain/plugins.js'
 import { loadSettings } from './brain/settings.js'
 import { FileLedgerStore } from './brain/vmp-ledger.js'
 import { validateJsonOutput } from './engine/output-schema.js'
 import { makeTelemetryRecorder } from './engine/telemetry.js'
-import { captureExperienceBestEffort } from './experience/index.js'
+import type { RunResult } from './engine/types.js'
 import { ensureBrainScaffold } from './harness/bootstrap.js'
 import { HarnessSessionController } from './harness/controller.js'
 import { collectDiagnostics, formatDiagnostics } from './harness/diagnostics.js'
 import { gitBranch } from './harness/git.js'
 import type { SessionStore } from './harness/sessions.js'
-import { stalenessBootWarnings } from './harness/staleness.js'
 import type { InteractionEventEnvelope } from './interaction/index.js'
 import { createInteractionSnapshot } from './interaction/state.js'
 import {
@@ -46,7 +45,6 @@ import {
   permissionDiff,
   permissionDiffStats,
 } from './presentation/index.js'
-import { shutdownBackgroundTasks } from './tools/index.js'
 import { App, PermissionBridge } from './tui/App.js'
 import { parseSlash } from './tui/slash.js'
 import { getVersion } from './version.js'
@@ -85,11 +83,11 @@ import {
   type SlashDeps,
 } from './cli/slash.js'
 import {
-  applyTrustBootstrap,
-  doctorPosture,
-  resolveProjectTrust,
-  resolveStoredProjectTrust,
-} from './cli/trust.js'
+  emitStalenessWarnings,
+  loadSessionSettings,
+  resolveSessionTrust,
+} from './cli/session-bootstrap.js'
+import { doctorPosture } from './cli/trust.js'
 import { runVoiceCommand } from './cli/voice.js'
 
 export {
@@ -212,13 +210,8 @@ async function main(): Promise<void> {
   // Environment staleness, on stderr before Ink mounts (alt-screen entry happens later in a
   // useEffect, so pre-render stderr is genuinely visible). Filesystem checks only — no git,
   // no subprocess, nothing that can throw — and silent when everything is fresh.
-  for (const warning of stalenessBootWarnings()) console.error(warning)
-  const projectTrust = isExec
-    ? resolveStoredProjectTrust(paths, cwd)
-    : await resolveProjectTrust(paths, cwd)
-  const effectivePaths: BrainPaths = projectTrust.trusted
-    ? paths
-    : { ...paths, projectBrainDir: null }
+  emitStalenessWarnings((warning) => console.error(warning))
+  const { projectTrust, effectivePaths } = await resolveSessionTrust(paths, cwd, !isExec)
   // One line per distinct credential-path problem, on stderr, before the TUI mounts.
   // Deduped because key resolution runs several times below.
   const seenCredentialWarnings = new Set<string>()
@@ -297,21 +290,19 @@ async function main(): Promise<void> {
   }
   // Settings warnings (e.g. a model that is invalid for the active provider falling
   // back to the provider default) surface on stderr before the TUI mounts.
-  const settings = loadSettings(paths, provider, (msg) => console.error(msg), {
-    projectTrusted: projectTrust.trusted,
-    allowProjectHooks: projectTrust.allowProjectHooks,
-    allowProjectMcp: projectTrust.allowProjectMcp,
-  })
   // Trusted-project bootstrap: effective trusted mode (+ unrestricted shell on win32).
   // exec keeps its explicit flag-driven defaults instead (headless contract).
-  if (!isExec) applyTrustBootstrap(settings, paths, cwd)
+  const { settings } = loadSessionSettings({
+    paths,
+    effectivePaths,
+    cwd,
+    provider,
+    projectTrust,
+    applyTrust: !isExec,
+    warn: (msg) => console.error(msg),
+  })
   const vmpLedger = settings.vmp.enabled ? FileLedgerStore.forPaths(paths) : undefined
   const vmpRecorder = makeTelemetryRecorder(vmpLedger)
-  const pluginExtensions = loadPluginRuntimeExtensions(effectivePaths, (message) =>
-    console.error(message),
-  )
-  settings.hooks = [...pluginExtensions.hooks, ...settings.hooks]
-  settings.mcpServers = { ...pluginExtensions.mcpServers, ...settings.mcpServers }
   if (isExec) {
     settings.permissionMode = cmd.options.permissionMode
     settings.sandboxMode = cmd.options.sandboxMode
@@ -471,10 +462,7 @@ async function main(): Promise<void> {
     engine,
     gate,
     trace,
-    mcp,
-    interaction,
     interactionService,
-    experienceStore,
     contextManager,
     orchestrator,
     client,
@@ -505,47 +493,48 @@ async function main(): Promise<void> {
         }
       }
     })
-    trace.recordPrompt(execPrompt!)
-    interaction.recordUserObjective(execPrompt!, 'prompt:exec')
-    flushSemanticJsonl()
-    let result
-    try {
-      result = await engine.runTurn(execPrompt!)
-    } finally {
-      shutdownBackgroundTasks(trace.runId)
-      unsubscribe()
-      interaction.detach()
-      await controller.endSession('exec-complete')
-      await mcp.closeAll()
-    }
-    const output = finalAssistantText(engine.getMessages())
+    let result: RunResult | undefined
+    let output = ''
     let outputValue: unknown
     let schemaErrors: string[] = []
-    if (outputSchema !== null) {
-      const validation = validateJsonOutput(output, outputSchema)
-      outputValue = validation.value
-      schemaErrors = validation.errors
-    }
     let exitCode: number = CLI_EXIT.success
-    if (schemaErrors.length > 0) exitCode = CLI_EXIT.outputSchema
-    else if (permissionDenied) exitCode = CLI_EXIT.permission
-    else if (result.status === 'limit') exitCode = CLI_EXIT.limit
-    else if (result.status === 'aborted') exitCode = CLI_EXIT.aborted
-    else if (result.status === 'error') exitCode = CLI_EXIT.provider
-
-    await trace.close(result)
-    await captureExperienceBestEffort(trace.file, experienceStore)
+    try {
+      result = await controller.runTurn(execPrompt!, {
+        sourceRef: 'prompt:exec',
+        beforeRun: flushSemanticJsonl,
+      })
+    } finally {
+      await controller.close({
+        reason: 'exec-complete',
+        result,
+        onDetach: unsubscribe,
+        beforeTraceClose: () => {
+          output = finalAssistantText(engine.getMessages())
+          if (outputSchema !== null) {
+            const validation = validateJsonOutput(output, outputSchema)
+            outputValue = validation.value
+            schemaErrors = validation.errors
+          }
+          if (schemaErrors.length > 0) exitCode = CLI_EXIT.outputSchema
+          else if (permissionDenied) exitCode = CLI_EXIT.permission
+          else if (result?.status === 'limit') exitCode = CLI_EXIT.limit
+          else if (result?.status === 'aborted') exitCode = CLI_EXIT.aborted
+          else if (result?.status === 'error') exitCode = CLI_EXIT.provider
+        },
+      })
+    }
+    const finalResult = result ?? engine.getRunResult()
     const envelope = {
       schemaVersion: 1,
       runId: trace.runId,
       sessionId: controller.sessionPersisted ? session.id : null,
-      status: result.status,
-      reason: result.reason,
+      status: finalResult.status,
+      reason: finalResult.reason,
       exitCode,
       output,
       outputValue,
       schemaErrors,
-      usage: result.usage,
+      usage: finalResult.usage,
       traceFile: trace.file,
     }
     if (cmd.options.output === 'json') {
@@ -582,12 +571,7 @@ async function main(): Promise<void> {
     bus.emit({ type: 'error', message: `Internal crash (logged to crash.log): ${message}`, fatal: true })
     engine.abort()
     void (async () => {
-      shutdownBackgroundTasks(trace.runId)
-      await Promise.allSettled([
-        controller.endSession('crash'),
-        mcp.closeAll(),
-        trace.close(engine.getRunResult()),
-      ])
+      await controller.close({ reason: 'crash', captureExperience: false }).catch(() => {})
       process.exit(1)
     })()
   }
@@ -664,11 +648,9 @@ async function main(): Promise<void> {
           continue
         }
         const prompt = slash?.kind === 'custom' ? slash.expandedPrompt : text
-        trace.recordPrompt(prompt)
-        interaction.recordUserObjective(prompt, `prompt:${Date.now()}`)
         activeTurn = true
         try {
-          await engine.runTurn(prompt)
+          await controller.runTurn(prompt)
           const output = finalAssistantText(engine.getMessages())
           if (output) screenPresentation.writeAssistantText(output)
         } catch (error) {
@@ -681,12 +663,7 @@ async function main(): Promise<void> {
       process.off('SIGINT', onSigint)
       unsubscribeScreen()
       await screenPresentation.close(engine.getRunResult())
-      shutdownBackgroundTasks(trace.runId)
-      interaction.detach()
-      await controller.endSession('interactive-exit')
-      await mcp.closeAll()
-      await trace.close(engine.getRunResult())
-      await captureExperienceBestEffort(trace.file, experienceStore)
+      await controller.close('interactive-exit')
     }
     return
   }
@@ -705,9 +682,7 @@ async function main(): Promise<void> {
         contextPct: Math.round(contextManager.usedFraction() * 100),
       },
       onSubmit: async (text: string) => {
-        trace.recordPrompt(text)
-        interaction.recordUserObjective(text, `prompt:${Date.now()}`)
-        await engine.runTurn(text)
+        await controller.runTurn(text)
       },
       onAbort: () => engine.abort(),
       permissionBridge: bridge,
@@ -719,17 +694,12 @@ async function main(): Promise<void> {
   )
   // main() owns the TUI lifetime: an Ink render-phase failure rejects here and is
   // reported by the main().catch below instead of dying as an unhandled rejection.
-  // closeAll runs on the normal exit path (and on a render-phase error) so spawned
-  // MCP server processes are torn down rather than leaked.
+  // close runs on the normal exit path (and on a render-phase error) so spawned
+  // MCP server processes and background tasks are torn down rather than leaked.
   try {
     await instance.waitUntilExit()
   } finally {
-    shutdownBackgroundTasks(trace.runId)
-    interaction.detach()
-    await controller.endSession('interactive-exit')
-    await mcp.closeAll()
-    await trace.close(engine.getRunResult())
-    await captureExperienceBestEffort(trace.file, experienceStore)
+    await controller.close('interactive-exit')
   }
 }
 

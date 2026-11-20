@@ -4,15 +4,10 @@ import { z } from 'zod'
 import { projectId } from '../harness/trust.js'
 import { redactSessionValue } from '../harness/redaction.js'
 import { realPathForAccess } from '../harness/resource-policy.js'
-import type { RunTraceEnvelope } from '../harness/traces.js'
+import { parseAndVerifyRunTraceText, type RunTraceEnvelope } from '../harness/traces.js'
 import { JournalStore } from './store.js'
 import { JOURNAL_LIMITS, JournalSourceSchema, digest, emptyChange, normalize, type JournalChange, type JournalSource } from './types.js'
 
-const TraceSchema = z.object({
-  schemaVersion: z.literal(1), runId: z.string().uuid(), parentRunId: z.string().uuid().nullable(),
-  sequence: z.number().int().positive(), timestamp: z.string().datetime(), type: z.string(), payload: z.unknown(),
-  previousHash: z.string().nullable(), hash: z.string().regex(/^[a-f0-9]{64}$/),
-}).strict()
 const RunMetadata = z.object({ cwd: z.string(), provider: z.string(), model: z.string() }).passthrough()
 const EngineEvent = z.object({ type: z.string() }).passthrough()
 const ToolRequest = z.object({ type: z.literal('tool-request'), id: z.string(), name: z.string(), input: z.unknown() }).passthrough()
@@ -32,20 +27,10 @@ function label(value: string): string { return value.replace(/[^\p{L}\p{N}._-]/g
 export function readTrace(store: JournalStore, file: string): RunTraceEnvelope[] {
   file = realPathForAccess(file, store.root)
   const text = store.readBounded(file, JOURNAL_LIMITS.traceBytes)
-  if (!text.endsWith('\n')) throw new Error('Trace is incomplete; journal preserves it without interpreting it')
-  const lines = text.trimEnd().split('\n')
-  if (lines.length > JOURNAL_LIMITS.traceEvents) throw new Error('Trace event bound exceeded')
-  const events: RunTraceEnvelope[] = lines.map(line => {
-    const parsed = TraceSchema.parse(JSON.parse(line))
-    if (!Object.hasOwn(parsed, 'payload')) throw new Error('Trace payload is missing')
-    return { ...parsed, payload: parsed.payload }
+  const events = parseAndVerifyRunTraceText(text, {
+    maxEvents: JOURNAL_LIMITS.traceEvents,
+    requireTrailingNewline: true,
   })
-  let previous: RunTraceEnvelope | undefined
-  for (const [index, event] of events.entries()) {
-    const { hash, ...base } = event
-    if (event.sequence !== index + 1 || event.previousHash !== (previous?.hash ?? null) || digest(base) !== hash || (previous && (event.runId !== previous.runId || event.parentRunId !== previous.parentRunId))) throw new Error('Trace integrity validation failed')
-    previous = event
-  }
   const first = events[0]
   if (!first || first.type !== 'run-start') throw new Error('Missing trace metadata')
   const metadata = RunMetadata.parse(first.payload)

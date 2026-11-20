@@ -165,4 +165,62 @@ describe('shared controller integration', () => {
     writeFileSync(join(f.cwd, 'detail.md'), 'Changed source.\n')
     expect(f.library.context()).not.toContain('Detailed context retention rationale')
   })
+
+  it('strips parent-only librarian/outputSchema prompt sections and Journal tool from child agents', async () => {
+    const f = harness.fixture()
+    const agentsDir = join(f.cwd, '.athena', 'agents')
+    const { mkdirSync } = await import('node:fs')
+    mkdirSync(agentsDir, { recursive: true })
+    writeFileSync(
+      join(agentsDir, 'helper.md'),
+      '---\nname: helper\ndescription: helper child\n---\nHelp concisely.\n',
+    )
+    const mock = new MockAnthropicClient([
+      {
+        blocks: [toolUseBlock('a1', 'Agent', { agent: 'helper', prompt: 'inspect' })],
+        stopReason: 'tool_use',
+      },
+      { blocks: [textBlock('child reply')], stopReason: 'end_turn' },
+      { blocks: [textBlock('{"ok":true}')], stopReason: 'end_turn' },
+    ])
+    const systems: string[] = []
+    const client = {
+      stream: async (params: Parameters<typeof mock.stream>[0] & { system?: string }, cb: Parameters<typeof mock.stream>[1]) => {
+        systems.push(params.system ?? '')
+        return mock.stream(params, cb)
+      },
+      complete: (params: Parameters<typeof mock.complete>[0]) => mock.complete(params),
+    }
+    const { resolveBrainPaths } = await import('../../src/brain/paths.js')
+    const { makeSettingsSchema } = await import('../../src/brain/settings.js')
+    const { HarnessSessionController } = await import('../../src/harness/controller.js')
+    const paths = resolveBrainPaths({ cwd: f.cwd, homeOverride: f.cwd })
+    const c = await HarnessSessionController.create({
+      paths,
+      effectivePaths: paths,
+      cwd: f.cwd,
+      provider: 'anthropic',
+      client,
+      settings: makeSettingsSchema('anthropic').parse({ permissionMode: 'trusted' }),
+      projectTrust: { trusted: true, allowProjectHooks: false, allowProjectMcp: false },
+      outputSchema: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] },
+    })
+    try {
+      const def = c.orchestrator.getDef('helper')!
+      expect(def).toBeDefined()
+      const childTools = c.orchestrator.buildChildRegistry(def).list().map((t) => t.name)
+      expect(childTools).not.toContain('Journal')
+      expect(childTools).not.toContain('LibraryRead')
+      expect(childTools).not.toContain('LibraryWrite')
+
+      await c.submitTurn('delegate to helper')
+      // Call 0 is parent; Call 1 is child; Call 2 is parent final answer.
+      expect(systems[0]).toContain('# Project librarian')
+      expect(systems[0]).toContain('Return the final answer as JSON only')
+      expect(systems[1]).not.toContain('# Project librarian')
+      expect(systems[1]).not.toContain('Return the final answer as JSON only')
+    } finally {
+      await c.close()
+    }
+  })
 })

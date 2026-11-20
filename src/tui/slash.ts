@@ -1,5 +1,6 @@
 // src/tui/slash.ts
 import type { PermissionMode } from '../engine/types.js'
+import { BARE_SLASH_COMMANDS } from '../brain/commands.js'
 import { EFFORTS, type Effort } from '../brain/models.js'
 
 /** Minimal shape parseSlash (and the live "/" menu — see tui/slashMenu.ts) need from
@@ -43,9 +44,7 @@ export type TuiMode = 'classic' | 'fullscreen'
 const MODES = new Set(['normal', 'acceptEdits', 'plan', 'trusted'])
 const EFFORT_SET = new Set<string>(EFFORTS)
 const TUI_MODES = new Set(['classic', 'fullscreen'])
-const BARE = new Set([
-  'help', 'clear', 'resume', 'compact', 'memory', 'skills', 'agents', 'status', 'repeat', 'quit',
-])
+
 
 /** Substitutes $0, $1, ... (positional args) and $ARGUMENTS (the full argument string,
  *  space-joined) into a custom command's template body. */
@@ -62,7 +61,7 @@ export function parseSlash(
   if (!input.startsWith('/')) return null
   const [cmd = '', ...rest] = input.slice(1).trim().split(/\s+/)
   const arg = rest.join(' ')
-  if (BARE.has(cmd)) return { kind: cmd } as SlashCommand
+  if (BARE_SLASH_COMMANDS.has(cmd)) return { kind: cmd } as SlashCommand
   if (cmd === 'model')
     return arg
       ? { kind: 'model', value: arg }

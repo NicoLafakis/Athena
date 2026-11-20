@@ -35,6 +35,10 @@ export function createExplicitFilesystemWatch(
 ): WatchDefinition {
   if (input.requestedBy !== 'user') throw new Error('A watch requires an explicit user request')
   const resourcePath = input.policy.resolvePath(input.resource, 'read')
+  const fenced = input.policy.protectedPaths.deniedRoot(resourcePath, input.policy.workspaceRoot)
+  if (fenced !== null) {
+    throw new Error(`Protected system directory: cannot watch ${resourcePath} (${fenced})`)
+  }
   const resourceType = statSync(resourcePath).isDirectory() ? 'directory' : 'file'
   const scope = projectId(input.projectRoot)
   const id = `watch-${createHash('sha256').update(`${scope}\0${resourcePath}`).digest('hex').slice(0, 48)}`

@@ -1,6 +1,7 @@
 import type { EngineEventBus } from '../engine/events.js'
 import type { EngineEvent, RunResult } from '../engine/types.js'
 import type { GuidanceMatch } from '../experience/index.js'
+import type { WatchObservation } from '../harness/watchers/types.js'
 import { plainBounded } from './format.js'
 import { RepeatedFailureDetector } from './detectors/repeated-failure.js'
 import { VerificationInvalidationDetector } from './detectors/verification.js'
@@ -56,6 +57,26 @@ export class InteractionEventAdapter {
     this.emit(this.options.runId, 'user', 'objective-set', {
       objective: boundedPlain(objective, 4_096),
     }, sourceRef)
+  }
+
+  /** Opt-in seam for feeding a `WatchObservation` into the session semantic plane. */
+  recordWatchObservation(observation: WatchObservation): void {
+    const watchId = boundedPlain(observation.watchId, 200)
+    this.emit(
+      this.options.runId,
+      'runtime',
+      'attention-added',
+      {
+        attention: {
+          id: boundedPlain(`watch:${watchId}`, 256),
+          category: 'advisory',
+          priority: 'polite',
+          summary: boundedPlain(observation.summary, 1_024),
+          action: `Inspect watched resource for ${watchId}.`,
+        },
+      },
+      `watch:${watchId}`,
+    )
   }
 
   private acceptEngineEvent(event: EngineEvent): void {

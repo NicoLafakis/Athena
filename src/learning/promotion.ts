@@ -1,5 +1,4 @@
 import {
-  createHash,
   createPrivateKey,
   createPublicKey,
   generateKeyPairSync,
@@ -7,9 +6,10 @@ import {
   sign,
   verify,
 } from 'node:crypto'
-import { spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, readFileSync } from 'node:fs'
 import type { BrainPaths } from '../brain/paths.js'
+import { runGit } from '../harness/git.js'
+import { digest, sha256Text } from '../harness/hash.js'
 import { atomicWriteFileSync } from '../tools/files.js'
 import { CandidateStore } from './candidates.js'
 import { compareEvaluationRuns, LearningEvaluator } from './evaluation.js'
@@ -22,20 +22,8 @@ import {
   type PromotionRecord,
 } from './types.js'
 
-function digest(value: unknown): string {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex')
-}
-
 function git(repo: string, args: string[], input?: string): string {
-  const result = spawnSync('git', args, {
-    cwd: repo,
-    input,
-    encoding: 'utf8',
-    windowsHide: true,
-    maxBuffer: 20 * 1024 * 1024,
-  })
-  if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr.trim()}`)
-  return result.stdout.trim()
+  return runGit(repo, args, { input })
 }
 
 function signingKey(paths: BrainPaths): ReturnType<typeof createPrivateKey> {
@@ -113,7 +101,7 @@ export class PromotionManager {
       action,
       commitBefore,
       commitAfter,
-      patchHash: createHash('sha256').update(candidate.patch).digest('hex'),
+      patchHash: sha256Text(candidate.patch),
       comparisonHash: digest(comparison),
       createdAt: new Date().toISOString(),
       publicKey,
@@ -249,7 +237,7 @@ export class PromotionManager {
       }
       try {
         const candidate = this.candidates.load(record.candidateId)
-        if (createHash('sha256').update(candidate.patch).digest('hex') !== record.patchHash) {
+        if (sha256Text(candidate.patch) !== record.patchHash) {
           return { valid: false, records: records.length, error: `patch mismatch at ${record.id}` }
         }
         if (digest(this.evaluator.loadComparison(record.candidateId)) !== record.comparisonHash) {

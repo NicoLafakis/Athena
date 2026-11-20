@@ -59,6 +59,19 @@ describe('loadConstitution / loadMemoryIndex', () => {
     expect(loadConstitution(paths)).toBe('# Constitution\n')
     expect(loadMemoryIndex(paths)).toBe('# Memory Index\n')
   })
+
+  it('enforces a combined character cap across MEMORY.md and LEARNED.md with truncation warning', () => {
+    mkdirSync(join(home, '.athena', 'memory'), { recursive: true })
+    writeFileSync(join(home, '.athena', 'memory', 'MEMORY.md'), 'M'.repeat(1_500))
+    writeFileSync(join(home, '.athena', 'memory', 'LEARNED.md'), 'L'.repeat(1_500))
+    const paths = resolveBrainPaths({ cwd: project, homeOverride: home })
+    const warnings: string[] = []
+    const combined = loadMemoryIndex(paths, { maxChars: 2_000, warn: (m) => warnings.push(m) })
+    expect(combined).not.toBeNull()
+    expect(combined!.length).toBeLessThanOrEqual(2_000)
+    expect(combined).toContain('MMMM')
+    expect(warnings.length).toBeGreaterThan(0)
+  })
 })
 
 describe('loadSkillsIndex', () => {

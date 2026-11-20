@@ -33,6 +33,7 @@ import type {
   PermissionAnswer,
   RunLimits,
   RunResult,
+  RunUsage,
   ToolContext,
   ToolDefinition,
   ToolOutput,
@@ -77,6 +78,7 @@ export class Engine {
   private turnInFlight = false
   private historicalQuery?: string
   private readonly budget: RunBudget
+  private pendingChildLimit: string | null = null
 
   constructor(opts: EngineOptions) {
     resolveModelRequest(opts.provider ?? 'anthropic', opts.model, opts.effort)
@@ -91,6 +93,21 @@ export class Engine {
 
   getRunResult(): RunResult {
     return this.budget.getResult()
+  }
+
+  isTurnInFlight(): boolean {
+    return this.turnInFlight
+  }
+
+  getRemainingBudget(): RunLimits {
+    return this.budget.remainingLimits()
+  }
+
+  recordChildUsage(usage: RunUsage): string | null {
+    const limit = this.budget.recordChildUsage(usage)
+    this.emitBudgetStatus()
+    if (limit && !this.pendingChildLimit) this.pendingChildLimit = limit
+    return limit
   }
 
   loadMessages(history: MessageParam[]): void {
@@ -182,6 +199,7 @@ export class Engine {
       if (deadlineTimer) clearTimeout(deadlineTimer)
       this.turnInFlight = false
       this.historicalQuery = undefined
+      this.pendingChildLimit = null
     }
   }
 
@@ -221,6 +239,11 @@ export class Engine {
           message: terminal.status === 'limit' ? `Run limit reached: ${terminal.reason}` : 'Turn aborted',
           fatal: false,
         })
+        break
+      }
+      if (this.pendingChildLimit) {
+        terminal = this.recordLimit(this.pendingChildLimit)
+        this.pendingChildLimit = null
         break
       }
       // Resolve provider+key -> wire id + per-model effort/thinking. Anthropic Haiku and
@@ -461,6 +484,23 @@ export class Engine {
             })
             continue
           }
+          if (this.pendingChildLimit) {
+            const output = `Tool not executed: run limit reached (${this.pendingChildLimit})`
+            bus.emit({
+              type: 'tool-result',
+              id: block.id,
+              name: block.name,
+              output,
+              isError: true,
+            })
+            results.push({
+              type: 'tool_result',
+              tool_use_id: block.id,
+              content: output,
+              is_error: true,
+            })
+            continue
+          }
           bus.emit({ type: 'tool-request', id: block.id, name: block.name, input: block.input })
           const out = await this.dispatchTool(block, signal)
           bus.emit({
@@ -482,6 +522,11 @@ export class Engine {
       if (abortedMidTools) {
         terminal = this.budget.aborted('aborted')
         bus.emit({ type: 'error', message: 'Turn aborted', fatal: false })
+        break
+      }
+      if (this.pendingChildLimit) {
+        terminal = this.recordLimit(this.pendingChildLimit)
+        this.pendingChildLimit = null
         break
       }
 

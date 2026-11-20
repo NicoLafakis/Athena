@@ -18,7 +18,8 @@ import { loadSettings, readProjectSettingsCapabilities } from '../brain/settings
 import { FileLedgerStore } from '../brain/vmp-ledger.js'
 import { makeTelemetryRecorder } from '../engine/telemetry.js'
 import { PluginManager } from '../harness/plugins.js'
-import { ResourcePolicy } from '../harness/resource-policy.js'
+import { ProtectedPaths } from '../harness/protected-paths.js'
+import { realPathForAccess, ResourcePolicy } from '../harness/resource-policy.js'
 import { SessionStore } from '../harness/sessions.js'
 import {
   ProjectTrustStore,
@@ -34,6 +35,7 @@ import { PromotionManager } from '../learning/promotion.js'
 import { TraceWarehouse } from '../learning/warehouse.js'
 import { CLI_EXIT, type CliCommand } from './args.js'
 import { makeClient } from './client.js'
+import { resolveStoredProjectTrust } from './trust.js'
 
 export async function runImportCommand(
   cmd: Extract<CliCommand, { command: 'import' }>,
@@ -386,6 +388,24 @@ export function runSessionCommand(
   }
 }
 
+/** Construct the fenced ResourcePolicy for `athena watch` including canonical ProtectedPaths. */
+export function createWatchResourcePolicy(
+  cwd: string,
+  paths: BrainPaths,
+  configuredProtectedRoots: readonly string[],
+): ResourcePolicy {
+  const protectedRoots = configuredProtectedRoots.flatMap((root) => {
+    try {
+      const canonical = realPathForAccess(root, cwd)
+      return canonical === root ? [root] : [root, canonical]
+    } catch {
+      return [root]
+    }
+  })
+  const protectedPaths = ProtectedPaths.from(protectedRoots)
+  return new ResourcePolicy(cwd, 'workspace-write', [paths.brainDir], protectedPaths)
+}
+
 export async function runWatchCommand(
   cmd: Extract<CliCommand, { command: 'watch' }>,
   paths: BrainPaths,
@@ -405,7 +425,19 @@ export async function runWatchCommand(
     return
   }
   const targetPath = resolve(cwd, cmd.path ?? '.')
-  const resourcePolicy = new ResourcePolicy(cwd, 'workspace-write', [paths.brainDir])
+  let protectedRoots: string[] = []
+  try {
+    const provider = loadCredentials(paths).activeProvider
+    const trust = resolveStoredProjectTrust(paths, cwd)
+    protectedRoots = loadSettings(paths, provider, undefined, {
+      projectTrusted: trust.trusted,
+      allowProjectHooks: false,
+      allowProjectMcp: false,
+    }).protectedPaths
+  } catch {
+    protectedRoots = []
+  }
+  const resourcePolicy = createWatchResourcePolicy(cwd, paths, protectedRoots)
   const store = new WatchStore(paths.watchesFile)
   const watchDef = store.upsert(
     createExplicitFilesystemWatch({

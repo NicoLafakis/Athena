@@ -38,6 +38,53 @@ export class RunBudget {
     )
   }
 
+  /** Remaining finite limits for bounding delegated child runs. */
+  remainingLimits(): RunLimits {
+    const out: RunLimits = {}
+    const totalTokens =
+      this.usage.inputTokens +
+      this.usage.outputTokens +
+      this.usage.cacheReadTokens +
+      this.usage.cacheWriteTokens
+    if (this.limits.maxTokens !== undefined) {
+      out.maxTokens = Math.max(0, this.limits.maxTokens - totalTokens)
+    }
+    if (this.limits.maxCostUsd !== undefined) {
+      out.maxCostUsd = Math.max(0, this.limits.maxCostUsd - this.usage.costUsd)
+    }
+    if (this.limits.maxDurationMs !== undefined) {
+      out.maxDurationMs = this.remainingDurationMs()
+    }
+    if (this.limits.maxModelCalls !== undefined) {
+      out.maxModelCalls = Math.max(0, this.limits.maxModelCalls - this.usage.modelCalls)
+    }
+    if (this.limits.maxToolCalls !== undefined) {
+      out.maxToolCalls = Math.max(0, this.limits.maxToolCalls - this.usage.toolCalls)
+    }
+    return out
+  }
+
+  /** Debit a completed sub-agent's usage against this parent budget. */
+  recordChildUsage(childUsage: RunUsage): string | null {
+    this.usage.inputTokens += childUsage.inputTokens
+    this.usage.outputTokens += childUsage.outputTokens
+    this.usage.cacheReadTokens += childUsage.cacheReadTokens
+    this.usage.cacheWriteTokens += childUsage.cacheWriteTokens
+    this.usage.costUsd += childUsage.costUsd
+    this.usage.modelCalls += childUsage.modelCalls
+    this.usage.toolCalls += childUsage.toolCalls
+    const totalTokens =
+      this.usage.inputTokens +
+      this.usage.outputTokens +
+      this.usage.cacheReadTokens +
+      this.usage.cacheWriteTokens
+    if (totalTokens > (this.limits.maxTokens ?? UNLIMITED)) return 'maxTokens'
+    if (this.usage.costUsd > (this.limits.maxCostUsd ?? UNLIMITED)) return 'maxCostUsd'
+    if (this.usage.modelCalls > (this.limits.maxModelCalls ?? UNLIMITED)) return 'maxModelCalls'
+    if (this.usage.toolCalls > (this.limits.maxToolCalls ?? UNLIMITED)) return 'maxToolCalls'
+    return this.checkTime()
+  }
+
   beginTurn(): string | null {
     const reason = this.checkTime() ?? this.checkLimit('maxTurns', this.usage.turns, 1)
     if (reason) return reason

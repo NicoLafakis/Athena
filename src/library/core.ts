@@ -1,5 +1,6 @@
-import { createHash } from 'node:crypto'
 import { z } from 'zod'
+import { sha256Text } from '../harness/hash.js'
+import { containsSecret } from '../harness/redaction.js'
 
 const text = z.string().trim().min(1).max(32_000)
 const label = z.string().trim().min(1).max(120)
@@ -31,12 +32,15 @@ export type NoteInput = Pick<LibraryNote, 'scope' | 'detail' | 'summary' | 'cate
 export type Review = LibraryNote['reviews'][number]
 export type SourceCheck = (source: LibraryNote['sources'][number]) => boolean
 export type SensitivityCheck = (content: string) => boolean
-export const digest = (value: string): string => createHash('sha256').update(value).digest('hex')
+export const digest = sha256Text
 
 /** A second, application-specific sensitive-data policy is mandatory. This built-in
  * guard catches common credentials, not every possible personal or sensitive fact. */
 export function containsCredential(content: string): boolean {
-  return /-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:sk-[A-Za-z0-9_-]{16,}|AKIA[A-Z0-9]{16})\b|\b(?:password|api[_ -]?key|access[_ -]?token|secret)\s*[:=]\s*\S+/i.test(content)
+  return (
+    containsSecret(content) ||
+    /\b(?:password|api[_ -]?key|access[_ -]?token|secret)\s*[:=]\s*\S+/i.test(content)
+  )
 }
 export function assertSafe(value: unknown, sensitive: SensitivityCheck): void {
   const content = JSON.stringify(value)

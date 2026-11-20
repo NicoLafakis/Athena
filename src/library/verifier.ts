@@ -1,6 +1,7 @@
-import { execFileSync, spawnSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
+import { runGitBuffer } from '../harness/git.js'
 import { digest, type LibraryNote, type Review } from './core.js'
 import { projectFile, readProjectText, type LibraryConfig } from './config.js'
 
@@ -15,7 +16,7 @@ export interface CheckResult { id: string; passed: boolean; outputHash: string; 
 export class GitLibraryVerifier {
   constructor(readonly cwd: string, readonly config: LibraryConfig) {}
   private git(args: string[], input?: string): Buffer {
-    return execFileSync('git', ['--no-optional-locks', '-C', this.cwd, ...args], { input, maxBuffer: 1_000_000, timeout: 10_000, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
+    return runGitBuffer(this.cwd, args, { input, noOptionalLocks: true, maxBuffer: 1_000_000, timeout: 10_000 })
   }
   tree(commit?: string): string { if (commit && !/^[a-f0-9]{40,64}$/.test(commit)) throw new Error('Invalid commit identity'); return this.git(['rev-parse', (commit ?? 'HEAD') + '^{tree}']).toString('utf8').trim() }
   head(): string { return this.git(['rev-parse', 'HEAD']).toString('utf8').trim() }

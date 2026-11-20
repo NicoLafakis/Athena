@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { spawnSync } from 'node:child_process'
+import { runGit } from './git.js'
 import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -52,6 +52,11 @@ export interface AgentOrchestratorOptions {
   runStoreDir?: string
   traceRootDir?: string
   limits?: RunLimits
+  /** Optional bridge into the parent Engine's RunBudget so children stay bounded by and debit parent totals. */
+  parentBudget?: {
+    remaining: () => RunLimits
+    debit: (usage: RunUsage) => string | null
+  }
 }
 
 export interface ChildRunRecord {
@@ -83,15 +88,7 @@ const DEFAULT_CHILD_LIMITS: RunLimits = {
 }
 
 function git(cwd: string, args: string[], input?: string, trim = true): string {
-  const result = spawnSync('git', args, {
-    cwd,
-    input,
-    encoding: 'utf8',
-    windowsHide: true,
-    maxBuffer: 20 * 1024 * 1024,
-  })
-  if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr.trim()}`)
-  return trim ? result.stdout.trim() : result.stdout
+  return runGit(cwd, args, { input, trim })
 }
 
 class ChildWorkspace {
@@ -172,9 +169,10 @@ export class AgentOrchestrator {
     ) {
       names = [...names, 'TaskOutput']
     }
-    // Library tools carry parent-owned ephemeral selection. Child engines do not
-    // have a librarian context adapter, so never share these stateful tool objects.
-    return this.opts.baseRegistry.restrict(names, ['Agent', 'LibraryRead', 'LibraryWrite'])
+    // Library and Journal tools carry parent-owned session/trace state. Child engines
+    // do not have a librarian context adapter or parent journal ownership, so never
+    // share these stateful tool objects with sub-agents.
+    return this.opts.baseRegistry.restrict(names, ['Agent', 'LibraryRead', 'LibraryWrite', 'Journal'])
   }
 
   isConcurrencySafe(def: AgentDef): boolean {
@@ -320,6 +318,50 @@ export class AgentOrchestrator {
       : null
     trace?.attach(bus)
     trace?.recordPrompt(effectivePrompt)
+    const baseChildLimits: RunLimits = mergeDefinedLimits(
+      DEFAULT_CHILD_LIMITS,
+      this.opts.limits,
+      def.limits,
+    )
+    let childLimits = baseChildLimits
+    if (this.opts.parentBudget) {
+      const capped = capChildLimits(baseChildLimits, this.opts.parentBudget.remaining())
+      if (capped.exhausted) {
+        const zeroUsage: RunUsage = {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          costUsd: 0,
+          modelCalls: 0,
+          toolCalls: 0,
+          turns: 0,
+          durationMs: 0,
+        }
+        record.status = 'limit'
+        record.usage = zeroUsage
+        record.updatedAt = new Date().toISOString()
+        await this.saveRecord(record)
+        parentCtx.emit({
+          type: 'child-status',
+          runId,
+          agent: def.name,
+          status: 'limit',
+          usage: zeroUsage,
+        })
+        await trace?.close({
+          status: 'limit',
+          reason: `parent ${capped.exhausted} budget exhausted`,
+          usage: zeroUsage,
+        })
+        return {
+          output: `Agent ${def.name} limit: parent ${capped.exhausted} budget exhausted`,
+          isError: true,
+          runId,
+        }
+      }
+      childLimits = capped.limits
+    }
     let workspace: ChildWorkspace | null = null
     let childContext = parentCtx
     if (def.isolation === 'worktree') {
@@ -386,7 +428,7 @@ export class AgentOrchestrator {
       systemPrompt: `${this.opts.systemPromptBase}\n\nLibraryRead and LibraryWrite are unavailable to child agents; ask the parent for scoped evidence.\n\n---\n\n# Agent: ${def.name}\n\n${def.systemPrompt}`,
       maxTokens: capabilities.maxOutputTokens,
       preflightContext: true,
-      limits: { ...DEFAULT_CHILD_LIMITS, ...this.opts.limits, ...def.limits },
+      limits: childLimits,
     })
     if (record.messages.length > 0) engine.loadMessages(record.messages)
     const onParentAbort = () => engine.abort()
@@ -396,6 +438,7 @@ export class AgentOrchestrator {
       result = await engine.runTurn(effectivePrompt)
     } finally {
       parentCtx.abortSignal.removeEventListener('abort', onParentAbort)
+      this.opts.parentBudget?.debit(engine.getRunResult().usage)
     }
     if (workspace) {
       const isolated = workspace
@@ -487,6 +530,45 @@ export class AgentOrchestrator {
       JSON.stringify(redactSessionValue(record), null, 2) + '\n',
     )
   }
+}
+
+function mergeDefinedLimits(...sources: Array<RunLimits | undefined>): RunLimits {
+  const merged: RunLimits = {}
+  for (const source of sources) {
+    if (!source) continue
+    if (source.maxTurns !== undefined) merged.maxTurns = source.maxTurns
+    if (source.maxModelCalls !== undefined) merged.maxModelCalls = source.maxModelCalls
+    if (source.maxToolCalls !== undefined) merged.maxToolCalls = source.maxToolCalls
+    if (source.maxTokens !== undefined) merged.maxTokens = source.maxTokens
+    if (source.maxCostUsd !== undefined) merged.maxCostUsd = source.maxCostUsd
+    if (source.maxDurationMs !== undefined) merged.maxDurationMs = source.maxDurationMs
+    if (source.maxConcurrency !== undefined) merged.maxConcurrency = source.maxConcurrency
+  }
+  return merged
+}
+
+function capChildLimits(
+  base: RunLimits,
+  remaining: RunLimits,
+): { limits: RunLimits; exhausted: string | null } {
+  const capped: RunLimits = { ...base }
+  const keys = [
+    'maxCostUsd',
+    'maxTokens',
+    'maxDurationMs',
+    'maxModelCalls',
+    'maxToolCalls',
+  ] as const
+  for (const key of keys) {
+    const parentRem = remaining[key]
+    if (parentRem === undefined) continue
+    // A zero-tool text-only child can still run when the parent spent its final
+    // tool call invoking Agent; pass maxToolCalls: 0 through so child tools stay blocked.
+    if (parentRem <= 0 && key !== 'maxToolCalls') return { limits: capped, exhausted: key }
+    const childVal = capped[key]
+    capped[key] = childVal !== undefined ? Math.min(childVal, parentRem) : parentRem
+  }
+  return { limits: capped, exhausted: null }
 }
 
 function extractText(message: MessageParam | undefined): string {

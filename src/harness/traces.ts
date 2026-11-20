@@ -1,14 +1,30 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { z } from 'zod'
 import type { RunResult } from '../engine/types.js'
 import type { EngineEventBus } from '../engine/events.js'
 import type { Announcement, InteractionEventEnvelope } from '../interaction/types.js'
 import { INTERACTION_REDUCER_VERSION } from '../interaction/types.js'
+import { digest } from './hash.js'
 import { projectId } from './trust.js'
 import { redactSessionValue } from './redaction.js'
 
 export const RUN_TRACE_SCHEMA_VERSION = 1
+
+export const RunTraceEnvelopeSchema = z
+  .object({
+    schemaVersion: z.literal(RUN_TRACE_SCHEMA_VERSION),
+    runId: z.string().uuid(),
+    parentRunId: z.string().uuid().nullable(),
+    sequence: z.number().int().positive(),
+    timestamp: z.string().datetime(),
+    type: z.string(),
+    payload: z.unknown(),
+    previousHash: z.string().nullable(),
+    hash: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .strict()
 
 export interface RunTraceEnvelope {
   schemaVersion: typeof RUN_TRACE_SCHEMA_VERSION
@@ -30,10 +46,6 @@ export interface RunTraceMetadata {
   sandbox: string
   parentRunId?: string
   runId?: string
-}
-
-function digest(value: unknown): string {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex')
 }
 
 export class RunTraceWriter {
@@ -151,19 +163,68 @@ export class RunTraceWriter {
   }
 }
 
-export async function readRunTrace(file: string): Promise<RunTraceEnvelope[]> {
-  return (await readFile(file, 'utf8'))
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as RunTraceEnvelope)
+export interface ParseRunTraceOptions {
+  maxEvents?: number
+  requireTrailingNewline?: boolean
 }
 
-export async function verifyRunTrace(file: string): Promise<{
+/**
+ * Parse and strictly verify a JSONL trace string (Zod schema, sequence, runId/parentRunId
+ * continuity, and SHA-256 hash chain) for bounded consumers such as `src/journal/sources.ts`.
+ */
+export function parseAndVerifyRunTraceText(
+  text: string,
+  options: ParseRunTraceOptions = {},
+): RunTraceEnvelope[] {
+  if (options.requireTrailingNewline && !text.endsWith('\n')) {
+    throw new Error('Trace is incomplete; missing trailing newline')
+  }
+  const lines = text.trimEnd() === '' ? [] : text.trimEnd().split('\n')
+  if (options.maxEvents !== undefined && lines.length > options.maxEvents) {
+    throw new Error('Trace event bound exceeded')
+  }
+  const events: RunTraceEnvelope[] = lines.map((line) => {
+    const parsed = RunTraceEnvelopeSchema.parse(JSON.parse(line))
+    if (!Object.hasOwn(parsed, 'payload')) throw new Error('Trace payload is missing')
+    return { ...parsed, payload: parsed.payload }
+  })
+  let previous: RunTraceEnvelope | undefined
+  for (const [index, event] of events.entries()) {
+    const { hash, ...base } = event
+    if (
+      event.sequence !== index + 1 ||
+      event.previousHash !== (previous?.hash ?? null) ||
+      digest(base) !== hash ||
+      (previous &&
+        (event.runId !== previous.runId || event.parentRunId !== previous.parentRunId))
+    ) {
+      throw new Error('Trace integrity validation failed')
+    }
+    previous = event
+  }
+  return events
+}
+
+export async function readRunTrace(
+  file: string,
+  options?: { maxEvents?: number },
+): Promise<RunTraceEnvelope[]> {
+  const lines = (await readFile(file, 'utf8')).split('\n').filter(Boolean)
+  if (options?.maxEvents !== undefined && lines.length > options.maxEvents) {
+    throw new Error('Trace event bound exceeded')
+  }
+  return lines.map((line) => JSON.parse(line) as RunTraceEnvelope)
+}
+
+export async function verifyRunTrace(
+  file: string,
+  options?: { maxEvents?: number },
+): Promise<{
   valid: boolean
   events: number
   error?: string
 }> {
-  const events = await readRunTrace(file)
+  const events = await readRunTrace(file, options)
   let previousHash: string | null = null
   for (let index = 0; index < events.length; index++) {
     const event = events[index]!

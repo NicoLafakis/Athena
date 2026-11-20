@@ -603,3 +603,126 @@ describe('subagent permission inheritance', () => {
     expect(existsSync(outside)).toBe(false)
   }, 30_000)
 })
+
+describe('sub-agent tool isolation and parent budget accounting', () => {
+  it('excludes Journal from child registries even when explicitly requested', () => {
+    const registry = new ToolRegistry()
+    registry.register(readTool as ToolDefinition<never>)
+    registry.register({
+      name: 'Journal',
+      description: 'parent-bound reflection journal tool',
+      schema: readTool.schema,
+      readOnly: false,
+      execute: async () => ({ output: 'ok', isError: false }),
+    } as unknown as ToolDefinition<never>)
+
+    const orchestrator = makeOrchestrator(() => new MockAnthropicClient([]), {
+      baseRegistry: registry,
+    })
+
+    const allToolsDef: AgentDef = { ...researcherDef(), tools: null }
+    const explicitJournalDef: AgentDef = { ...researcherDef(), tools: ['Read', 'Journal'] }
+
+    expect(orchestrator.buildChildRegistry(allToolsDef).list().map((t) => t.name)).toEqual(['Read'])
+    expect(orchestrator.buildChildRegistry(explicitJournalDef).list().map((t) => t.name)).toEqual([
+      'Read',
+    ])
+  })
+
+  it('caps child limits to parent remaining budget and debits child usage into parent RunBudget', async () => {
+    const { RunBudget } = await import('../../src/engine/run.js')
+    const parentBudget = new RunBudget({ maxTokens: 10_000, maxCostUsd: 1 })
+    const childClient = new MockAnthropicClient([
+      {
+        blocks: [textBlock('child done')],
+        stopReason: 'end_turn',
+        inputTokens: 8_000,
+        outputTokens: 3_000,
+      },
+    ])
+    const orchestrator = makeOrchestrator(() => childClient, {
+      parentBudget: {
+        remaining: () => parentBudget.remainingLimits(),
+        debit: (usage) => parentBudget.recordChildUsage(usage),
+      },
+    })
+
+    const res = await orchestrator.runAgent(researcherDef(), 'analyze', makeCtx(process.cwd()))
+    expect(res.isError).toBe(true)
+    expect(res.output).toContain('limit')
+    const snapshot = parentBudget.snapshot()
+    expect(snapshot.inputTokens).toBe(8_000)
+    expect(snapshot.outputTokens).toBe(3_000)
+    expect(snapshot.modelCalls).toBe(1)
+
+    // Subsequent child invocation fails fast because parent token budget is exhausted.
+    const secondClient = new MockAnthropicClient([
+      { blocks: [textBlock('should never run')], stopReason: 'end_turn' },
+    ])
+    const orchestrator2 = makeOrchestrator(() => secondClient, {
+      parentBudget: {
+        remaining: () => parentBudget.remainingLimits(),
+        debit: (usage) => parentBudget.recordChildUsage(usage),
+      },
+    })
+    const second = await orchestrator2.runAgent(researcherDef(), 'again', makeCtx(process.cwd()))
+    expect(second.isError).toBe(true)
+    expect(second.output).toContain('limit')
+    expect(secondClient.calls).toHaveLength(0)
+
+    // Zero-tool text-only child still succeeds when parent has maxToolCalls: 0 remaining.
+    const zeroToolBudget = new RunBudget({ maxToolCalls: 1 })
+    zeroToolBudget.beforeToolCalls(1)
+    const textOnlyClient = new MockAnthropicClient([
+      { blocks: [textBlock('text-only answer')], stopReason: 'end_turn' },
+    ])
+    const orchestrator3 = makeOrchestrator(() => textOnlyClient, {
+      parentBudget: {
+        remaining: () => zeroToolBudget.remainingLimits(),
+        debit: (usage) => zeroToolBudget.recordChildUsage(usage),
+      },
+    })
+    const third = await orchestrator3.runAgent(researcherDef(), 'summarize', makeCtx(process.cwd()))
+    expect(third.isError).toBe(false)
+    expect(third.output).toBe('text-only answer')
+  })
+
+  it('preserves DEFAULT_CHILD_LIMITS when markdown agent frontmatter omits limits', async () => {
+    const { parseAgentFile } = await import('../../src/brain/loader.js')
+    const { RunBudget } = await import('../../src/engine/run.js')
+    const dir = mkdtempSync(join(tmpdir(), 'athena-agent-limits-'))
+    try {
+      const mdFile = join(dir, 'plain.md')
+      writeFileSync(
+        mdFile,
+        '---\nname: plain\ndescription: plain agent\ntools: Read\n---\nHelp concisely.\n',
+      )
+      const def = parseAgentFile(mdFile)!
+      expect(def.limits).toEqual({})
+
+      // Parent has $50 / 10M tokens, while DEFAULT_CHILD_LIMITS caps a child at 1M tokens.
+      const parentBudget = new RunBudget({ maxTokens: 10_000_000, maxCostUsd: 50 })
+      const childClient = new MockAnthropicClient([
+        {
+          blocks: [textBlock('huge child output')],
+          stopReason: 'end_turn',
+          inputTokens: 900_000,
+          outputTokens: 200_000, // 1.1M > DEFAULT_CHILD_LIMITS.maxTokens (1M), < parent (10M)
+        },
+      ])
+      const orchestrator = makeOrchestrator(() => childClient, {
+        defs: [def],
+        parentBudget: {
+          remaining: () => parentBudget.remainingLimits(),
+          debit: (usage) => parentBudget.recordChildUsage(usage),
+        },
+      })
+      const res = await orchestrator.runAgent(def, 'analyze', makeCtx(dir))
+      expect(res.isError).toBe(true)
+      expect(res.output).toContain('limit')
+      expect(res.output).toContain('maxTokens')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})

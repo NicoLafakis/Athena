@@ -5,13 +5,12 @@ import type { CredentialVault } from '../brain/credential-vault.js'
 import { loadConstitution } from '../brain/loader.js'
 import { PROVIDERS } from '../brain/models.js'
 import type { BrainPaths } from '../brain/paths.js'
-import { loadSettings } from '../brain/settings.js'
 import { FileLedgerStore } from '../brain/vmp-ledger.js'
 import { makeTelemetryRecorder } from '../engine/telemetry.js'
 import { HarnessSessionController } from '../harness/controller.js'
 import { CLI_EXIT, type CliCommand } from './args.js'
 import { makeClient } from './client.js'
-import { applyTrustBootstrap, resolveStoredProjectTrust } from './trust.js'
+import { prepareSessionEnvironment } from './session-bootstrap.js'
 
 export async function runVoiceCommand(
   cmd: Extract<CliCommand, { command: 'voice' }>,
@@ -113,15 +112,15 @@ export async function runVoiceCommand(
       process.exitCode = 1
       return
     }
-    const projectTrust = resolveStoredProjectTrust(paths, cwd)
-    const effectivePaths: BrainPaths = projectTrust.trusted ? paths : { ...paths, projectBrainDir: null }
     const provider = credentials.activeProvider
-    const settings = loadSettings(paths, provider, (msg) => console.error(msg), {
-      projectTrusted: projectTrust.trusted,
-      allowProjectHooks: projectTrust.allowProjectHooks,
-      allowProjectMcp: projectTrust.allowProjectMcp,
+    const { projectTrust, effectivePaths, settings } = await prepareSessionEnvironment({
+      paths,
+      cwd,
+      provider,
+      interactiveTrust: false,
+      applyTrust: true,
+      warn: (msg) => console.error(msg),
     })
-    applyTrustBootstrap(settings, paths, cwd)
     const voiceVmpLedger = settings.vmp.enabled ? FileLedgerStore.forPaths(paths) : undefined
     const voiceVmpRecorder = makeTelemetryRecorder(voiceVmpLedger)
     const resolvedKey = resolveApiKey(provider, credentials, process.env, credentialVault, () => {})
@@ -198,7 +197,7 @@ export async function runVoiceCommand(
         model: cmd.model,
         controller,
         attention,
-        persona: loadConstitution(paths) ?? undefined,
+        persona: loadConstitution(effectivePaths) ?? undefined,
         input: voiceInput,
         onStandby: cmd.keyboard
           ? undefined
