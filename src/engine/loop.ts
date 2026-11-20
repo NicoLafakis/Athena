@@ -542,18 +542,17 @@ export class Engine {
         this.push({ role: 'user', content: results })
         break
       }
-      const agentTool = this.opts.registry.get('Agent')
-      const allAgentCalls =
+      const allConcurrentSafe =
         !signal.aborted &&
         toolUses.length > 1 &&
-        toolUses.every(
-          (block) =>
-            block.name === 'Agent' &&
-            (agentTool?.concurrencySafe
-              ? agentTool.concurrencySafe(block.input as never)
-              : agentTool?.readOnly === true),
-        )
-      if (allAgentCalls) {
+        toolUses.every((block) => {
+          const tool = this.opts.registry.get(block.name)
+          if (!tool) return false
+          if (tool.concurrencySafe) return tool.concurrencySafe(block.input as never)
+          if (tool.readOnlyForInput) return tool.readOnlyForInput(block.input as never)
+          return tool.readOnly === true
+        })
+      if (allConcurrentSafe) {
         for (const block of toolUses) {
           bus.emit({ type: 'tool-request', id: block.id, name: block.name, input: block.input })
         }

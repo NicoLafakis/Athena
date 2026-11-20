@@ -28,6 +28,7 @@ export type SlashCommand =
   | { kind: 'skills' }
   | { kind: 'agents' }
   | { kind: 'status' }
+  | { kind: 'cost' }
   | { kind: 'repeat' }
   | { kind: 'details'; value: string }
   | { kind: 'verbosity'; value: 'concise' | 'balanced' | 'detailed' }

@@ -215,6 +215,17 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
             : 'Status: semantic state is unavailable.',
         )
         break
+      case 'cost': {
+        const res = engine.getRunResult()
+        const u = res.usage
+        info(
+          `Session spend: $${u.costUsd.toFixed(4)} | ` +
+            `tokens: ${u.inputTokens.toLocaleString()} in / ${u.outputTokens.toLocaleString()} out / ` +
+            `${u.cacheReadTokens.toLocaleString()} cache-read / ${u.cacheWriteTokens.toLocaleString()} cache-write | ` +
+            `calls: ${u.modelCalls} model, ${u.toolCalls} tool, ${u.turns} turn(s)`,
+        )
+        break
+      }
       case 'repeat':
         info(
           interactionService && runId

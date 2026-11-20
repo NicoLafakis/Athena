@@ -67,7 +67,7 @@ describe('filterSlashCommands', () => {
     // 'c' should not surface e.g. 'skills' or 'agents' — only names actually
     // starting with 'c'.
     const result = filterSlashCommands(catalog, 'c')
-    expect(result.map((e) => e.name).sort()).toEqual(['clear', 'compact'])
+    expect(result.map((e) => e.name).sort()).toEqual(['clear', 'compact', 'cost'])
   })
 
   it('matches a custom command by its own name', () => {

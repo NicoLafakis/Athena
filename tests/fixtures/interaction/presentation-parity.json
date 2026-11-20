@@ -4,6 +4,7 @@
   "commands": [
     { "name": "help", "invocation": "/help", "route": "shared-handler" },
     { "name": "status", "invocation": "/status", "route": "shared-handler" },
+    { "name": "cost", "invocation": "/cost", "route": "shared-handler" },
     { "name": "repeat", "invocation": "/repeat", "route": "shared-handler" },
     { "name": "details", "invocation": "/details", "route": "shared-handler" },
     { "name": "verbosity", "invocation": "/verbosity balanced", "route": "shared-handler" },

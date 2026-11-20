@@ -27,6 +27,7 @@ export const BUILTIN_SLASH_COMMANDS: readonly SlashMenuEntry[] = [
   { name: 'skills', description: 'List available skills', source: 'builtin' },
   { name: 'agents', description: 'List available agents', source: 'builtin' },
   { name: 'status', description: 'Read the current verified state', source: 'builtin' },
+  { name: 'cost', description: 'Show session token usage and estimated USD spend', source: 'builtin' },
   { name: 'repeat', description: 'Repeat the latest material announcement', source: 'builtin' },
   { name: 'details', description: 'Show bounded evidence for the latest announcement', source: 'builtin' },
   { name: 'verbosity', description: 'Set announcements (concise|balanced|detailed)', source: 'builtin' },

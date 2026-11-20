@@ -94,6 +94,37 @@ export class ContextManager {
   }
 }
 
+/** Stage-1 graduated pruning: replaces bulky tool_result bodies older than the recent
+ *  tail with one-line stubs while preserving tool_use_id pairing and assistant prose. */
+export function pruneOlderToolResults(
+  messages: readonly MessageParam[],
+  keepRecent = 6,
+  minBodyChars = 400,
+): { messages: MessageParam[]; prunedCount: number; savedChars: number } {
+  const cutoff = Math.max(0, messages.length - Math.max(1, keepRecent))
+  if (cutoff === 0) {
+    return { messages: [...messages], prunedCount: 0, savedChars: 0 }
+  }
+  let prunedCount = 0
+  let savedChars = 0
+  const next = messages.map((message, index) => {
+    if (index >= cutoff || typeof message.content === 'string') return message
+    let changed = false
+    const blocks = message.content.map((block) => {
+      if (block.type !== 'tool_result') return block
+      const raw = typeof block.content === 'string' ? block.content : JSON.stringify(block.content ?? '')
+      if (raw.length < minBodyChars) return block
+      changed = true
+      prunedCount++
+      const stub = `[Tool output pruned during graduated compaction — ${raw.length} chars omitted]`
+      savedChars += Math.max(0, raw.length - stub.length)
+      return { ...block, content: stub }
+    })
+    return changed ? { ...message, content: blocks } : message
+  })
+  return { messages: next, prunedCount, savedChars }
+}
+
 /** Conservative provider-independent preflight estimate. Exact tokenization is
  * provider/model specific; the safety margin keeps the estimate useful before
  * a paid count-tokens call exists on every provider. */

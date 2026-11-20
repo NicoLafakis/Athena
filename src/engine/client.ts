@@ -102,13 +102,21 @@ export class AnthropicClient implements ModelClient {
         // fields verbatim to the wire, and both are GA (no beta header). Build the body
         // untyped and cast at the call. Never send legacy thinking (budget_tokens) here —
         // it 400s on sonnet-5/opus-4-8/fable-5; resolveModelRequest guarantees we don't.
+        const cachedTools =
+          this.promptCaching && params.tools.length > 0
+            ? params.tools.map((tool, index) =>
+                index === params.tools.length - 1
+                  ? { ...tool, cache_control: { type: 'ephemeral' } }
+                  : tool,
+              )
+            : params.tools
         const body: Record<string, unknown> = {
           model: params.model,
           system: this.promptCaching
             ? [{ type: 'text', text: params.system, cache_control: { type: 'ephemeral' } }]
             : params.system,
           messages: params.messages,
-          tools: params.tools,
+          tools: cachedTools,
           max_tokens: params.maxTokens,
         }
         if (params.thinking) body.thinking = params.thinking

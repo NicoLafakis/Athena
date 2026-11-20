@@ -8,6 +8,7 @@ export const BARE_SLASH_COMMANDS = new Set<string>([
   'skills',
   'agents',
   'status',
+  'cost',
   'repeat',
   'quit',
 ])

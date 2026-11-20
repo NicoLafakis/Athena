@@ -7,6 +7,7 @@
 - [ ] Live speaker diarization backend acquisition & Phase 1+ -> [.wiki/features/speaker-diarization/implementation-status.md]
 
 ### Done
+- [x] Engine economics & ergonomics (tool prompt caching, parallel read-only tools, graduated pruning, /cost) (2026-11-20) -> [src/engine/loop.ts]
 - [x] Voice-addressable project switching pieces 2-3 & trustRoots (2026-11-20) -> [.wiki/features/voice-project-switching/00-overview.md]
 - [x] Active-session local transcript search (2026-11-20) -> [.wiki/features/transcript-reader/00-overview.md]
 - [x] Computer use bounded actuator foundation (2026-11-20) -> [.wiki/features/computer-use/00-overview.md]
