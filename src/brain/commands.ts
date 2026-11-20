@@ -16,6 +16,7 @@ export const BARE_SLASH_COMMANDS = new Set<string>([
 export const ARG_SLASH_COMMANDS = new Set<string>([
   'details',
   'verbosity',
+  'search',
   'model',
   'provider',
   'effort',

@@ -31,6 +31,7 @@ export type SlashCommand =
   | { kind: 'repeat' }
   | { kind: 'details'; value: string }
   | { kind: 'verbosity'; value: 'concise' | 'balanced' | 'detailed' }
+  | { kind: 'search'; query: string; page: number }
   | { kind: 'quit' }
   | { kind: 'model'; value: string }
   | { kind: 'provider'; value: string }
@@ -158,6 +159,25 @@ export function parseSlash(
   if (cmd === 'tui') {
     if (!TUI_MODES.has(arg)) return { kind: 'error', value: `Usage: /tui <fullscreen|classic>` }
     return { kind: 'tui', value: arg as TuiMode }
+  }
+  if (cmd === 'search') {
+    let page = 1
+    const queryParts: string[] = []
+    for (let i = 0; i < rest.length; i++) {
+      if (rest[i] === '--page') {
+        const rawPage = Number(rest[i + 1])
+        if (!Number.isInteger(rawPage) || rawPage < 1) {
+          return { kind: 'error', value: 'Usage: /search <query> [--page <n>]' }
+        }
+        page = rawPage
+        i++
+      } else {
+        queryParts.push(rest[i]!)
+      }
+    }
+    const query = queryParts.join(' ').trim()
+    if (!query) return { kind: 'error', value: 'Usage: /search <query> [--page <n>]' }
+    return { kind: 'search', query, page }
   }
   if (cmd === 'details') return { kind: 'details', value: arg }
   if (cmd === 'verbosity') {

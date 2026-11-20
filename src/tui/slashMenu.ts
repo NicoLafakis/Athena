@@ -30,6 +30,7 @@ export const BUILTIN_SLASH_COMMANDS: readonly SlashMenuEntry[] = [
   { name: 'repeat', description: 'Repeat the latest material announcement', source: 'builtin' },
   { name: 'details', description: 'Show bounded evidence for the latest announcement', source: 'builtin' },
   { name: 'verbosity', description: 'Set announcements (concise|balanced|detailed)', source: 'builtin' },
+  { name: 'search', description: 'Search the active session transcript locally', source: 'builtin' },
   { name: 'quit', description: 'Exit Athena', source: 'builtin' },
   { name: 'model', description: 'Switch the active model', source: 'builtin' },
   { name: 'provider', description: 'Switch the active provider', source: 'builtin' },

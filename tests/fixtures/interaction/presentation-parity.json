@@ -7,6 +7,7 @@
     { "name": "repeat", "invocation": "/repeat", "route": "shared-handler" },
     { "name": "details", "invocation": "/details", "route": "shared-handler" },
     { "name": "verbosity", "invocation": "/verbosity balanced", "route": "shared-handler" },
+    { "name": "search", "invocation": "/search hello", "route": "shared-handler" },
     { "name": "clear", "invocation": "/clear", "route": "append-only-clear" },
     { "name": "resume", "invocation": "/resume", "route": "shared-handler" },
     { "name": "compact", "invocation": "/compact", "route": "shared-handler" },

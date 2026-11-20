@@ -41,6 +41,7 @@ import type { Engine } from '../engine/loop.js'
 import type { TelemetryRecorder } from '../engine/telemetry.js'
 import type { PermissionEngine } from '../harness/permissions.js'
 import type { Session, SessionInfo, SessionStore } from '../harness/sessions.js'
+import { formatTranscriptSearchResult, searchActiveTranscript } from '../harness/transcript-search.js'
 import type { InteractionService } from '../interaction/index.js'
 import type { LineInput } from '../presentation/index.js'
 import { loadAvailableSkills } from '../tools/skill.js'
@@ -236,6 +237,11 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
         const verbosity = cmd.value === 'concise' ? 'quiet' : cmd.value === 'detailed' ? 'verbose' : 'balanced'
         interactionService?.setVerbosity(verbosity)
         info(`Status: Announcement verbosity is ${cmd.value} for this session.`)
+        break
+      }
+      case 'search': {
+        const result = searchActiveTranscript(engine.getMessages(), cmd.query, { page: cmd.page })
+        info(formatTranscriptSearchResult(result))
         break
       }
       case 'mode':

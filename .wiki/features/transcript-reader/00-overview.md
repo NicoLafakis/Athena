@@ -2,7 +2,7 @@
 
 **Tier:** 3 — changes the user-facing CLI interaction contract
 **Date:** 2026-09-24
-**Status:** scrolling implemented; active-session search remains planned
+**Status:** implemented (fullscreen streaming-safe scrolling + local active-session `/search`)
 
 ## What was asked
 
