@@ -12,10 +12,21 @@ import {
   type CredentialVault,
 } from '../brain/credential-vault.js'
 import { importBrain } from '../brain/import.js'
+import { MemoryHygieneStore } from '../brain/hygiene.js'
 import { modelCapabilities } from '../brain/models.js'
 import type { BrainPaths } from '../brain/paths.js'
-import { loadSettings, readProjectSettingsCapabilities } from '../brain/settings.js'
+import { loadGlobalTimeZone, loadSettings, readProjectSettingsCapabilities } from '../brain/settings.js'
 import { FileLedgerStore } from '../brain/vmp-ledger.js'
+import { generateSemanticCandidates, reviewSemanticCandidate } from '../continuity/candidates.js'
+import {
+  formatContinuityEpisode,
+  formatContinuityRanking,
+  formatContinuityRollups,
+  formatContinuitySearch,
+  formatContinuityStatus,
+  formatSemanticCandidateReview,
+} from '../continuity/presentation.js'
+import { ContinuityStore } from '../continuity/store.js'
 import { makeTelemetryRecorder } from '../engine/telemetry.js'
 import { PluginManager } from '../harness/plugins.js'
 import { ProtectedPaths } from '../harness/protected-paths.js'
@@ -332,12 +343,108 @@ export async function runLearnCommand(
   }
 }
 
+export function runMemoryCommand(
+  cmd: Extract<CliCommand, { command: 'memory' }>,
+  paths: BrainPaths,
+  cwd: string,
+): void {
+  const store = new ContinuityStore(paths.continuityDir, { onWarn: (warning) => console.error(warning) })
+  try {
+    if (cmd.action === 'rebuild') {
+      const result = store.rebuild(paths.sessionsDir)
+      console.log(`Indexed ${result.episodeCount} episode(s) from ${result.sessionCount} session(s).`)
+      for (const warning of result.warnings) console.error(warning)
+      return
+    }
+    if (cmd.action === 'status') {
+      console.log(formatContinuityStatus(store))
+      return
+    }
+    if (cmd.action === 'candidates') {
+      const semanticStore = new MemoryHygieneStore(paths.memoryDir, {
+        onWarn: (warning) => console.error(warning),
+      })
+      const result = generateSemanticCandidates(store, paths.sessionsDir, semanticStore)
+      console.log(formatSemanticCandidateReview(result, semanticStore.listAll()))
+      return
+    }
+    if (cmd.action === 'review') {
+      const [memoryId, action] = cmd.args
+      if (!memoryId || (action !== 'promote' && action !== 'reject')) {
+        throw new Error('Usage: athena memory review <memory-id> <promote|reject>')
+      }
+      const semanticStore = new MemoryHygieneStore(paths.memoryDir, {
+        onWarn: (warning) => console.error(warning),
+      })
+      const reviewed = reviewSemanticCandidate(semanticStore, store, paths.sessionsDir, memoryId, action)
+      console.log(`Semantic memory ${reviewed.memoryId} ${action === 'promote' ? 'promoted' : 'rejected'}.`)
+      return
+    }
+    if (cmd.action === 'forget') {
+      const [memoryId] = cmd.args
+      if (!memoryId) throw new Error('Usage: athena memory forget <memory-id>')
+      const semanticStore = new MemoryHygieneStore(paths.memoryDir, {
+        onWarn: (warning) => console.error(warning),
+      })
+      const forgotten = semanticStore.forget(memoryId)
+      console.log(`Semantic memory ${forgotten.memoryId} forgotten. Its source session remains available for historical recall.`)
+      return
+    }
+
+    let timeZone: string | undefined
+    try {
+      timeZone = loadGlobalTimeZone(paths, (warning) => console.error(warning))
+    } catch {
+      console.error('The configured timezone could not be loaded; memory dates will use the inferred OS timezone.')
+    }
+
+    if (cmd.action === 'rollup') {
+      console.log(formatContinuityRollups(
+        store,
+        paths.sessionsDir,
+        timeZone,
+        cmd.args[0] as 'day' | 'week' | 'month' | 'quarter' | 'year' | undefined,
+      ))
+      return
+    }
+    if (cmd.action === 'rank') {
+      const semanticStore = new MemoryHygieneStore(paths.memoryDir, {
+        onWarn: (warning) => console.error(warning),
+      })
+      const currentProjectId = new SessionStore(paths.sessionsDir, cwd).projectId
+      console.log(formatContinuityRanking(store, {
+        sessionsRoot: paths.sessionsDir,
+        query: cmd.args.join(' '),
+        semanticMemories: semanticStore.listAll(),
+        currentProjectId,
+        ...(cmd.projectId ? { projectId: cmd.projectId } : {}),
+        ...(timeZone ? { timeZone } : {}),
+      }))
+      return
+    }
+    if (cmd.action === 'search' || cmd.action === 'timeline') {
+      console.log(formatContinuitySearch(store, paths.sessionsDir, {
+        action: cmd.action,
+        query: cmd.args.join(' '),
+        ...(cmd.projectId ? { projectId: cmd.projectId } : {}),
+        ...(timeZone ? { timeZone } : {}),
+      }))
+      return
+    }
+    console.log(formatContinuityEpisode(store, paths.sessionsDir, cmd.args[0]!))
+  } catch (error) {
+    console.error((error as Error).message)
+    process.exitCode = CLI_EXIT.usage
+  }
+}
+
 export function runSessionCommand(
   cmd: Extract<CliCommand, { command: 'session' }>,
   paths: BrainPaths,
   cwd: string,
 ): void {
   const store = new SessionStore(paths.sessionsDir, cwd)
+  const continuityStore = new ContinuityStore(paths.continuityDir, { onWarn: (warning) => console.error(warning) })
   const [id, ...rest] = cmd.args
   try {
     switch (cmd.action) {
@@ -379,8 +486,27 @@ export function runSessionCommand(
         break
       case 'delete':
         if (!id) throw new Error('Usage: athena session delete <session-id>')
-        console.log(`Deleted ${id}; recoverable copy: ${store.delete(id)}`)
+        store.assertExists(id)
+        continuityStore.tombstoneSession(store.projectId, id)
+        try {
+          console.log(`Deleted ${id}; recoverable copy: ${store.delete(id)}; continuity suppressed.`)
+        } catch (error) {
+          continuityStore.restoreSession(store.projectId, id, paths.sessionsDir)
+          throw error
+        }
         break
+      case 'restore': {
+        if (!id) throw new Error('Usage: athena session restore <session-id>')
+        const file = store.restore(id)
+        const result = continuityStore.restoreSession(store.projectId, id, paths.sessionsDir)
+        if (result.state === 'indexed') {
+          console.log(`Restored ${id}; continuity indexed ${result.episodeCount} episode(s).`)
+        } else {
+          console.error(`Restored ${id} at ${file}, but continuity could not be refreshed (${result.state}). Run \`athena memory rebuild\`.`)
+          process.exitCode = CLI_EXIT.provider
+        }
+        break
+      }
     }
   } catch (err) {
     console.error((err as Error).message)

@@ -111,6 +111,7 @@ const defaultSettings: Settings = {
   },
   hooks: [],
   mcpServers: {},
+  jev: { enabled: false },
   vmp: { enabled: false },
 }
 

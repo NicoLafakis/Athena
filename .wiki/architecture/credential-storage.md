@@ -18,7 +18,7 @@ Nothing under `~/.athena/` is ever committed to a project's git repo: the repo r
 startup — the OS vault backends (DPAPI, Keychain, Secret Service) authenticate against
 the logged-in OS user, not a separate secret Athena manages.
 
-## Resolution order
+## Answer-provider resolution order
 
 `resolveApiKey` (`src/brain/credentials.ts`) checks, per provider, in this order:
 
@@ -37,6 +37,12 @@ the logged-in OS user, not a separate secret Athena manages.
 resolves as "no key from the vault" plus a warning string the caller can surface, rather
 than propagating an exception or silently falling through to the auth wizard with no
 explanation.
+
+The TypeSafe decision service uses a separate, environment-only `TYPESAFE_API_KEY`.
+It is not an answer `ProviderId`, is not read from or written to `credentials.json`, and
+does not appear in `athena auth status`. Jev makes no network request when this variable
+is absent; the local answer path continues. This keeps Jev's vendor credential outside
+Athena's answer-provider vault and setup flow.
 
 The OpenAI voice credential lives at the fixed `voice/openai` vault reference.
 `resolveVoiceKey` checks `OPENAI_API_KEY` first and then that reference; a missing key

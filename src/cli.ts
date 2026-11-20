@@ -66,6 +66,7 @@ import {
   runImportCommand,
   runJournalCliCommand,
   runLearnCommand,
+  runMemoryCommand,
   runPluginCommand,
   runSessionCommand,
   runTrustCommand,
@@ -176,6 +177,10 @@ async function main(): Promise<void> {
   }
   if (cmd.command === 'learn') {
     await runLearnCommand(cmd, paths, cwd)
+    return
+  }
+  if (cmd.command === 'memory') {
+    runMemoryCommand(cmd, paths, cwd)
     return
   }
   if (cmd.command === 'session') {
@@ -593,6 +598,8 @@ async function main(): Promise<void> {
     permissionDetails: (id) => permissionDetails.get(id) ?? null,
     commands,
     vmpRecorder,
+    continuityStore: controller.continuityStore,
+    ...(settings.timeZone ? { timeZone: settings.timeZone } : {}),
   })
 
   if (screenPresentation && screenInput) {

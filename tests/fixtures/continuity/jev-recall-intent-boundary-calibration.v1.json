@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-09-23T12:00:00.000Z",
+  "cases": [
+    { "id": "challenge-none-new-tutorial", "intent": "none", "text": "Explain how an event loop handles I/O for a new tutorial I'm writing." },
+    { "id": "challenge-none-summarize-passage", "intent": "none", "text": "Summarize this passage for my report: Last quarter the team completed two migrations." },
+    { "id": "challenge-none-quoted-question", "intent": "none", "text": "Write a quiz prompt using this sentence: ‘Which storage option did we choose?’" },
+    { "id": "challenge-none-current-logs", "intent": "none", "text": "Help me diagnose the build failure shown in the logs I attached to this request." },
+    { "id": "challenge-none-continue-document", "intent": "none", "text": "Continue this new draft with a paragraph explaining cache invalidation." },
+    { "id": "challenge-none-code-options", "intent": "none", "text": "For the new import task, compare retry strategies and recommend one." },
+
+    { "id": "challenge-continue-interrupted", "intent": "continue-current", "text": "Let's resume exactly where our conversation paused before I got pulled away." },
+    { "id": "challenge-continue-explanation", "intent": "continue-current", "text": "You were explaining how the episode links work; please finish that explanation." },
+    { "id": "challenge-continue-last-step", "intent": "continue-current", "text": "Pick up from the last step we completed in this chat." },
+    { "id": "challenge-continue-debug", "intent": "continue-current", "text": "We got cut off while debugging this issue. What was the next action we were taking?" },
+    { "id": "challenge-continue-plan", "intent": "continue-current", "text": "Continue the plan we're building here, starting at item four." },
+    { "id": "challenge-continue-thread", "intent": "continue-current", "text": "Go on from your previous reply in this thread; we're still on the same topic." },
+
+    { "id": "challenge-time-projects-today", "intent": "temporal-recall", "text": "Give me a recap of the conversations across my projects today." },
+    { "id": "challenge-time-asked-monday", "intent": "temporal-recall", "text": "What kinds of things did I ask about on Monday?" },
+    { "id": "challenge-time-last-calendar-month", "intent": "temporal-recall", "text": "Summarize our work throughout the previous calendar month." },
+    { "id": "challenge-time-last-week-activity", "intent": "temporal-recall", "text": "What was going on in our chats last week?" },
+    { "id": "challenge-time-quarter-overview", "intent": "temporal-recall", "text": "Give me a broad overview of our conversations during Q2." },
+    { "id": "challenge-time-2023-overview", "intent": "temporal-recall", "text": "What did we work on throughout 2023?" },
+
+    { "id": "challenge-topic-data-retention", "intent": "topic-recall", "text": "Find the conversation where we discussed data retention." },
+    { "id": "challenge-topic-navigation", "intent": "topic-recall", "text": "What did we say about the left navigation design?" },
+    { "id": "challenge-topic-mcp", "intent": "topic-recall", "text": "Pull up the exchange about integrating the MCP server." },
+    { "id": "challenge-topic-ci", "intent": "topic-recall", "text": "Which conversation was about the CI failures?" },
+    { "id": "challenge-topic-event-schema", "intent": "topic-recall", "text": "Remind me what we covered about the event ID schema." },
+    { "id": "challenge-topic-theme-names", "intent": "topic-recall", "text": "Find our earlier discussion about theme names." },
+
+    { "id": "challenge-preference-pr-summary", "intent": "preference-or-fact", "text": "What format do I prefer for pull request summaries?" },
+    { "id": "challenge-preference-review-comments", "intent": "preference-or-fact", "text": "Have I told you how I want code review comments written?" },
+    { "id": "challenge-fact-cloud-provider", "intent": "preference-or-fact", "text": "Which cloud provider did I say this project runs on?" },
+    { "id": "challenge-preference-keyboard", "intent": "preference-or-fact", "text": "Which keyboard layout do I prefer?" },
+    { "id": "challenge-preference-doc-standard", "intent": "preference-or-fact", "text": "What standard did I ask you to follow for documentation last spring?" },
+    { "id": "challenge-preference-python-version", "intent": "preference-or-fact", "text": "Which Python version do I usually want for command-line tools?" },
+
+    { "id": "challenge-decision-database", "intent": "historical-decision", "text": "Which database did we choose for the service?" },
+    { "id": "challenge-decision-release-date", "intent": "historical-decision", "text": "Did we agree on a release date for this feature?" },
+    { "id": "challenge-decision-storage-options", "intent": "historical-decision", "text": "After comparing the two storage approaches, what was our final decision?" },
+    { "id": "challenge-decision-cache-policy", "intent": "historical-decision", "text": "What cache invalidation policy did we settle on?" },
+    { "id": "challenge-decision-telemetry", "intent": "historical-decision", "text": "What did the team decide about telemetry in June?" },
+    { "id": "challenge-decision-rollout", "intent": "historical-decision", "text": "Which rollout option did I approve?" },
+
+    { "id": "challenge-similar-auth-flow", "intent": "similar-work", "text": "Find a previous project with an authorization flow similar to this one." },
+    { "id": "challenge-similar-reuse-pattern", "intent": "similar-work", "text": "Can we reuse a pattern from another repository for this feature?" },
+    { "id": "challenge-similar-bug", "intent": "similar-work", "text": "Have we fixed a comparable bug in one of my other tools?" },
+    { "id": "challenge-similar-migration", "intent": "similar-work", "text": "Show me an analogous data migration we implemented before." },
+    { "id": "challenge-similar-cache", "intent": "similar-work", "text": "Which earlier task is closest to this cache invalidation problem?" },
+    { "id": "challenge-similar-cross-project", "intent": "similar-work", "text": "Compare this issue with examples from other projects we've worked on." }
+  ]
+}

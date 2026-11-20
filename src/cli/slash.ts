@@ -1,9 +1,22 @@
+import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
 import { render } from 'ink'
 import React from 'react'
 import type { BrainPaths } from '../brain/paths.js'
 import { loadCredentials, resolveApiKey } from '../brain/credentials.js'
 import type { CredentialVault } from '../brain/credential-vault.js'
+import { MemoryHygieneStore } from '../brain/hygiene.js'
 import { loadMemoryIndex } from '../brain/loader.js'
+import { generateSemanticCandidates, reviewSemanticCandidate } from '../continuity/candidates.js'
+import {
+  formatContinuityEpisode,
+  formatContinuityRanking,
+  formatContinuityRollups,
+  formatContinuitySearch,
+  formatContinuityStatus,
+  formatSemanticCandidateReview,
+} from '../continuity/presentation.js'
+import type { WorkingRecallState } from '../continuity/ranking.js'
+import { ContinuityStore } from '../continuity/store.js'
 import {
   PROVIDERS,
   PROVIDER_IDS,
@@ -108,6 +121,28 @@ export function handleScreenReaderInterrupt(
   return 'session-exit'
 }
 
+function currentWorkingRecallState(
+  messages: MessageParam[],
+  sessionId: string | null,
+  projectId: string,
+): WorkingRecallState[] {
+  const content = messages.map((message) => {
+    if (typeof message.content === 'string') return message.content
+    return message.content
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join(' ')
+  }).filter(Boolean).join('\n').slice(-32_000).trim()
+  if (!content) return []
+  return [{
+    id: `working:${sessionId ?? 'current'}`,
+    projectId,
+    observedAt: new Date().toISOString(),
+    content,
+    sourceIds: sessionId ? [`session:${sessionId}`] : [],
+  }]
+}
+
 export interface SlashDeps {
   bus: EngineEventBus
   engine: Engine
@@ -123,6 +158,8 @@ export interface SlashDeps {
   permissionDetails?: (id: string) => string | null
   commands?: ReadonlyMap<string, { description: string; argumentHint: string | null }>
   vmpRecorder?: TelemetryRecorder
+  continuityStore?: ContinuityStore
+  timeZone?: string
 }
 
 export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
@@ -141,6 +178,8 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
     permissionDetails,
     commands,
     vmpRecorder,
+    continuityStore,
+    timeZone,
   } = deps
   const info = (message: string) => bus.emit({ type: 'info', message })
   return (cmd) => {
@@ -309,9 +348,77 @@ export function makeSlashHandler(deps: SlashDeps): (cmd: SlashCommand) => void {
           }
         })()
         break
-      case 'memory':
-        info(loadMemoryIndex(paths) ?? '(no memory index)')
+      case 'memory': {
+        if (!cmd.action) {
+          info(loadMemoryIndex(paths) ?? '(no memory index)')
+          break
+        }
+        const memoryStore = continuityStore ?? new ContinuityStore(paths.continuityDir, { onWarn: info })
+        if (cmd.action === 'status') {
+          info(formatContinuityStatus(memoryStore))
+        } else if (cmd.action === 'rebuild') {
+          const result = memoryStore.rebuild(paths.sessionsDir)
+          info(`Indexed ${result.episodeCount} episode(s) from ${result.sessionCount} session(s).`)
+        } else if (cmd.action === 'candidates') {
+          try {
+            const semanticStore = new MemoryHygieneStore(paths.memoryDir, { onWarn: info })
+            const result = generateSemanticCandidates(memoryStore, paths.sessionsDir, semanticStore)
+            info(formatSemanticCandidateReview(result, semanticStore.listAll()))
+          } catch (error) {
+            info(`Could not generate semantic candidates: ${(error as Error).message}`)
+          }
+        } else if (cmd.action === 'review') {
+          const [memoryId, action] = (cmd.value ?? '').split(/\s+/)
+          if (!memoryId || (action !== 'promote' && action !== 'reject')) {
+            info('Usage: /memory review <memory-id> <promote|reject>')
+            break
+          }
+          try {
+            const semanticStore = new MemoryHygieneStore(paths.memoryDir, { onWarn: info })
+            const reviewed = reviewSemanticCandidate(semanticStore, memoryStore, paths.sessionsDir, memoryId, action)
+            info(`Semantic memory ${reviewed.memoryId} ${action === 'promote' ? 'promoted' : 'rejected'}.`)
+          } catch (error) {
+            info(`Could not review semantic memory: ${(error as Error).message}`)
+          }
+        } else if (cmd.action === 'forget') {
+          const memoryId = cmd.value ?? ''
+          try {
+            const semanticStore = new MemoryHygieneStore(paths.memoryDir, { onWarn: info })
+            const forgotten = semanticStore.forget(memoryId)
+            info(`Semantic memory ${forgotten.memoryId} forgotten. Its source session remains available for historical recall.`)
+          } catch (error) {
+            info(`Could not forget semantic memory: ${(error as Error).message}`)
+          }
+        } else if (cmd.action === 'rank') {
+          const semanticStore = new MemoryHygieneStore(paths.memoryDir, { onWarn: info })
+          info(formatContinuityRanking(memoryStore, {
+            sessionsRoot: paths.sessionsDir,
+            query: cmd.value ?? '',
+            semanticMemories: semanticStore.listAll(),
+            working: currentWorkingRecallState(engine.getMessages(), session?.id ?? null, store.projectId),
+            currentProjectId: store.projectId,
+            ...(cmd.projectId ? { projectId: cmd.projectId } : {}),
+            ...(timeZone ? { timeZone } : {}),
+          }))
+        } else if (cmd.action === 'rollup') {
+          info(formatContinuityRollups(
+            memoryStore,
+            paths.sessionsDir,
+            timeZone,
+            cmd.value as 'day' | 'week' | 'month' | 'quarter' | 'year' | undefined,
+          ))
+        } else if (cmd.action === 'search' || cmd.action === 'timeline') {
+          info(formatContinuitySearch(memoryStore, paths.sessionsDir, {
+            action: cmd.action,
+            query: cmd.value ?? '',
+            ...(cmd.projectId ? { projectId: cmd.projectId } : {}),
+            ...(timeZone ? { timeZone } : {}),
+          }))
+        } else {
+          info(formatContinuityEpisode(memoryStore, paths.sessionsDir, cmd.value ?? ''))
+        }
         break
+      }
       case 'skills': {
         const skills = loadAvailableSkills(paths)
         info(

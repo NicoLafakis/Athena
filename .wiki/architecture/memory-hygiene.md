@@ -1,44 +1,75 @@
 # Memory hygiene / anti-rot
 
 This page specifies how Athena keeps her own stored knowledge accurate: the free-text
-brain-memory files under `~/.athena/memory/` (and per-project `.athena/memory/`) that are
-written via the `Memory` tool and injected into every session's context through
-`loadMemoryIndex` (`src/brain/loader.ts:70`). It is a **design spec, not yet
-implemented** — no code referenced below exists today except where noted as existing.
+brain-memory files under `~/.athena/memory/` written via the `Memory` tool, plus
+source-linked semantic records stored in the same memory tree. The legacy free-text
+`MEMORY.md` index and `LEARNED.md` view are injected into sessions through
+`loadMemoryIndex` (`src/brain/loader.ts:70`); the new semantic records are deliberately
+not indexed there or injected into provider prompts yet.
 
 The broader cross-project conversation timeline and layered working/episodic/semantic
-memory are specified separately in [Conversational Continuity](../features/conversational-continuity/00-overview.md).
-This page remains the narrower hygiene lifecycle for durable memory files; continuity
-implementation must extend this lifecycle for source links and validity rather than add a
-competing durable-fact store.
+memory are specified separately in
+[Conversational Continuity](../features/conversational-continuity/00-overview.md). The
+semantic-memory implementation extends this tree under `memory/semantic/`; it does not
+create a second root or a full-transcript archive.
 
-A separate implemented self-reflection journal supplies operational records and
-provisional memory; see [its architecture page](self-reflection-journal.md).
-Conversational Continuity remains the planning package for the broader user-facing
-cross-project conversation index.
+## Implemented semantic-memory foundation
 
-A separate [project librarian](librarian-library.md) is implemented in source, disabled by default, for approved public operational documents with committed-review/check gates. It does not migrate personal facts, rewrite legacy memory, or implement the conversational-continuity plan.
+`src/continuity/schemas.ts` defines the strict versioned `SemanticMemoryRecordSchema`.
+`src/brain/hygiene.ts` implements `MemoryHygieneStore` over
+`~/.athena/memory/semantic/<memory-id>.md`, using validated JSON frontmatter and an
+unchanged statement body capped at 2,000 characters. It supports explicit active records,
+inferred candidates that need two distinct episode IDs and at least two source references,
+candidate promotion/rejection, explicit correction links, supersession, and tombstoning.
+Sensitive inferred records cannot be promoted. Rejected, superseded, and tombstoned
+records cannot be reactivated by this store. Active retrieval excludes records outside
+their valid-time interval.
 
-## Implemented journal boundary (2026-10-10)
+The `Memory` tool exposes `remember`, `review`, and `supersede`. `remember` is reserved
+for an explicit user request. Source IDs and timestamps are resolved by the harness from
+the latest persisted human message; unpersisted sessions and damaged trailing session
+records cannot create a source-linked memory. A correction is linked to the correction
+message, and the old statement and its source remain unchanged. Generic free-text writes
+and deletes cannot modify files under `memory/semantic/`.
 
-`src/journal/` now implements a bounded daily lifecycle after human enablement,
-defaulting to 09:00 America/New_York. It uses canonical run traces and the existing
-brain's `memory/journal/` namespace for rebuildable, source-linked provisional
-memory. Generated views never overwrite `MEMORY.md` or `LEARNED.md`, become future
-source inputs, or promote claims into the governed-learning active set.
+Managed records are not added to `MEMORY.md`, and `loadMemoryIndex` does not load them.
+`Memory.read` returns them through a model tool result when called. New session citations
+carry a SHA-256 digest of the exact persisted JSONL line. Before returning text, it
+recomputes that digest and checks the cited line ID, timestamp, kind, and user role; an
+in-place edit suppresses the memory just like a missing or trashed source. Legacy
+UUID-backed semantic citations have no digest and are suppressed from model-facing reads
+until the memory is recreated from a currently persisted user message. ID-less legacy
+citations remain content-bound because their stable line identity embeds the raw-line
+digest. Candidate, flagged, rejected, and tombstoned content is also rejected. This is a
+call-triggered provider handoff; it does not
+auto-inject semantic records or authorize automatic episodic history retrieval.
+`athena memory candidates` /
+`/memory candidates` explicitly generate and list review-only records from repeated,
+direct user preferences, decisions, and promises, plus indirect wording labeled by the
+source-linked Jev speech-act event, in at least two digest-verified sessions. Jev labels are
+content-free session events written only after the user message and linked by exact line
+digest. Episode indexing and candidate promotion verify the event against the current source
+line. Only `preferred`, `decided`, and `promised` labels can support candidate generation;
+correction and retraction labels remain contextual and do not supersede memory by themselves.
+`athena memory review <id> <promote|reject>` and its slash equivalent provide local
+decisions; inferred promotion rechecks source lines, claims, timestamps, project scope, and
+sensitive wording at decision time. The mixed-capability `Memory` tool classifies validated
+`list` and `read` operations as read-only for permission hooks and gates; file writes,
+deletes, remember, review, supersede, and forget stay mutating. Semantic records stay out of
+automatically assembled provider prompts; only the verified `Memory.read` tool path returns
+permitted record content to the active conversation. Source-session forget/delete integration and citation-verification
+hooks for legacy free-text files remain unfinished. Semantic forget preserves the canonical
+session source while atomically clearing the managed derived body and description, removing
+secondary source metadata, and retaining typed source identities plus minimal lifecycle
+metadata to suppress candidate regeneration from those lines. Use `athena memory forget <id>`
+or the slash command `/memory forget <id>`.
 
-The implemented slice preserves versions, origin identities, limitations and
-contradictions; repeated assertions never boost confidence. Human rejection is
-terminal. Missing, stale, invalid, rejected or contradicted records are excluded
-from ephemeral project retrieval. Original trace metadata is reconstructed during
-validation, rather than trusted because a cited hash exists.
-
-This scheduled journal lifecycle supersedes count-triggered consolidation only
-for the generated journal namespace. The legacy free-text plan below remains
-unimplemented: frontmatter migration, citation/rename repair, correction hooks,
-flag/restore/supersede/expiry, `/memory review`, and the full conversational episode
-index. The manual-memory catalog reads only bounded top-level Markdown files; it
-does not repair, rewrite or grant truth to them.
+The separately implemented [self-reflection journal](self-reflection-journal.md) keeps
+source-linked provisional memory under `memory/journal/`, with source revalidation,
+contradiction preservation and terminal human rejection. Its generated views do not enter
+`MEMORY.md` or active learning claims. Its daily consolidation is separate from semantic
+continuity and legacy free-text hygiene. The optional [project librarian](librarian-library.md)
+also remains separate and does not migrate personal facts or rewrite memory.
 
 ## Is this new, or an extension of "governed learning"?
 
@@ -89,13 +120,17 @@ produces that state; no new code is needed there.
 
 ## What is stored, and in what shape
 
-Every memory fact is one file under `<memoryDir>/*.md` (nested paths allowed, per
-`walk()` in `src/tools/memory.ts:49`). Today the body is unstructured prose with an
-optional first line used as the index description. This spec adds **optional
+Each legacy free-text fact is one file under `<memoryDir>/*.md` (nested paths allowed,
+per `walk()` in `src/tools/memory.ts`). Its body is unstructured prose with an optional
+first line used as the index description. This citation-hygiene design adds **optional
 frontmatter**, parsed with the same `parseFrontmatter()` already used for
 skills/agents/commands (`src/brain/loader.ts:55`). A file with no frontmatter is legacy:
 treated as `status: active` with no citations, never blocked from retrieval, just
 unchecked until first touched.
+
+This format describes the planned citation state for legacy prose files. Continuity
+semantic records use a validated `athena-semantic-record` JSON frontmatter field and are
+kept in `memory/semantic/`; they do not enter the legacy `MEMORY.md` index.
 
 ```
 ---
@@ -125,14 +160,11 @@ action is a pure metadata mutation, never a content edit.
 
 Continuity-managed fields are optional for legacy files and required/validated for any
 memory promoted from conversational episodes. `sourceRefs` is a JSON-encoded scalar in
-the current simple frontmatter format; the implementation must parse and validate it as
-data rather than treat it as free text. `observedAt` records when Athena learned the
-claim; `validFrom`/`validUntil` record when it applies. `speechAct` prevents an
-inference from erasing whether the user asked, considered, decided, or corrected
-something. `captureMode` records whether the user explicitly asked Athena to remember or
-the system inferred the candidate. `scope` and `projectId` control global versus
-project-specific use. `confidence` is not proof; source
-references remain mandatory for promoted inferred memories.
+the current simple frontmatter format; parse and validate it as data rather than free
+text. `observedAt` records when Athena learned the claim; `validFrom`/`validUntil` record
+when it applies. Speech-act, capture mode, scope, confidence, and sensitivity preserve
+the distinction between direct instruction and inference. Confidence is not proof;
+source references remain mandatory for promoted inferred memories.
 
 Field notes:
 
@@ -140,17 +172,18 @@ Field notes:
   but does not need to.
 - `status` transitions: `candidate` to `{active | rejected}`; `active` to `flagged` to
   `{active | superseded | tombstoned}`; `active` may also be superseded directly.
-  `rejected`, `tombstoned`, and `superseded` are terminal and never automatically
-  reactivated. Restoring a flagged citation-confirmation is distinct from promoting an
-  inferred candidate.
+  Restoring a flagged citation-confirmation is distinct from promoting an inferred
+  candidate. `rejected`, `tombstoned`, and `superseded` are terminal and never
+  automatically reactivated — the terminal-decision rule reused from `memory.ts:95`.
 - `supersedes`/`supersededBy` are a bidirectional pair. Both files stay on disk: the old
   file's body is exactly the "why it used to be true" record.
-- `candidate` and `rejected` are used by Conversational Continuity: candidates are not
-  injected into ordinary session context, while rejection is a durable review decision.
-  The continuity lifecycle and source contract are defined in
-  [its technical design](../features/conversational-continuity/design.md).
-- No physical deletion is ever performed by this system. The existing `Memory` tool
-  `delete` op remains the only deletion path, human-invoked, unchanged.
+- Continuity `candidate` and `rejected` memories are omitted from `MEMORY.md`: candidates
+  appear only in explicit review, while rejected memories remain in the audit store and
+  are not retrieved. See the [continuity lifecycle](../features/conversational-continuity/design.md).
+- Citation-state mutations never physically delete legacy memory files. The semantic
+  store also preserves tombstoned bodies; generic `Memory delete` is blocked for managed
+  semantic paths. Source-session deletion remains a separate `athena session delete` action
+  and uses continuity tombstones; it is independent of semantic-memory forget.
 
 `MEMORY.md`'s per-entry index line gains a status marker so retrieval-time scanning is
 cheap without opening files:
@@ -161,17 +194,17 @@ cheap without opening files:
 - [path/to/older.md](path/to/older.md) — superseded by newer.md
 ```
 
-Continuity candidates and rejected memories are omitted from `MEMORY.md`, because that
-file is injected into model context. Candidates appear only in the explicit review
-surface; rejected memories remain in the audit store and are not retrieved.
-
 `updateIndex()` (`src/tools/memory.ts:33`) is extended to render this marker by reading
 each file's frontmatter status. That is the only change needed to `MEMORY.md` generation.
 
-## New component: `src/brain/hygiene.ts`
+## Planned free-text citation hygiene extension
 
-A single module mirroring the shape of `src/learning/memory.ts` but operating on
-frontmatter'd `.md` files instead of `MemoryClaim` JSONL:
+The current `src/brain/hygiene.ts` implements the semantic-memory foundation described
+above. The following citation-checking functions and hooks remain planned work; they are
+not present in the current module.
+
+The planned citation extension would add the following to the existing
+`src/brain/hygiene.ts`, alongside its current semantic-memory store:
 
 - `extractCitations(body)` — the citation-verification algorithm below.
 - `verifyCitations(paths, scope, touchedFiles?)` — mechanical, no LLM call.
@@ -282,9 +315,12 @@ Index ordering (new; today's list is unordered walk order): `active` alphabetica
 `flagged` most-recently-flagged first, then `superseded` grouped near their superseder,
 then `tombstoned` at the bottom or omitted per the N-day rule.
 
-## New `Memory` tool ops
+## Planned free-text citation hygiene tool ops
 
-`MemoryInput` gains four ops alongside `list|read|write|delete`, each a thin frontmatter
+These operations apply to citation flags on legacy free-text memory files. They are
+separate from the currently implemented semantic `remember`/`review`/`supersede` actions.
+
+`MemoryInput` could gain four ops alongside `list|read|write|delete`, each a thin frontmatter
 patch that never touches the body:
 
 - `flag` — `{ op: 'flag', path, description }` (description becomes `flagReason`)
@@ -301,10 +337,12 @@ patch that never touches the body:
 All four are additive to the existing schema and route through the same
 `safeResolve`/`updateIndex` machinery — no new path-traversal surface.
 
-## The review surface
+## Planned legacy citation review surface
 
-`/memory review` (alongside the existing bare `/memory`, which keeps printing the raw
-index — `cli.ts:666`, `tui/slash.ts:21,42`) opens an Ink picker reusing the pattern
+This planned surface is for flagged legacy free-text files, distinct from the implemented
+semantic candidate commands above. Its command syntax must coexist with
+`/memory review <memory-id> <promote|reject>` rather than replace it. It would open an Ink
+picker reusing the pattern
 already shipped for `SessionPicker` (`src/tui/components/SessionPicker.tsx`) and the arg
 picker (`src/tui/argPicker.ts`/`ArgPickerPopup.tsx`): a windowed keyboard-driven list,
 not a fullscreen modal workflow.
@@ -354,8 +392,7 @@ not a fullscreen modal workflow.
 - Cross-project hygiene (dedup/contradiction across project-scoped and global memory
   roots). v1 verifies each root independently.
 - A deprecated-flag/alias ledger for zero-false-positive flag renames.
-- Journal-derived triggers for this legacy free-text hygiene plan remain an
-  interface assumption; the journal's own daily lifecycle is implemented above.
+- Any journal-derived trigger — interface assumption only.
 - A standalone all-pairs LLM contradiction sweep; folded into consolidation instead.
 - User-configurable hygiene hooks. v1 is internal; letting a project override thresholds
   is a small additive follow-up.

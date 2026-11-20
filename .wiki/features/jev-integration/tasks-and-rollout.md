@@ -2,7 +2,7 @@
 
 [Overview](00-overview.md) | [Evaluation](evaluation.md)
 
-All implementation tasks below are **not started by this package**. Each needs a later implementation request; live evaluations and new data scopes additionally need applicable approval. Product owner: Nico. Engineering and review roles are proposed responsibilities, not assignments to people.
+Stage 1 reconciliation is integrated; this table records the broader plan, not proof that every later stage has passed. Live evaluations and new data scopes need separate approval. Product owner: Nico. Engineering and review roles are proposed responsibilities, not assignments to people.
 
 | ID | Task / owner role | Depends | Completion evidence |
 |---|---|---|---|
@@ -23,7 +23,7 @@ All implementation tasks below are **not started by this package**. Each needs a
 
 **Stage 0: documents only, current outcome.** Keep existing code and settings untouched. No key creation, benchmark, activation, scheduled follow-up, branch merge, build, push or deployment.
 
-**Stage 1: reconcile existing branch locally after approval.** Keep old current-request path and gate semantics, with new modules off. Preserve easy return to old local fallback. Recheck overlapping source and source-linked memory safety rather than trusting historical gates.
+**Stage 1: reconciliation integrated.** Keep old current-request path and gate semantics, with new modules off. Preserve easy return to old local fallback. Recheck overlapping source and source-linked memory safety rather than trusting historical gates.
 
 **Stage 2: offline fixtures and synthetic shadow.** First replay fake transports with network impossible. Only after approved live experiment may synthetic state reach TypeSafe. Shadow output is observed as scalar decisions, cannot influence task behavior or durable memory, and does not mean zero privacy impact: a live shadow call still transmits data.
 

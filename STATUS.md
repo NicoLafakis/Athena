@@ -4,9 +4,12 @@
 - [ ] Blind-first Jarvis voice live acceptance run -> [.wiki/features/blind-first-jarvis/acceptance-runbook.md]
 
 ### Planned
-- [ ] Cross-project conversational continuity -> [.wiki/architecture/memory-hygiene.md]
+- [ ] Free-text memory hygiene / anti-rot -> [.wiki/architecture/memory-hygiene.md]
+- [ ] Jev Stage 2 shadow workflow/skill hints & root budgets -> [.wiki/features/jev-integration/00-overview.md]
+- [ ] Computer use actuator -> [.wiki/features/computer-use/00-overview.md]
 
 ### Done
+- [x] Conversational continuity & opt-in Jev Stage 1 reconciliation (2026-11-20) -> [.wiki/features/conversational-continuity/00-overview.md]
 - [x] Harness structural consolidation & optimization (2026-11-19) -> [HARNESS_OPTIMIZATION.md]
 - [x] Codebase review remediation (IPv6 SSRF, CLI decomposition, library validation & sharded tests) (2026-11-19) -> [SUGGESTED_REMEDIATION.md]
 - [x] Source-linked project librarian (2026-10-28) -> [.wiki/architecture/librarian-library.md]

@@ -233,6 +233,74 @@ describe('parseArgs — auth and --provider', () => {
   })
 })
 
+describe('parseArgs — session recovery', () => {
+  it('accepts explicit session restore and advertises it in invalid-action usage', () => {
+    expect(parseArgs(['session', 'restore', 'session-123'])).toEqual({
+      command: 'session',
+      action: 'restore',
+      args: ['session-123'],
+    })
+    expect(parseArgs(['session', 'unknown'])).toMatchObject({
+      command: 'error',
+      message: expect.stringContaining('|restore>'),
+    })
+  })
+})
+
+describe('parseArgs — memory continuity commands', () => {
+  it('parses status, rebuild, timeline, search, and show actions', () => {
+    expect(parseArgs(['memory'])).toEqual({ command: 'memory', action: 'status', args: [] })
+    expect(parseArgs(['memory', 'rebuild'])).toEqual({ command: 'memory', action: 'rebuild', args: [] })
+    expect(parseArgs(['memory', 'timeline', 'last', 'week'])).toEqual({
+      command: 'memory', action: 'timeline', args: ['last', 'week'],
+    })
+    expect(parseArgs(['memory', 'search', 'what', 'did', 'we', 'decide', '--project', 'alpha-123'])).toEqual({
+      command: 'memory', action: 'search', args: ['what', 'did', 'we', 'decide'], projectId: 'alpha-123',
+    })
+    expect(parseArgs(['memory', 'rank', 'what', 'did', 'we', 'decide', '--project', 'alpha-123'])).toEqual({
+      command: 'memory', action: 'rank', args: ['what', 'did', 'we', 'decide'], projectId: 'alpha-123',
+    })
+    expect(parseArgs(['memory', 'candidates'])).toEqual({ command: 'memory', action: 'candidates', args: [] })
+    expect(parseArgs(['memory', 'review', '123e4567-e89b-42d3-a456-426614174000', 'promote'])).toEqual({
+      command: 'memory', action: 'review', args: ['123e4567-e89b-42d3-a456-426614174000', 'promote'],
+    })
+    expect(parseArgs(['memory', 'review', '123e4567-e89b-42d3-a456-426614174000', 'reject'])).toEqual({
+      command: 'memory', action: 'review', args: ['123e4567-e89b-42d3-a456-426614174000', 'reject'],
+    })
+    expect(parseArgs(['memory', 'forget', '123e4567-e89b-42d3-a456-426614174000'])).toEqual({
+      command: 'memory', action: 'forget', args: ['123e4567-e89b-42d3-a456-426614174000'],
+    })
+    expect(parseArgs(['memory', 'show', 'episode-123'])).toEqual({
+      command: 'memory', action: 'show', args: ['episode-123'],
+    })
+    expect(parseArgs(['memory', 'rollup'])).toEqual({
+      command: 'memory', action: 'rollup', args: [],
+    })
+    expect(parseArgs(['memory', 'rollup', 'quarter'])).toEqual({
+      command: 'memory', action: 'rollup', args: ['quarter'],
+    })
+  })
+
+  it('rejects invalid memory arguments and missing required values', () => {
+    expect(parseArgs(['memory', 'search'])).toMatchObject({ command: 'error' })
+    expect(parseArgs(['memory', 'rank'])).toMatchObject({ command: 'error' })
+    expect(parseArgs(['memory', 'candidates', 'unexpected'])).toMatchObject({ command: 'error' })
+    expect(parseArgs(['memory', 'review', 'not-an-id', 'promote'])).toMatchObject({ command: 'error' })
+    expect(parseArgs(['memory', 'review', '123e4567-e89b-42d3-a456-426614174000', 'forget'])).toMatchObject({ command: 'error' })
+    expect(parseArgs(['memory', 'forget'])).toMatchObject({ command: 'error' })
+    expect(parseArgs(['memory', 'forget', 'not-an-id'])).toMatchObject({ command: 'error' })
+    expect(parseArgs(['memory', 'forget', '123e4567-e89b-42d3-a456-426614174000', 'extra'])).toMatchObject({ command: 'error' })
+    expect(parseArgs(['memory', 'show'])).toMatchObject({ command: 'error' })
+    expect(parseArgs(['memory', 'rebuild', '--unexpected'])).toMatchObject({ command: 'error' })
+    expect(parseArgs(['memory', 'search', 'recent', '--project'])).toEqual({
+      command: 'error', message: '--project requires a project ID',
+    })
+    expect(parseArgs(['memory', 'rollup', 'decade'])).toMatchObject({ command: 'error' })
+    expect(parseArgs(['memory', 'rollup', 'day', 'week'])).toMatchObject({ command: 'error' })
+    expect(parseArgs(['memory', 'rollup', '--project', 'alpha-123'])).toMatchObject({ command: 'error' })
+  })
+})
+
 describe('parseArgs — voice', () => {
   it('parses microphone, keyboard, probe, auth, and quality model paths', () => {
     expect(parseArgs(['voice'])).toEqual({

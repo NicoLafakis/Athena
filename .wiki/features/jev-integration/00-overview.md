@@ -1,7 +1,7 @@
 # Jev integration across Athena: planning overview
 
 **Date:** 2026-11-16
-**Status:** paperwork only; no implementation, activation, paid evaluation, or deployment authorized by this package.
+**Status:** Stage 1 reconciliation integrated on branch; new scopes, live/paid evaluation, and deployment remain gated.
 **Tier:** 3, external decision service and cross-cutting harness behavior.
 **Project:** Athena terminal coding-agent harness on Helios.
 

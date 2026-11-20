@@ -31,10 +31,16 @@ archive.
 - Cross-project recall must enumerate the local project session directories rather than
   rely on the current project’s `SessionStore.list()`.
 - Source references require stable session-line IDs and project IDs, not filenames alone.
-- Rebuild, the existing session delete-to-trash operation, and forget must maintain
-  source links and suppression tombstones. There is no user-facing session restore
-  command yet.
+- Rebuild and session delete-to-trash maintain persistent source-suppression tombstones.
+  `athena session restore <id>` explicitly restores the source and reindexes it. Semantic
+  memory forget is a separate action: it clears derived semantic text, removes secondary
+  source metadata, and retains only typed source identity plus minimal lifecycle metadata
+  to suppress regeneration, while leaving the canonical session available for explicit
+  historical recall.
 - The derived index can be discarded and reconstructed; the session history remains
   untouched.
+- The derived catalog is persisted as a bounded gzip+base64 JSON envelope around the
+  existing index schema. Legacy plain JSON remains readable and is migrated only through
+  a validated atomic write; canonical session JSONL is unchanged.
 - Retrieval may need to fetch adjacent turns from source files; the latency budget must
   account for it.

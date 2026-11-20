@@ -66,8 +66,10 @@ fact or commitment solely because it appears in a summary.
 
 An explicit user request to remember may create a durable memory with a source link. An
 inferred preference or recurring fact remains a candidate until it has independent
-support and passes contradiction, sensitivity, and scope checks. Promotion never erases
-the source episodes.
+support and passes contradiction, sensitivity, and scope checks. The current conservative
+generator recognizes repeated, directly authored preferences, decisions, and promises only
+when their source sessions and digests verify; it never auto-promotes. Promotion never
+erases the source episodes.
 
 ### FR-008 — Conflict and change
 
@@ -80,7 +82,13 @@ older state remains available as history.
 Recall selection considers query intent, requested time, entities/topics, active
 conversation, scope, evidence quality, confidence, and freshness. Current repository
 facts continue to come from current files/runtime evidence, not a stale conversational
-summary.
+summary. The accepted Jev decision call classifies the current user request for recall route
+and speech act. A history route at confidence >= 0.98 can invoke the local answer-time
+retriever; the route remains an ephemeral hint, not evidence that a source exists or
+permission to bypass local source checks. A speech-act label at confidence >= 0.98 is stored
+locally against its exact user-message source and may support review-only candidate
+generation after independent repeated evidence. When Jev is unavailable or below
+threshold, only a clear deterministic explicit-history request may use the local fallback.
 
 ### FR-010 — Time rollups
 
@@ -88,32 +96,48 @@ Day, week, month, quarter, and year rollups identify their covered time range, s
 episodes, generation version, and source freshness. A rollup is invalidated or rebuilt
 when a source is forgotten or corrected. Exact recall loads source episodes as needed.
 
-### FR-011 — Inspect and correct
+### FR-011 — Inspect, correct, and forget
 
-The user can list/search/timeline memories, inspect a source episode, correct a memory,
-mark a tentative inference as wrong, and see whether a result is direct or inferred.
-Equivalent CLI and interactive presentation paths are provided.
+The user can list/search/timeline memories, inspect a source episode, review semantic
+candidates, correct a memory, mark a tentative inference as wrong, forget a derived
+semantic memory, and see whether a result is direct or inferred. Equivalent CLI and
+interactive presentation paths are provided.
 
 ### FR-012 — Forget and deletion integrity
 
-Forgetting an episode or semantic fact removes it from retrieval and invalidates dependent
-rollups. Rebuilds honor deletion tombstones and cannot silently resurrect forgotten
-derived content. Forgetting a memory is distinct from deleting its source session.
-Existing `athena session delete` moves the source file to per-project `.trash`; this
-feature must integrate with that soft-delete path. It must not imply a user-facing restore
-command exists until one is implemented.
+Forgetting an episode suppresses it from retrieval and invalidates dependent rollups.
+Forgetting a semantic fact atomically replaces its derived body and description with a
+content-free tombstone. The tombstone retains only typed source identity fields and the
+minimal lifecycle metadata required to suppress candidate scans from those exact lines;
+it drops source digests, timezones, episode IDs, original observation/validity dates, and
+project scope. The original session remains
+available for explicitly requested historical recall; semantic forget does not delete the
+source, episode, or source-derived rollups. `athena memory forget <memory-id>` and
+`/memory forget <memory-id>` target one managed semantic record. This is distinct from
+`athena session delete`, which moves the source file to per-project `.trash` and suppresses
+its episodes and dependent rollups until explicit restore.
 
 ### FR-013 — Privacy and locality
 
-Continuity indexes and summaries are local to the OS user. No new cloud sync, external
-service, raw transcript duplication, or background provider call is introduced. Existing
-secret redaction is reused and expanded where needed for generated summaries.
+Continuity indexes and summaries are local to the OS user. There is no cloud sync or raw
+transcript duplication. Jev is a separately configured external decision service: when
+`TYPESAFE_API_KEY` is present and global `jev.enabled` is true, it receives the current
+request after shared secret redaction, up to 12,000 characters, for route and speech-act
+classification. The existing redactor does not remove general personal information or
+arbitrary sensitive prose. It receives no history, episode text, source identifiers, or
+project paths. No project setting can enable or disable the global decision setting. The
+user authorized scoped answer-provider recall on 2026-09-23: only redacted, source-verified
+user/Athena message text for a current explicit history request may be sent, capped at
+five episodes and 4,000 characters. Jev never receives historical excerpts. Semantic text,
+rollup summaries, tool blocks, paths, IDs, and hook context are excluded.
 
 ### FR-014 — Bounded retrieval
 
 Only a small, deterministic, relevance-ranked set of episodes/facts enters an active
 model context. A retrieval miss is normal. Corrupt optional continuity data warns and
-degrades to no memory without preventing startup or ordinary work.
+degrades to no memory without preventing startup or ordinary work. Recall-intent words
+alone (for example, “decision,” “preference,” or “model”) do not qualify as topic evidence;
+when no searchable subject or bounded time range remains, ask for clarification.
 
 ### FR-015 — Rebuildability
 
@@ -134,11 +158,18 @@ does not make optional continuity a boot precondition.
   the second is the active decision with both sources linked.
 - **AC-004:** Given a month rollup, when a specific detail is asked, then Athena opens
   supporting episodes rather than treating the rollup as independent evidence.
-- **AC-005:** Given an inferred preference supported by one episode, when stored, then it
-  remains a candidate; an explicit “remember this” request may be active immediately.
-- **AC-006:** Given a correction or forget request, when retrieval and rebuild run, then
-  the corrected/forgotten value is not returned as current memory and source history is
-  handled according to the user’s deletion choice.
+- **AC-005:** A repeated claim can become only a review candidate when it is directly
+  user-authored in at least two distinct sessions and every source digest verifies. A
+  repeated line within one session, a question, tentative wording, assistant-authored text,
+  or stale/incomplete source creates no inferred candidate. Same-project evidence remains
+  project-scoped; cross-project evidence is global-scoped. Sensitive claims stay in their
+  source sessions and are not copied into inferred candidates. An explicit “remember this”
+  request may create an active memory immediately, subject to the explicit-memory policy.
+- **AC-006:** Given a semantic forget request, the managed semantic body and description
+  are erased, model-facing semantic reads and ranking omit it, and candidate scans after
+  rebuild do not recreate it from the retained source lines. The canonical source session
+  remains available for explicit historical recall. Session deletion separately suppresses
+  source episodes and rollups until restore.
 - **AC-007:** Given missing, malformed, or corrupt index data, when Athena starts or
   answers a recall request, then normal work remains available and a recovery action is
   reported.
@@ -147,8 +178,20 @@ does not make optional continuity a boot precondition.
   prompt.
 - **AC-009:** Every returned episode or promoted memory includes machine-readable source
   references that resolve to the expected original message/trace.
-- **AC-010:** The recall path adds no background model call and stays within the latency,
-  context, and privacy budgets in [NFR budgets](nfr-budgets.md).
+- **AC-010:** Indexing and local search add no provider call. When the Jev setting and key
+  are present, the current turn may make one synchronous decision call with a two-second
+  deadline and the bounded payload in FR-013; failures fall through to local explicit
+  recall routing or the ordinary turn. On a historical-recall request only, the configured
+  answer provider may receive up to five episodes/4,000 characters of redacted,
+  source-verified user/Athena text. No Jev request receives history.
+- **AC-011:** The Jev adapter sends no hook-added context or prior session material, validates
+  route and speech-act probability schemas, records only content-free token/latency telemetry,
+  never persists its route hint in session messages, and persists an eligible speech-act
+  label only as a content-free event linked to the digested user source line.
+- **AC-012:** Given an explicit project filter, only sources from the uniquely resolved
+  local project enter the answer prompt; unknown or ambiguous names clarify. Every excerpt
+  resolves to unchanged source lines, adjacent turns are labeled, and source text, paths,
+  IDs, tool blocks, and hook context never persist into the session or Jev request.
 
 ## Non-goals
 

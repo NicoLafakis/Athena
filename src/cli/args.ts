@@ -13,6 +13,7 @@ export type VoiceModel = 'gpt-realtime-2.1-mini' | 'gpt-realtime-2.1'
 
 const VOICE_MODELS: readonly VoiceModel[] = ['gpt-realtime-2.1-mini', 'gpt-realtime-2.1']
 const DEFAULT_VOICE_MODEL: VoiceModel = 'gpt-realtime-2.1-mini'
+const SEMANTIC_MEMORY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 export type CliCommand =
   | { command: 'run'; provider?: ProviderId; accessibility?: AccessibilityPresentation }
@@ -48,8 +49,14 @@ export type CliCommand =
   | { command: 'exec'; provider?: ProviderId; options: ExecOptions }
   | {
       command: 'session'
-      action: 'list' | 'checkpoints' | 'rewind' | 'fork' | 'rename' | 'search' | 'delete'
+      action: 'list' | 'checkpoints' | 'rewind' | 'fork' | 'rename' | 'search' | 'delete' | 'restore'
       args: string[]
+    }
+  | {
+      command: 'memory'
+      action: 'rebuild' | 'status' | 'timeline' | 'search' | 'show' | 'rollup' | 'rank' | 'candidates' | 'review' | 'forget'
+      args: string[]
+      projectId?: string
     }
   | {
       command: 'plugin'
@@ -148,7 +155,18 @@ Usage:
   athena trust --hooks   separately approve the current project hook definitions
   athena trust --mcp     separately approve the current project MCP definitions
   athena trust --revoke  revoke all trust for this project
-  athena session list    manage durable sessions, checkpoints, rewind, and forks
+  athena session list           manage durable sessions, checkpoints, rewind, and forks
+  athena session delete <id>    move a session to recoverable trash and suppress its recall
+  athena session restore <id>   restore a recoverable session and reindex its history
+  athena memory          inspect cross-project conversation continuity
+  athena memory rebuild  rebuild the local linked episode index
+  athena memory search   find prior conversations by time or topic
+  athena memory rank     preview ranked local continuity layers for a query
+  athena memory candidates generate and list source-linked inferred candidates for review
+  athena memory review   explicitly promote or reject a semantic memory candidate
+  athena memory forget   erase derived semantic text while preserving its source session
+  athena memory show     inspect an episode with source-linked messages
+  athena memory rollup   show source-linked day/week/month/quarter/year summaries
   athena plugin list     manage installed plugins (install/update/enable/disable/remove/verify)
   athena learn candidates inspect governed learning candidates, held-out evals, canaries, and rollback
   athena journal status  inspect opt-in daily reflection, source-linked memory, relationships and budgets
@@ -156,7 +174,7 @@ Usage:
   athena --help          this help
   athena --version       print the installed version
 
-In-session: /help /status /repeat /details /verbosity /clear /resume /compact /model /effort /provider /mode /tui /memory /skills /agents /quit. Esc interrupts a turn.
+In-session: /help /status /repeat /details /verbosity /clear /resume /compact /model /effort /provider /mode /tui /memory /memory rank <query> /memory candidates /memory review <memory-id> <promote|reject> /memory forget <memory-id> /skills /agents /quit. Esc interrupts a turn.
 Custom commands: drop a .md file (with description/argument-hint frontmatter) into .athena/commands/ or ~/.athena/commands/ to add /<name>.
 Plugins: use \`athena plugin install <directory-or-git-url>\`; managed bundles can contribute namespaced skills, agents, commands, hooks, MCP, and app metadata.`
 
@@ -433,17 +451,79 @@ export function parseArgs(argv: string[]): CliCommand {
   }
   if (argv[0] === 'session') {
     const action = argv[1] ?? 'list'
-    const actions = new Set(['list', 'checkpoints', 'rewind', 'fork', 'rename', 'search', 'delete'])
+    const actions = new Set(['list', 'checkpoints', 'rewind', 'fork', 'rename', 'search', 'delete', 'restore'])
     if (!actions.has(action)) {
       return {
         command: 'error',
-        message: 'Usage: athena session <list|checkpoints|rewind|fork|rename|search|delete> [args]',
+        message: 'Usage: athena session <list|checkpoints|rewind|fork|rename|search|delete|restore> [args]',
       }
     }
     return {
       command: 'session',
       action: action as Extract<CliCommand, { command: 'session' }>['action'],
       args: argv.slice(2),
+    }
+  }
+  if (argv[0] === 'memory') {
+    const action = argv[1] ?? 'status'
+    const actions = new Set(['rebuild', 'status', 'timeline', 'search', 'show', 'rollup', 'rank', 'candidates', 'review', 'forget'])
+    if (!actions.has(action)) {
+      return {
+        command: 'error',
+        message: 'Usage: athena memory <rebuild|status|timeline|search|rank|show|rollup|candidates|review|forget> [query|episode-id|granularity|memory-id] [--project <project-id>]',
+      }
+    }
+    const args: string[] = []
+    let projectId: string | undefined
+    const rest = argv.slice(2)
+    for (let index = 0; index < rest.length; index++) {
+      const arg = rest[index]!
+      if (arg === '--project') {
+        const value = rest[index + 1]
+        if (!value || value.startsWith('--')) return { command: 'error', message: '--project requires a project ID' }
+        projectId = value
+        index++
+      } else if (arg.startsWith('--')) {
+        return { command: 'error', message: `Unknown memory argument: ${arg}` }
+      } else {
+        args.push(arg)
+      }
+    }
+    if (['rebuild', 'status'].includes(action) && args.length > 0) {
+      return { command: 'error', message: `Usage: athena memory ${action}` }
+    }
+    if (action === 'candidates' && (projectId !== undefined || args.length > 0)) {
+      return { command: 'error', message: 'Usage: athena memory candidates' }
+    }
+    if (action === 'review' && (
+      projectId !== undefined || args.length !== 2 || !SEMANTIC_MEMORY_ID.test(args[0]!) ||
+      !['promote', 'reject'].includes(args[1]!)
+    )) {
+      return { command: 'error', message: 'Usage: athena memory review <memory-id> <promote|reject>' }
+    }
+    if (action === 'forget' && (
+      projectId !== undefined || args.length !== 1 || !SEMANTIC_MEMORY_ID.test(args[0]!)
+    )) {
+      return { command: 'error', message: 'Usage: athena memory forget <memory-id>' }
+    }
+    if (action === 'show' && args.length !== 1) {
+      return { command: 'error', message: 'Usage: athena memory show <episode-id>' }
+    }
+    if (action === 'search' && args.length === 0) {
+      return { command: 'error', message: 'Usage: athena memory search <query> [--project <project-id>]' }
+    }
+    if (action === 'rank' && args.length === 0) {
+      return { command: 'error', message: 'Usage: athena memory rank <query> [--project <project-id>]' }
+    }
+    if (action === 'rollup' &&
+      (projectId !== undefined || args.length > 1 || (args.length === 1 && !['day', 'week', 'month', 'quarter', 'year'].includes(args[0]!)))) {
+      return { command: 'error', message: 'Usage: athena memory rollup [day|week|month|quarter|year]' }
+    }
+    return {
+      command: 'memory',
+      action: action as Extract<CliCommand, { command: 'memory' }>['action'],
+      args,
+      ...(projectId ? { projectId } : {}),
     }
   }
   if (argv[0] === 'trust') {

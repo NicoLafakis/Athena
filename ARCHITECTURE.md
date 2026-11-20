@@ -77,9 +77,11 @@ and local slash-command handler.
   delegated agents.
 - `src/brain/` — paths, settings, credentials and vaults, models, plugins, and local brain
   loading. Accessibility preferences are global/user-controlled and are not overridden
-  by project settings. Cross-project conversational continuity is specified in
-  `.wiki/features/conversational-continuity/`; the current runtime has project-scoped
-  resumable sessions and memory surfaces, not yet a unified temporal conversation index.
+  by project settings. `MemoryHygieneStore` manages source-linked semantic records.
+- `src/continuity/` — local episode discovery, indexing, source verification, search,
+  temporal rollups, reviewed semantic candidates and bounded answer-time recall.
+- `src/decision/` — optional pinned Jev current-request classification for recall and
+  speech act, with local fallback and no historical-text transmission to Jev.
 - `src/experience/` — deterministic capture, compilation, storage, and retrieval of
   bounded experiential guidance. On repeated identical tool failures, active guidance
   reaches both human announcements and the next outbound model request ephemerally via

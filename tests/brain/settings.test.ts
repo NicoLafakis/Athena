@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { resolveBrainPaths } from '../../src/brain/paths.js'
-import { loadSettings, saveSettings, SettingsSchema, makeSettingsSchema } from '../../src/brain/settings.js'
+import { loadGlobalTimeZone, loadSettings, saveSettings, SettingsSchema, makeSettingsSchema } from '../../src/brain/settings.js'
 
 let home: string
 let project: string
@@ -22,6 +22,7 @@ describe('loadSettings', () => {
     const s = loadSettings(paths)
     expect(s.model).toBe(SettingsSchema.parse({}).model)
     expect(s.permissionMode).toBe('normal')
+    expect(s.jev.enabled).toBe(false)
     expect(s.allow).toEqual([])
     expect(s.accessibility).toEqual({
       presentation: 'standard',
@@ -153,6 +154,87 @@ describe('loadSettings', () => {
     const s = loadSettings(resolveBrainPaths({ cwd: project, homeOverride: home }))
     expect(s.model).toBe('opus')
     expect(s.allow).toEqual(['Read(**)', 'Bash(git:*)'])
+  })
+
+  it('loads the global IANA timezone for continuity and ignores project timezone overrides', () => {
+    mkdirSync(join(home, '.athena'), { recursive: true })
+    writeFileSync(join(home, '.athena', 'settings.json'), JSON.stringify({ timeZone: 'Europe/Paris' }))
+    mkdirSync(join(project, '.athena'), { recursive: true })
+    writeFileSync(join(project, '.athena', 'settings.json'), JSON.stringify({ timeZone: 'America/Los_Angeles' }))
+    const warnings: string[] = []
+    const settings = loadSettings(
+      resolveBrainPaths({ cwd: project, homeOverride: home }),
+      'anthropic',
+      (warning) => warnings.push(warning),
+    )
+
+    expect(settings.timeZone).toBe('Europe/Paris')
+    expect(warnings).toContain('Project settings cannot override the global user timezone; ignoring project timeZone.')
+  })
+
+  it('loads the continuity timezone without validating unrelated model settings', () => {
+    mkdirSync(join(home, '.athena'), { recursive: true })
+    writeFileSync(
+      join(home, '.athena', 'settings.json'),
+      JSON.stringify({ model: 'sol', timeZone: 'America/New_York' }),
+    )
+    const paths = resolveBrainPaths({ cwd: project, homeOverride: home })
+    const warnings: string[] = []
+
+    expect(loadGlobalTimeZone(paths, (warning) => warnings.push(warning))).toBe('America/New_York')
+    expect(warnings).toEqual([])
+  })
+
+  it('keeps Jev enablement global so an individual project cannot opt into provider calls', () => {
+    mkdirSync(join(home, '.athena'), { recursive: true })
+    writeFileSync(join(home, '.athena', 'settings.json'), JSON.stringify({ jev: { enabled: true } }))
+    mkdirSync(join(project, '.athena'), { recursive: true })
+    writeFileSync(join(project, '.athena', 'settings.json'), JSON.stringify({ jev: { enabled: false } }))
+    const warnings: string[] = []
+
+    const settings = loadSettings(
+      resolveBrainPaths({ cwd: project, homeOverride: home }),
+      'anthropic',
+      (warning) => warnings.push(warning),
+    )
+
+    expect(settings.jev.enabled).toBe(true)
+    expect(warnings).toContain('Project settings cannot override global Jev decision settings; ignoring project jev.')
+  })
+
+  it.each([null, { enabled: 'true' }, { enabled: true, unexpected: true }, true])(
+    'disables Jev for malformed global configuration %j even when project opts in',
+    (jev) => {
+      mkdirSync(join(home, '.athena'), { recursive: true })
+      writeFileSync(join(home, '.athena', 'settings.json'), JSON.stringify({ jev }))
+      mkdirSync(join(project, '.athena'), { recursive: true })
+      writeFileSync(join(project, '.athena', 'settings.json'), JSON.stringify({ jev: { enabled: true } }))
+      const warnings: string[] = []
+      const settings = loadSettings(resolveBrainPaths({ cwd: project, homeOverride: home }), 'anthropic', warning => warnings.push(warning))
+      expect(settings.jev.enabled).toBe(false)
+      expect(warnings.some(warning => warning.includes('Jev is disabled'))).toBe(true)
+      expect(warnings).toContain('Project settings cannot override global Jev decision settings; ignoring project jev.')
+    },
+  )
+
+  it('does not let a project opt into Jev when the global setting is absent', () => {
+    mkdirSync(join(project, '.athena'), { recursive: true })
+    writeFileSync(join(project, '.athena', 'settings.json'), JSON.stringify({ jev: { enabled: true } }))
+    expect(loadSettings(resolveBrainPaths({ cwd: project, homeOverride: home })).jev.enabled).toBe(false)
+  })
+
+  it('drops an invalid optional global timezone and reports the OS fallback', () => {
+    mkdirSync(join(home, '.athena'), { recursive: true })
+    writeFileSync(join(home, '.athena', 'settings.json'), JSON.stringify({ timeZone: 'Mars/Olympus_Mons' }))
+    const warnings: string[] = []
+    const settings = loadSettings(
+      resolveBrainPaths({ cwd: project, homeOverride: home }),
+      'anthropic',
+      (warning) => warnings.push(warning),
+    )
+
+    expect(settings.timeZone).toBeUndefined()
+    expect(warnings[0]).toContain('OS local timezone will be inferred')
   })
 
   it('protectedPaths defaults to empty and concatenates global-first', () => {

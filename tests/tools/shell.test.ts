@@ -218,7 +218,8 @@ describe('killProcessTree', () => {
       return { on: () => ({}) }
     }) as unknown as typeof import('node:child_process').spawn
     const child = { pid: 1234 as number | undefined, kill: vi.fn() }
-    return { spawnCalls, fakeSpawn, child }
+    const killFn = vi.fn() as unknown as typeof process.kill
+    return { spawnCalls, fakeSpawn, child, killFn }
   }
 
   it('uses taskkill /T /F on win32 to kill the whole tree', () => {
@@ -236,11 +237,21 @@ describe('killProcessTree', () => {
     expect(child.kill).toHaveBeenCalled()
   })
 
-  it('uses a plain signal kill on non-win32 platforms', () => {
+  it('falls back to child.kill when the process-group signal fails', () => {
     const { spawnCalls, fakeSpawn, child } = fakes()
-    killProcessTree(child, 'linux', fakeSpawn)
+    const killFn = vi.fn(() => { throw new Error('process group unavailable') }) as unknown as typeof process.kill
+    killProcessTree(child, 'linux', fakeSpawn, killFn)
     expect(spawnCalls).toEqual([])
-    expect(child.kill).toHaveBeenCalled()
+    expect(killFn).toHaveBeenCalledWith(-1234, 'SIGTERM')
+    expect(child.kill).toHaveBeenCalledOnce()
+  })
+
+  it('uses a plain signal kill on non-win32 platforms', () => {
+    const { spawnCalls, fakeSpawn, child, killFn } = fakes()
+    killProcessTree(child, 'linux', fakeSpawn, killFn)
+    expect(spawnCalls).toEqual([])
+    expect(killFn).toHaveBeenCalledWith(-1234, 'SIGTERM')
+    expect(child.kill).not.toHaveBeenCalled()
   })
 })
 

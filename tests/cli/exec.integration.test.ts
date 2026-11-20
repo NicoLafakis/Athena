@@ -8,6 +8,9 @@ import {
   ExperienceStore,
   GuidanceRecordSchema,
 } from '../../src/experience/index.js'
+import { ContinuityStore } from '../../src/continuity/store.js'
+import { MemoryHygieneStore } from '../../src/brain/hygiene.js'
+import { SessionStore } from '../../src/harness/sessions.js'
 import { projectId } from '../../src/harness/trust.js'
 
 let root: string
@@ -89,6 +92,64 @@ describe('athena exec process contract', () => {
     expect(result.status, result.stderr).toBe(0)
     expect(result.stdout).toContain('Status: no semantic state is available for this run.')
     expect(result.stderr).not.toContain('Fixture model script exhausted')
+  })
+
+  it('runs the standalone memory rank command locally without returning source text', () => {
+    writeFileSync(script, '[]')
+    const sessionsRoot = join(home, '.athena', 'sessions')
+    const session = new SessionStore(sessionsRoot, project).create()
+    session.appendMessage({ role: 'user', content: 'We decided to keep continuity memories linked to their context.' })
+    session.appendMessage({ role: 'assistant', content: 'The source session remains available for inspection.' })
+    session.appendEvent({ type: 'turn-done' })
+    const continuityStore = new ContinuityStore(join(home, '.athena', 'continuity'))
+    continuityStore.rebuild(sessionsRoot)
+    const [episode] = continuityStore.listEpisodes()
+    expect(episode).toBeDefined()
+
+    const result = run(['memory', 'rank', 'what', 'did', 'we', 'decide', 'about', 'continuity'])
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain('Local recall ranking (intent: decision')
+    expect(result.stdout).toContain(`episodic ${episode!.id}`)
+    expect(result.stdout).not.toContain('We decided to keep continuity memories')
+    expect(result.stderr).not.toContain('Fixture model script exhausted')
+  })
+
+  it('generates source-verified review candidates and applies an explicit local promotion', () => {
+    writeFileSync(script, '[]')
+    const sessionsRoot = join(home, '.athena', 'sessions')
+    for (let index = 0; index < 2; index++) {
+      const session = new SessionStore(sessionsRoot, project).create()
+      session.appendMessage({ role: 'user', content: 'I prefer source-linked continuity candidates.' })
+      session.appendMessage({ role: 'assistant', content: 'The preference is indexed from this session.' })
+      session.appendEvent({ type: 'turn-done' })
+    }
+    expect(run(['memory', 'rebuild']).status).toBe(0)
+
+    const candidates = run(['memory', 'candidates'])
+    expect(candidates.status, candidates.stderr).toBe(0)
+    expect(candidates.stdout).toContain('Candidate scan: generated 1, updated 0, unchanged 0.')
+    expect(candidates.stdout).toContain('I prefer source-linked continuity candidates.')
+    expect(candidates.stdout.match(/Sources: [^\n]+/)).toBeTruthy()
+    const memoryId = candidates.stdout.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i)?.[0]
+    expect(memoryId).toBeDefined()
+
+    const reviewed = run(['memory', 'review', memoryId!, 'promote'])
+    expect(reviewed.status, reviewed.stderr).toBe(0)
+    expect(reviewed.stdout).toContain(`Semantic memory ${memoryId} promoted.`)
+    expect(new MemoryHygieneStore(join(home, '.athena', 'memory')).listActive().map((item) => item.memoryId))
+      .toContain(memoryId)
+    expect(reviewed.stderr).not.toContain('Fixture model script exhausted')
+
+    const forgotten = run(['memory', 'forget', memoryId!])
+    expect(forgotten.status, forgotten.stderr).toBe(0)
+    expect(forgotten.stdout).toContain(`Semantic memory ${memoryId} forgotten.`)
+    const forgottenMemory = new MemoryHygieneStore(join(home, '.athena', 'memory')).get(memoryId!)!
+    expect(forgottenMemory).toMatchObject({ status: 'tombstoned', content: '', forgottenAt: expect.any(String) })
+    expect(readFileSync(forgottenMemory.file, 'utf8')).not.toContain('I prefer source-linked continuity candidates.')
+    expect(new MemoryHygieneStore(join(home, '.athena', 'memory')).forgottenSourceKeys().size).toBeGreaterThanOrEqual(2)
+    const rescanned = run(['memory', 'candidates'])
+    expect(rescanned.status, rescanned.stderr).toBe(0)
+    expect(rescanned.stdout).toContain('generated 0, updated 0, unchanged 0')
   })
 
   it('runs from an argument and emits one stable JSON envelope', () => {
@@ -220,5 +281,27 @@ describe('athena exec process contract', () => {
       confidence: 0.9,
     })
     expect(result.stdout).not.toContain('Sensitive stored guidance')
+  })
+
+  it('suppresses deleted session episodes and restores them through the session commands', () => {
+    const sessionsRoot = join(home, '.athena', 'sessions')
+    const sessions = new SessionStore(sessionsRoot, project)
+    const session = sessions.create()
+    session.appendMessage({ role: 'user', content: 'A conversation that can be restored.' })
+    session.appendEvent({ type: 'turn-done' })
+    const continuityRoot = join(home, '.athena', 'continuity')
+    expect(new ContinuityStore(continuityRoot).rebuild(sessionsRoot).episodeCount).toBe(1)
+
+    const deleted = run(['session', 'delete', session.id])
+    expect(deleted.status, deleted.stderr).toBe(0)
+    expect(deleted.stdout).toContain('recoverable copy')
+    expect(deleted.stdout).toContain('continuity suppressed')
+    expect(new ContinuityStore(continuityRoot).listEpisodes()).toEqual([])
+    expect(new ContinuityStore(continuityRoot).rebuild(sessionsRoot).episodeCount).toBe(0)
+
+    const restored = run(['session', 'restore', session.id])
+    expect(restored.status, restored.stderr).toBe(0)
+    expect(restored.stdout).toContain('continuity indexed 1 episode(s)')
+    expect(new ContinuityStore(continuityRoot).listEpisodes()).toHaveLength(1)
   })
 })
