@@ -48,6 +48,7 @@ export function VoiceHud({ store }: VoiceHudProps) {
   const [tickNow, setTickNow] = useState<number>(() => Date.now())
   const [spinIdx, setSpinIdx] = useState(0)
   const [scrollFromBottom, setScrollFromBottom] = useState(0)
+  const [eegOverride, setEegOverride] = useState<boolean | null>(null)
   const [dims, setDims] = useState(() => ({
     cols: stdout?.columns ?? 120,
     rows: stdout?.rows ?? 30,
@@ -89,7 +90,9 @@ export function VoiceHud({ store }: VoiceHudProps) {
 
   const cols = Math.max(60, dims.cols)
   const rows = Math.max(16, dims.rows)
-  const showSplit = cols >= 92
+  const canSplit = cols >= 92
+  const showEeg = eegOverride ?? canSplit
+  const showChat = canSplit || !showEeg
 
   // Strict fullscreen row budget (AGENTS.md §1):
   // Sticky header: 5 rows (border 2 + title 1 + dual meters 2)
@@ -99,8 +102,8 @@ export function VoiceHud({ store }: VoiceHudProps) {
   const FOOTER_ROWS = 1
   const middleRows = Math.max(10, rows - HEADER_ROWS - FOOTER_ROWS)
 
-  const leftWidth = showSplit ? Math.floor(cols * 0.56) : cols
-  const rightWidth = showSplit ? cols - leftWidth : 0
+  const leftWidth = showChat ? (showEeg ? Math.floor(cols * 0.56) : cols) : 0
+  const rightWidth = showEeg ? (showChat ? cols - leftWidth : cols) : 0
 
   // Left pane split: scrollable feed on top, compact hand-offs strip pinned on bottom
   const visibleHandoffs = state.handoffs.slice(-2)
@@ -122,8 +125,13 @@ export function VoiceHud({ store }: VoiceHudProps) {
   const maxScroll = Math.max(0, state.feed.length - 1)
   const clampedScroll = Math.min(scrollFromBottom, maxScroll)
 
-  // Keyboard scrolling (obeys AGENTS.md §5: PageUp/PageDown + Ctrl+PageUp/Ctrl+PageDown)
-  useInput((_input, key) => {
+  // Keyboard controls (obeys AGENTS.md §5: PageUp/PageDown + Ctrl+PageUp/Ctrl+PageDown;
+  // Tab / B toggles EEG visualization so it never conflicts with Ctrl+C exit)
+  useInput((input, key) => {
+    if (key.tab || (!key.ctrl && !key.meta && input.toLowerCase() === 'b')) {
+      setEegOverride((prev) => !(prev ?? canSplit))
+      return
+    }
     if (key.pageUp) {
       if (key.ctrl) {
         setScrollFromBottom(maxScroll)
@@ -160,15 +168,15 @@ export function VoiceHud({ store }: VoiceHudProps) {
   const brainCanvasCols = Math.max(20, rightWidth - 4)
   const brainCanvasRows = Math.max(6, middleRows - 6) // border(2) + title(1) + telemetry(3)
   const orbitalRows = useMemo(
-    () => (showSplit ? renderBrainOrbitalLines(state.brain, brainCanvasCols, brainCanvasRows) : []),
-    [showSplit, state.brain, brainCanvasCols, brainCanvasRows],
+    () => (showEeg ? renderBrainOrbitalLines(state.brain, brainCanvasCols, brainCanvasRows) : []),
+    [showEeg, state.brain, brainCanvasCols, brainCanvasRows],
   )
   const hotNodes = useMemo(() => topFiringNodes(state.brain, 3), [state.brain])
 
   const badge = PHASE_BADGE[state.phase]
   const micActive = state.micLevel > 8 || state.phase === 'hearing'
   const athenaActive = state.athenaLevel > 5 || state.phase === 'speaking'
-  const waveWidth = Math.max(10, Math.min(24, Math.floor((cols - 46) / 2)))
+  const waveWidth = Math.max(8, Math.min(24, Math.floor((cols - 52) / 2)))
 
   return (
     <Box flexDirection="column" height={rows} width={cols}>
@@ -216,6 +224,7 @@ export function VoiceHud({ store }: VoiceHudProps) {
       {/* MIDDLE SPLIT VIEWPORT (exact middleRows, clipped) */}
       <Box flexDirection="row" height={middleRows} overflow="hidden">
         {/* LEFT PANE: Scrollable Conversation + Pinned Hand-Off Strip */}
+        {showChat && (
         <Box flexDirection="column" width={leftWidth} height={middleRows} overflow="hidden">
           {/* Scrollable Conversation Container */}
           <Box
@@ -315,9 +324,10 @@ export function VoiceHud({ store }: VoiceHudProps) {
             )}
           </Box>
         </Box>
+        )}
 
         {/* RIGHT PANE: Live Orbital EEG Neural Scan */}
-        {showSplit && (
+        {showEeg && (
           <Box
             flexDirection="column"
             width={rightWidth}
@@ -393,10 +403,12 @@ export function VoiceHud({ store }: VoiceHudProps) {
       {/* STICKY FOOTER (exact 1 row) */}
       <Box height={FOOTER_ROWS} paddingX={1} justifyContent="space-between" overflow="hidden">
         <Text dimColor wrap="truncate-end">
-          PgUp/PgDn scroll · Ctrl+PgDn latest · Ctrl+C exit
+          {cols >= 84
+            ? 'PgUp/PgDn scroll · Ctrl+PgDn latest · Tab/B toggle EEG · Ctrl+C quit'
+            : 'PgUp/Dn scroll · Tab/B EEG · Ctrl+C quit'}
         </Text>
         <Text dimColor wrap="truncate-end">
-          {showSplit ? 'Split EEG active' : 'Compact view (widen terminal ≥92 cols for EEG)'}
+          {showEeg ? (showChat ? 'EEG split' : 'EEG full') : 'Chat only'}
         </Text>
       </Box>
     </Box>

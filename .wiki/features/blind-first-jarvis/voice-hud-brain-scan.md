@@ -9,6 +9,6 @@ When running `athena` (bare default) or `athena voice` on an interactive TTY (wi
 3. **Right Pane (~44% width, `cols >= 92`) — Live Orbital Neural "Brain Scan"** — High-resolution Unicode Braille (`0x2800`..`0x28FF`) orbital diagram of Athena's architecture (`SESSION CONTROLLER` core, `ENGINE`, `BRAIN`, `TRUTH PLANE`, `HARNESS`, `GUARDS`, `LIBRARIAN`, `JOURNAL`, `LEARNING`, `VOICE`).
    - Driven directly by live `activeController.bus` (`EngineEvent`) and `VoiceHudStore` events (`mic-level`, `athena-level`, `handoff-start`, `handoff-end`).
    - Firing nodes flash bright and illuminate synaptic arcs to the `SESSION CONTROLLER` core, then decay smoothly with an exponential EEG afterglow (stopping ticks automatically when all nodes cool to `0`).
-4. **Sticky Footer (1 row)** — Scroll shortcuts, live firing count, and `Ctrl+C` exit.
+4. **Sticky Footer (1 row)** — Scroll shortcuts (`PgUp`/`PgDn`, `Ctrl+PgDn`), `Tab`/`B` EEG view toggle, view mode indicator (`EEG split` / `EEG full` / `Chat only`), and `Ctrl+C quit`.
 
-On narrow terminals (`cols < 92`), the layout collapses cleanly to a single-column scrollable conversation + hand-off view without overflowing or corrupting frames.
+On narrow terminals (`cols < 92`), the layout starts in single-column conversation view without overflowing or corrupting frames, and pressing `Tab` or `B` toggles full-pane EEG visualization without needing to resize the terminal or conflict with `Ctrl+C`. On wide terminals (`cols >= 92`), `Tab` or `B` toggles between split EEG and full-width chat-only view.
