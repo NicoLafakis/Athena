@@ -49,6 +49,7 @@ export {
   RealtimeTransportError,
   RealtimeVoiceClient,
   buildVoiceInstructions,
+  isLiveSessionModel,
   isRealtimeTransportFailure,
   sanitizeVoiceUsage,
   validateRealtimeKey,
@@ -61,6 +62,13 @@ export {
   type RealtimeVoiceClientOptions,
   type RealtimeVoiceModel,
 } from './realtime.js'
+export { LiveVoiceClient } from './live-client.js'
+export {
+  PcmVadSegmenter,
+  WindowsDirectPcmInput,
+  type PcmVadSegmenterOptions,
+  type WindowsDirectPcmInputOptions,
+} from './windows-pcm-capture.js'
 export {
   NULL_VOICE_TELEMETRY,
   VOICE_EVENTS,
@@ -113,6 +121,7 @@ export {
   permissionNoticeText,
   runVoiceProbe,
   runVoiceSession,
+  validateVoiceKey,
   waitForWakeProbe,
   type KeyboardVoiceCommandInputOptions,
   type WakeProbeOptions,

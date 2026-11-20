@@ -2,9 +2,18 @@ import WebSocket from 'ws'
 import { z } from 'zod'
 import { plainBounded } from '../interaction/format.js'
 
-export const REALTIME_MODELS = ['gpt-realtime-2.1-mini', 'gpt-realtime-2.1'] as const
+export const REALTIME_MODELS = [
+  'gpt-realtime-2.1-mini',
+  'gpt-realtime-2.1',
+  'gpt-live-1.1',
+  'gpt-live-1',
+] as const
 export type RealtimeVoiceModel = (typeof REALTIME_MODELS)[number]
 export const DEFAULT_REALTIME_MODEL: RealtimeVoiceModel = 'gpt-realtime-2.1-mini'
+
+export function isLiveSessionModel(model: string): boolean {
+  return model === 'gpt-live-1.1' || model === 'gpt-live-1'
+}
 
 /**
  * The provider caps every Realtime session and will not extend one: at the deadline it
@@ -62,6 +71,7 @@ export type RealtimeToolHandler = (call: RealtimeToolCall) => Promise<unknown>
 
 export interface RealtimeTurnResult {
   transcript: string
+  userTranscript?: string
   audio: Buffer
   usage: unknown
 }
@@ -94,7 +104,7 @@ export function sanitizeVoiceUsage(value: unknown): unknown {
   )
 }
 
-const VOICE_TOOLS = [
+export const VOICE_TOOLS = [
   {
     type: 'function',
     name: 'submit_turn',
@@ -162,6 +172,7 @@ export class RealtimeVoiceClient {
   private pending: {
     handler: RealtimeToolHandler
     transcript: string[]
+    userTranscript: string[]
     audio: Buffer[]
     usage: unknown[]
     resolve: (result: RealtimeTurnResult) => void
@@ -198,6 +209,7 @@ export class RealtimeVoiceClient {
             input: {
               format: { type: 'audio/pcm', rate: 24_000 },
               noise_reduction: { type: 'far_field' },
+              transcription: { model: 'gpt-live-transcribe' },
               turn_detection: null,
             },
             output: { format: { type: 'audio/pcm', rate: 24_000 }, voice: 'marin' },
@@ -314,7 +326,7 @@ export class RealtimeVoiceClient {
       const timer = setTimeout(() => {
         this.fail(new RealtimeTransportError('Realtime response timed out.', 'response_timeout'))
       }, this.responseTimeoutMs)
-      this.pending = { handler, transcript: [], audio: [], usage: [], resolve, reject, timer }
+      this.pending = { handler, transcript: [], userTranscript: [], audio: [], usage: [], resolve, reject, timer }
     })
     try {
       sendInput()
@@ -366,6 +378,14 @@ export class RealtimeVoiceClient {
     if (!pending) return
     if (event.type === 'response.output_audio.delta' && typeof event.delta === 'string') {
       pending.audio.push(Buffer.from(event.delta, 'base64'))
+      return
+    }
+    if (
+      event.type === 'conversation.item.input_audio_transcription.completed' &&
+      typeof event.transcript === 'string'
+    ) {
+      const trimmed = event.transcript.trim()
+      if (trimmed) pending.userTranscript.push(trimmed)
       return
     }
     if (
@@ -428,8 +448,10 @@ export class RealtimeVoiceClient {
     }
     clearTimeout(pending.timer)
     this.pending = null
+    const userText = pending.userTranscript.join(' ').trim()
     pending.resolve({
       transcript: pending.transcript.join('').trim(),
+      ...(userText ? { userTranscript: userText } : {}),
       audio: Buffer.concat(pending.audio),
       usage: pending.usage,
     })

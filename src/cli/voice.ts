@@ -30,6 +30,7 @@ export async function runVoiceCommand(
     VoiceAttentionBridge,
     VoiceHudStore,
     VoiceTelemetry,
+    WindowsDirectPcmInput,
     WindowsPersistentWakeInput,
     createInitialVoiceHudState,
     ensureVoiceKey,
@@ -39,7 +40,7 @@ export async function runVoiceCommand(
     runVoiceProbe,
     runVoiceSession,
     saveVoiceKey,
-    validateRealtimeKey,
+    validateVoiceKey,
   } = await import('../voice/index.js')
   const promptVisibleLine = async (question: string): Promise<string> => {
     const { createInterface } = await import('node:readline/promises')
@@ -62,8 +63,8 @@ export async function runVoiceCommand(
     try {
       const key = await promptVisibleLine(VOICE_KEY_PROMPT)
       if (!key) throw new Error('No key entered; nothing was changed.')
-      console.log(`Validating OpenAI Realtime access with ${cmd.model}…`)
-      await validateRealtimeKey(key, { model: cmd.model })
+      console.log(`Validating OpenAI voice access with ${cmd.model}…`)
+      await validateVoiceKey(key, { model: cmd.model })
       saveVoiceKey(credentialVault, key)
       console.log('OpenAI voice key saved to the OS credential vault and verified by readback.')
     } catch (error) {
@@ -79,8 +80,8 @@ export async function runVoiceCommand(
       vault: credentialVault,
       onWarn: (message) => console.error(message),
       validate: (key) => {
-        console.log(`Validating OpenAI Realtime access with ${cmd.model}…`)
-        return validateRealtimeKey(key, { model: cmd.model })
+        console.log(`Validating OpenAI voice access with ${cmd.model}…`)
+        return validateVoiceKey(key, { model: cmd.model })
       },
       ...(process.stdin.isTTY && process.stdout.isTTY
         ? {
@@ -296,34 +297,59 @@ export async function runVoiceCommand(
     }
     const voiceInput = cmd.keyboard
       ? new KeyboardVoiceCommandInput({ onInterrupt: onVoiceSigint })
-      : new WindowsPersistentWakeInput({
-          requireWakeWord: cmd.wakeWord === true,
-          onReady: (recognizer) => {
-            hudStore?.dispatch({ type: 'phase', phase: 'standby' })
-            hudStore?.dispatch({
-              type: 'status',
-              text: cmd.wakeWord
-                ? `Mic open (${recognizer ?? 'Windows Speech'}) — say "Athena"`
-                : `Mic open (${recognizer ?? 'Windows Speech'}) — speak anytime`,
-            })
-          },
-          onAudioLevel: (level) => {
-            hudStore?.dispatch({ type: 'mic-level', level })
-          },
-          onSpeechDetected: () => {
-            hudStore?.dispatch({ type: 'phase', phase: 'hearing' })
-          },
-          onHypothesis: (text) => {
-            hudStore?.dispatch({ type: 'hypothesis', text })
-          },
-          onUserUtterance: (text) => {
-            hudStore?.dispatch({ type: 'feed', role: 'user', text })
-            hudStore?.dispatch({ type: 'phase', phase: 'working' })
-            hudStore?.dispatch({ type: 'status', text: 'Thinking…' })
-          },
-          onRejected: (text, confidence) => {
-            hudStore?.dispatch({ type: 'phase', phase: 'standby' })
-            if (cmd.wakeWord) {
+      : !cmd.wakeWord
+        ? new WindowsDirectPcmInput({
+            onReady: (backend) => {
+              hudStore?.dispatch({ type: 'phase', phase: 'standby' })
+              hudStore?.dispatch({
+                type: 'status',
+                text: `Mic open (${backend}) — speak anytime`,
+              })
+            },
+            onAudioLevel: (level) => {
+              hudStore?.dispatch({ type: 'mic-level', level })
+            },
+            onSpeechStart: () => {
+              hudStore?.dispatch({ type: 'phase', phase: 'hearing' })
+              hudStore?.dispatch({ type: 'status', text: 'Listening…' })
+            },
+            onUtteranceCaptured: () => {
+              hudStore?.dispatch({ type: 'phase', phase: 'working' })
+              hudStore?.dispatch({ type: 'status', text: 'Transcribing & thinking…' })
+            },
+            onWarn: (message) => {
+              if (hudStore) {
+                hudStore.dispatch({ type: 'feed', role: 'system', text: message })
+              } else {
+                console.error(message)
+              }
+            },
+          })
+        : new WindowsPersistentWakeInput({
+            requireWakeWord: true,
+            onReady: (recognizer) => {
+              hudStore?.dispatch({ type: 'phase', phase: 'standby' })
+              hudStore?.dispatch({
+                type: 'status',
+                text: `Mic open (${recognizer ?? 'Windows Speech'}) — say "Athena"`,
+              })
+            },
+            onAudioLevel: (level) => {
+              hudStore?.dispatch({ type: 'mic-level', level })
+            },
+            onSpeechDetected: () => {
+              hudStore?.dispatch({ type: 'phase', phase: 'hearing' })
+            },
+            onHypothesis: (text) => {
+              hudStore?.dispatch({ type: 'hypothesis', text })
+            },
+            onUserUtterance: (text) => {
+              hudStore?.dispatch({ type: 'feed', role: 'user', text })
+              hudStore?.dispatch({ type: 'phase', phase: 'working' })
+              hudStore?.dispatch({ type: 'status', text: 'Thinking…' })
+            },
+            onRejected: (text, confidence) => {
+              hudStore?.dispatch({ type: 'phase', phase: 'standby' })
               hudStore?.dispatch({
                 type: 'feed',
                 role: 'system',
@@ -331,26 +357,25 @@ export async function runVoiceCommand(
                   ? `Heard "${text}" (${Math.round(confidence * 100)}% — ignored, say "Athena …")`
                   : 'Heard audio that did not match "Athena …"',
               })
-            }
-          },
-          onWarn: (message) => {
-            if (hudStore) {
-              hudStore.dispatch({ type: 'feed', role: 'system', text: message })
-            } else {
-              console.error(message)
-            }
-          },
-          telemetry: voiceTelemetry,
-          onListening: () => {
-            if (hudStore) {
-              hudStore.dispatch({ type: 'phase', phase: 'hearing' })
-              hudStore.dispatch({ type: 'status', text: 'Wake word heard — listening for command…' })
-            } else if (!tuiInstance) {
-              console.log('Athena: listening…')
-            }
-            void playListeningCue().catch(() => {})
-          },
-        })
+            },
+            onWarn: (message) => {
+              if (hudStore) {
+                hudStore.dispatch({ type: 'feed', role: 'system', text: message })
+              } else {
+                console.error(message)
+              }
+            },
+            telemetry: voiceTelemetry,
+            onListening: () => {
+              if (hudStore) {
+                hudStore.dispatch({ type: 'phase', phase: 'hearing' })
+                hudStore.dispatch({ type: 'status', text: 'Wake word heard — listening for command…' })
+              } else if (!tuiInstance) {
+                console.log('Athena: listening…')
+              }
+              void playListeningCue().catch(() => {})
+            },
+          })
     process.on('SIGINT', onVoiceSigint)
     try {
       await runVoiceSession({
@@ -371,6 +396,9 @@ export async function runVoiceCommand(
         input: voiceInput,
         ...(hudStore
           ? {
+              onUserTranscript: (text) => {
+                hudStore.dispatch({ type: 'feed', role: 'user', text })
+              },
               onStatus: (message) => {
                 if (message.startsWith('Athena: ')) {
                   hudStore.dispatch({ type: 'feed', role: 'athena', text: message.slice(8) })

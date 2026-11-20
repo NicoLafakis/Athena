@@ -9,9 +9,18 @@ import type { PermissionMode, RunLimits, SandboxMode } from '../engine/types.js'
 import type { ProjectCapability } from '../harness/trust.js'
 
 export type AccessibilityPresentation = 'standard' | 'screen-reader'
-export type VoiceModel = 'gpt-realtime-2.1-mini' | 'gpt-realtime-2.1'
+export type VoiceModel =
+  | 'gpt-realtime-2.1-mini'
+  | 'gpt-realtime-2.1'
+  | 'gpt-live-1.1'
+  | 'gpt-live-1'
 
-const VOICE_MODELS: readonly VoiceModel[] = ['gpt-realtime-2.1-mini', 'gpt-realtime-2.1']
+const VOICE_MODELS: readonly VoiceModel[] = [
+  'gpt-realtime-2.1-mini',
+  'gpt-realtime-2.1',
+  'gpt-live-1.1',
+  'gpt-live-1',
+]
 const DEFAULT_VOICE_MODEL: VoiceModel = 'gpt-realtime-2.1-mini'
 const SEMANTIC_MEMORY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -125,7 +134,7 @@ export const EXEC_USAGE =
   '[--session|--resume id] [--provider id] [--model key] [--effort level]'
 
 const VOICE_USAGE =
-  'Usage: athena voice [probe|auth] [--model gpt-realtime-2.1-mini|gpt-realtime-2.1] [--keyboard] [--tui] [--wake-word]'
+  'Usage: athena voice [probe|auth] [--model gpt-realtime-2.1-mini|gpt-realtime-2.1|gpt-live-1.1|gpt-live-1] [--keyboard] [--tui] [--wake-word]'
 
 const AUTH_USAGE =
   `Usage: athena auth [status] [--provider <${PROVIDER_IDS.join('|')}>] ` +

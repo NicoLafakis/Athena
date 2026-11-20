@@ -16,12 +16,15 @@ import {
   ReconnectingRealtimeClient,
   RealtimeVoiceClient,
   buildVoiceInstructions,
+  isLiveSessionModel,
   isRealtimeTransportFailure,
   type ReconnectingRealtimeOptions,
   type RealtimeToolCall,
   type RealtimeTurnResult,
+  type RealtimeVoiceClientOptions,
   type RealtimeVoiceModel,
 } from './realtime.js'
+import { LiveVoiceClient } from './live-client.js'
 import {
   NULL_VOICE_TELEMETRY,
   type VoiceEventLabel,
@@ -49,7 +52,7 @@ export interface VoiceCommandInput {
 
 export type VoiceCommand =
   | { kind: 'text'; text: string }
-  | { kind: 'audio'; pcm: Buffer; wakeTranscript: string }
+  | { kind: 'audio'; pcm: Buffer; wakeTranscript?: string }
 
 /** The streaming subset of ChildProcess the wake listener needs (injectable for tests). */
 export interface WakeListenerProcess {
@@ -565,13 +568,14 @@ export async function waitForWakeProbe(options: WakeProbeOptions = {}): Promise<
       input.close()
     }
     if (command?.kind === 'audio') {
-      heard.push(command.wakeTranscript)
+      const wakeTranscript = command.wakeTranscript ?? ''
+      if (wakeTranscript) heard.push(wakeTranscript)
       return {
         passed: true,
         heard,
         // A fluid "Athena, <command>" carries the wake word; a command spoken after a
         // bare wake word does not, and is already the command itself.
-        command: stripWakePhrase(command.wakeTranscript) ?? command.wakeTranscript,
+        command: (wakeTranscript ? stripWakePhrase(wakeTranscript) : null) ?? (wakeTranscript || null),
         audio: command.pcm,
         detail: `persistent wake listener, recognizer: ${seen.recognizer ?? 'unreported'}`,
       }
@@ -614,6 +618,8 @@ export interface VoiceSessionOptions {
   play?: (audio: Buffer) => Promise<void>
   speakFallback?: (text: string) => Promise<void>
   onStatus?: (message: string) => void
+  /** Called with OpenAI's real input audio transcription when returned on a voice turn. */
+  onUserTranscript?: (text: string) => void
   /**
    * Lifecycle counters, provider usage, and latency. Optional and non-fatal by
    * construction: a ledger that cannot be written must never cost a turn.
@@ -757,11 +763,19 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
 
   const client: VoiceRealtimeClient = options.client ?? new ReconnectingRealtimeClient({
     ...options.reconnect,
-    open: (generation) => options.clientFactory?.(generation) ?? new RealtimeVoiceClient({
-      apiKey: options.apiKey,
-      model: options.model,
-      instructions: sessionInstructions(generation),
-    }),
+    open: (generation) => options.clientFactory?.(generation) ?? (
+      isLiveSessionModel(options.model)
+        ? new LiveVoiceClient({
+            apiKey: options.apiKey,
+            model: options.model,
+            instructions: sessionInstructions(generation),
+          })
+        : new RealtimeVoiceClient({
+            apiKey: options.apiKey,
+            model: options.model,
+            instructions: sessionInstructions(generation),
+          })
+    ),
     onWarn: (message) => status(message),
     onSession: ({ generation, reason }) => {
       // A planned renewal and an unplanned reconnect cost the same but mean different
@@ -791,6 +805,9 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
    */
   const present = async (turn: RealtimeTurnResult, context?: VoiceTurnContext): Promise<void> => {
     meter.record({ event: 'provider.usage', meters: turn.usage })
+    if (turn.userTranscript) {
+      options.onUserTranscript?.(turn.userTranscript)
+    }
     if (turn.transcript) {
       lastSpoken = turn.transcript
       status(`Athena: ${turn.transcript}`)
@@ -1289,7 +1306,9 @@ export async function runVoiceProbe(apiKey: string, model: RealtimeVoiceModel): 
     )
     report.push('Wake diagnostic note: Windows only gates on Athena; OpenAI receives the raw audio.')
   }
-  const client = new RealtimeVoiceClient({ apiKey, model })
+  const client: VoiceRealtimeClient = isLiveSessionModel(model)
+    ? new LiveVoiceClient({ apiKey, model })
+    : new RealtimeVoiceClient({ apiKey, model })
   try {
     await client.connect()
     report.push(`OpenAI Realtime connection: passed (${model}).`)
@@ -1307,4 +1326,20 @@ export async function runVoiceProbe(apiKey: string, model: RealtimeVoiceModel): 
     client.close()
   }
   return report
+}
+
+/** Validates an OpenAI voice key against either the Live or Realtime endpoint for the chosen model. */
+export async function validateVoiceKey(
+  apiKey: string,
+  options: Omit<RealtimeVoiceClientOptions, 'apiKey'> = {},
+): Promise<void> {
+  const model = options.model ?? 'gpt-realtime-2.1-mini'
+  const client: VoiceRealtimeClient = isLiveSessionModel(model)
+    ? new LiveVoiceClient({ apiKey, model, connectTimeoutMs: options.connectTimeoutMs })
+    : new RealtimeVoiceClient({ ...options, apiKey })
+  try {
+    await client.connect()
+  } finally {
+    client.close()
+  }
 }
