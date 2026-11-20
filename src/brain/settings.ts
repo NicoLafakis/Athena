@@ -240,6 +240,8 @@ const baseShape = {
   // shrink them, so a project contributing to this list can only harden, never
   // weaken — which is why it concatenates like `deny` instead of being stripped.
   protectedPaths: z.array(z.string()).default([]),
+  /** Global-only standing trust roots: directories whose repos are auto-trusted. */
+  trustRoots: z.array(z.string()).optional(),
   hooks: z.array(HookDefSchema).default([]),
   mcpServers: z.record(z.string(), McpServerSchema).default({}),
   accessibility: AccessibilitySettingsSchema.default({}),
@@ -356,6 +358,10 @@ export function loadSettings(
   if (Object.prototype.hasOwnProperty.call(project, 'jev')) {
     onWarn?.('Project settings cannot override global Jev decision settings; ignoring project jev.')
     delete project['jev']
+  }
+  if (Object.prototype.hasOwnProperty.call(project, 'trustRoots')) {
+    onWarn?.('Project settings cannot override global trustRoots; ignoring project trustRoots.')
+    delete project['trustRoots']
   }
   if (project['permissionMode'] === 'trusted') {
     onWarn?.('Project settings cannot select trusted permission mode; using the global/default mode.')

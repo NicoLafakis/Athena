@@ -1,9 +1,11 @@
 # Voice-addressable project switching
 
-**Status: design. Piece 1 (composition unification) is shipped; pieces 2 and 3 are not
-started.** The protected-paths fence and the trusted/unrestricted posture that this design
-assumes ARE shipped — see
-[permissions and project trust](../../architecture/permissions-trust.md).
+**Status: implemented (pieces 1, 2, and 3).** Composition unification, global-only
+`trustRoots` standing grants (`src/harness/trust.ts`, `src/brain/settings.ts`, `src/cli/trust.ts`),
+`switchProject` controller rebuild + `local_control` `switch_project` voice action
+(`src/voice/daemon.ts`, `src/voice/realtime.ts`, `src/cli/voice.ts`), and Ink TUI voice mode
+(`athena voice --tui`) are all implemented. The protected-paths fence and trusted/unrestricted
+posture remain in [permissions and project trust](../../architecture/permissions-trust.md).
 
 ## The goal, in Nico's words
 

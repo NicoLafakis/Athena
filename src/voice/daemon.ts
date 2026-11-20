@@ -548,11 +548,19 @@ export async function waitForWakeProbe(options: WakeProbeOptions = {}): Promise<
   return { passed: false, heard, command: null, audio: null, detail }
 }
 
+export type VoiceProjectSwitchResult =
+  | { ok: true; cwd: string; projectName: string; warning?: string }
+  | { ok: false; error: string }
+
 export interface VoiceSessionOptions {
   apiKey: string
   model: RealtimeVoiceModel
   input: VoiceCommandInput
   controller?: HarnessSessionController
+  /** Optional dynamic getter for the active controller when project switching replaces it. */
+  getController?: () => HarnessSessionController | undefined
+  /** Optional host callback that rebuilds the harness controller at a new project root. */
+  switchProject?: (targetPath: string) => Promise<VoiceProjectSwitchResult>
   /**
    * Permission approver and announcement sink shared with the controller. Without it the
    * harness keeps its headless auto-deny and voice can only do read-only work.
@@ -933,7 +941,7 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
           instruction: 'Call submit_turn again with a single text field holding the user request.',
         }
       }
-      const controller = options.controller
+      const controller = options.getController?.() ?? options.controller
       if (!controller) {
         meter.record({ event: 'turn.refused', label: 'no-controller', source: context.source })
         // The harness IS the executor: with no controller there is nowhere to run work,
@@ -1015,9 +1023,46 @@ export async function runVoiceSession(options: VoiceSessionOptions): Promise<voi
       }
     }
     if (call.name === 'local_control') {
-      const args = call.arguments as { action?: unknown; request_id?: unknown } | null
+      const args = call.arguments as { action?: unknown; request_id?: unknown; path?: unknown } | null
       const action = typeof args?.action === 'string' ? args.action : ''
       if (action === 'status') return semanticStatus()
+      if (action === 'switch_project') {
+        if (!options.switchProject) {
+          return { error: 'Project switching is not wired into this voice session.' }
+        }
+        const rawPath = typeof args?.path === 'string' ? args.path.trim() : ''
+        if (!rawPath) {
+          return {
+            error: 'No target directory path was supplied for switch_project.',
+            instruction: 'Ask the user which project directory they want to switch to.',
+          }
+        }
+        const current = options.getController?.() ?? options.controller
+        if (current?.engine.isTurnInFlight()) {
+          return {
+            error: 'A turn is currently in progress; wait for it to finish or cancel it before switching projects.',
+            instruction: 'Tell the user you are still finishing the current turn and cannot switch projects yet.',
+          }
+        }
+        const switched = await options.switchProject(rawPath)
+        if (!switched.ok) {
+          status(`Athena: project switch refused (${switched.error}).`)
+          return {
+            error: switched.error,
+            instruction: 'Tell the user why the project switch could not be completed.',
+          }
+        }
+        status(`Athena: switched project to ${switched.cwd}.`)
+        return {
+          status: 'switched',
+          cwd: switched.cwd,
+          project_name: switched.projectName,
+          ...(switched.warning ? { warning: switched.warning } : {}),
+          instruction: switched.warning
+            ? `Tell the user you switched to ${switched.projectName} and mention this warning: ${switched.warning}`
+            : `Tell the user concisely that you are now working in ${switched.projectName}.`,
+        }
+      }
       if (action === 'stop_listening') {
         stopRequested = true
         return { status: 'stopping', summary: 'Athena voice is stopping.' }

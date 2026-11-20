@@ -1,16 +1,22 @@
-import { appendFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { appendFileSync, existsSync, statSync } from 'node:fs'
+import { basename, join, resolve } from 'node:path'
+import { render } from 'ink'
+import React from 'react'
 import { loadCredentials, resolveApiKey, type Credentials } from '../brain/credentials.js'
 import type { CredentialVault } from '../brain/credential-vault.js'
 import { loadConstitution } from '../brain/loader.js'
-import { PROVIDERS } from '../brain/models.js'
-import type { BrainPaths } from '../brain/paths.js'
+import { modelLabel, PROVIDERS } from '../brain/models.js'
+import { resolveBrainPaths, type BrainPaths } from '../brain/paths.js'
+import { loadCommandsIndexWithPlugins } from '../brain/plugins.js'
 import { FileLedgerStore } from '../brain/vmp-ledger.js'
 import { makeTelemetryRecorder } from '../engine/telemetry.js'
 import { HarnessSessionController } from '../harness/controller.js'
+import { gitBranch } from '../harness/git.js'
+import { App, PermissionBridge } from '../tui/App.js'
 import { CLI_EXIT, type CliCommand } from './args.js'
 import { makeClient } from './client.js'
 import { prepareSessionEnvironment } from './session-bootstrap.js'
+import { makeSlashHandler } from './slash.js'
 
 export async function runVoiceCommand(
   cmd: Extract<CliCommand, { command: 'voice' }>,
@@ -152,7 +158,7 @@ export async function runVoiceCommand(
       screenReaderActive: settings.accessibility.presentation === 'screen-reader',
       telemetry: voiceTelemetry,
     })
-    const controller = await HarnessSessionController.create({
+    let activeController = await HarnessSessionController.create({
       paths,
       effectivePaths,
       cwd,
@@ -164,6 +170,94 @@ export async function runVoiceCommand(
       askUser: attention.askUser,
       onAnnouncement: (announcement) => attention.announce(announcement),
     })
+
+    const switchProject = async (requestedPath: string) => {
+      const targetCwd = resolve(activeController.cwd, requestedPath)
+      if (!existsSync(targetCwd) || !statSync(targetCwd).isDirectory()) {
+        return { ok: false as const, error: `Directory does not exist: ${targetCwd}` }
+      }
+      const carriedHistory = activeController.engine.getMessages().slice(-20)
+      await activeController.close('project-switch')
+      const nextPaths = resolveBrainPaths({ cwd: targetCwd })
+      const nextEnv = await prepareSessionEnvironment({
+        paths: nextPaths,
+        cwd: targetCwd,
+        provider,
+        interactiveTrust: false,
+        applyTrust: true,
+        warn: (msg) => console.error(msg),
+      })
+      activeController = await HarnessSessionController.create({
+        paths: nextPaths,
+        effectivePaths: nextEnv.effectivePaths,
+        cwd: targetCwd,
+        provider,
+        client: harnessClient,
+        settings: nextEnv.settings,
+        projectTrust: nextEnv.projectTrust,
+        persistSession: true,
+        askUser: attention.askUser,
+        onAnnouncement: (announcement) => attention.announce(announcement),
+      })
+      if (carriedHistory.length > 0) {
+        activeController.engine.loadMessages(carriedHistory)
+      }
+      const isProjectRoot = existsSync(join(targetCwd, '.git')) || existsSync(join(targetCwd, '.athena'))
+      return {
+        ok: true as const,
+        cwd: targetCwd,
+        projectName: basename(targetCwd) || targetCwd,
+        ...(!isProjectRoot ? { warning: 'This directory has no .git or .athena folder.' } : {}),
+      }
+    }
+
+    let tuiInstance: ReturnType<typeof render> | null = null
+    if (cmd.tui && process.stdin.isTTY && process.stdout.isTTY) {
+      const commands = new Map(loadCommandsIndexWithPlugins(effectivePaths).map((c) => [c.name, c]))
+      const bridge = new PermissionBridge()
+      const slashHandler = makeSlashHandler({
+        bus: activeController.bus,
+        engine: activeController.engine,
+        gate: activeController.gate,
+        contextManager: activeController.contextManager,
+        client: activeController.client,
+        store: activeController.sessionStore,
+        session: activeController.session,
+        paths,
+        credentialVault,
+        interactionService: activeController.interactionService,
+        runId: activeController.trace.runId,
+        commands,
+        vmpRecorder: voiceVmpRecorder,
+        continuityStore: activeController.continuityStore,
+        ...(settings.timeZone ? { timeZone: settings.timeZone } : {}),
+      })
+      tuiInstance = render(
+        React.createElement(App, {
+          bus: activeController.bus,
+          status: {
+            cwd: activeController.cwd,
+            gitBranch: gitBranch(activeController.cwd),
+            model: modelLabel(provider, settings.model),
+            modelKey: settings.model,
+            provider,
+            effort: settings.effort,
+            mode: activeController.gate.getMode(),
+            contextPct: Math.round(activeController.contextManager.usedFraction() * 100),
+          },
+          onSubmit: async (text: string) => {
+            await activeController.runTurn(text)
+          },
+          onAbort: () => activeController.abort(),
+          permissionBridge: bridge,
+          commands,
+          agents: activeController.orchestrator.listDefs(),
+          initialMessages: activeController.initialMessages,
+          onSlash: slashHandler,
+        }),
+      )
+    }
+
     // Ctrl+C is the documented immediate keyboard fallback, and without a handler the
     // process dies before `controller.close` runs — losing the SessionEnd hook and the
     // trace's closing record, which are the evidence a shut-down session is meant to
@@ -177,7 +271,7 @@ export async function runVoiceCommand(
       }
       voiceInterrupted = true
       console.error('Athena voice stopping: aborting the current turn and closing the session.')
-      controller.abort()
+      activeController.abort()
       voiceInput.close()
     }
     const voiceInput = cmd.keyboard
@@ -186,7 +280,7 @@ export async function runVoiceCommand(
           onWarn: (message) => console.error(message),
           telemetry: voiceTelemetry,
           onListening: () => {
-            console.log('Athena: listening…')
+            if (!tuiInstance) console.log('Athena: listening…')
             void playListeningCue().catch(() => {})
           },
         })
@@ -195,14 +289,16 @@ export async function runVoiceCommand(
       await runVoiceSession({
         apiKey: resolvedVoice.key,
         model: cmd.model,
-        controller,
+        controller: activeController,
+        getController: () => activeController,
+        switchProject,
         attention,
         persona: loadConstitution(effectivePaths) ?? undefined,
         input: voiceInput,
         onStandby: cmd.keyboard
           ? undefined
           : () => {
-              console.log('Athena: wake standby')
+              if (!tuiInstance) console.log('Athena: wake standby')
               void playStandbyCue().catch(() => {})
             },
         telemetry: voiceTelemetry,
@@ -213,12 +309,13 @@ export async function runVoiceCommand(
       if (!voiceInterrupted) throw error
     } finally {
       process.off('SIGINT', onVoiceSigint)
+      tuiInstance?.unmount()
       attention.close()
-      await controller.close(voiceInterrupted ? 'interrupted' : 'shutdown')
+      await activeController.close(voiceInterrupted ? 'interrupted' : 'shutdown')
     }
     if (voiceInterrupted) {
       console.log(
-        `Athena voice stopped. Session ${controller.session.id} is preserved; ` +
+        `Athena voice stopped. Session ${activeController.session.id} is preserved; ` +
           'pick it up with `athena --resume`.',
       )
       process.exitCode = CLI_EXIT.aborted

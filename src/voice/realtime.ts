@@ -109,15 +109,17 @@ const VOICE_TOOLS = [
   {
     type: 'function',
     name: 'local_control',
-    description: 'Perform a deterministic local control action (status, repeat, allow, deny, stop_listening).',
+    description:
+      'Perform a deterministic local control action (status, repeat, allow, deny, switch_project, stop_listening).',
     parameters: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['status', 'repeat', 'allow', 'deny', 'stop_listening'],
+          enum: ['status', 'repeat', 'allow', 'deny', 'switch_project', 'stop_listening'],
         },
         request_id: { type: 'string' },
+        path: { type: 'string' },
       },
       required: ['action'],
       additionalProperties: false,

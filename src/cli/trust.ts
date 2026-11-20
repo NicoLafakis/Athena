@@ -13,8 +13,17 @@ import {
   ProjectTrustStore,
   capabilityDigest,
   canonicalProjectPath,
+  isUnderTrustRoot,
   type ProjectCapability,
 } from '../harness/trust.js'
+
+function loadGlobalTrustRoots(paths: BrainPaths): string[] {
+  try {
+    return loadSettings({ ...paths, projectBrainDir: null }, 'anthropic').trustRoots ?? []
+  } catch {
+    return []
+  }
+}
 
 function describeCapability(capability: ProjectCapability, value: unknown): string {
   if (capability === 'hooks') {
@@ -56,6 +65,9 @@ export async function resolveProjectTrust(
   paths: BrainPaths,
   cwd: string,
 ): Promise<ResolvedProjectTrust> {
+  if (isUnderTrustRoot(cwd, loadGlobalTrustRoots(paths))) {
+    return { trusted: true, allowProjectHooks: true, allowProjectMcp: true }
+  }
   if (!paths.projectBrainDir) {
     return { trusted: true, allowProjectHooks: true, allowProjectMcp: true }
   }
@@ -98,6 +110,9 @@ export function resolveStoredProjectTrust(
   paths: BrainPaths,
   cwd: string,
 ): ResolvedProjectTrust {
+  if (isUnderTrustRoot(cwd, loadGlobalTrustRoots(paths))) {
+    return { trusted: true, allowProjectHooks: true, allowProjectMcp: true }
+  }
   if (!paths.projectBrainDir) {
     return { trusted: true, allowProjectHooks: true, allowProjectMcp: true }
   }
@@ -120,6 +135,7 @@ export function resolveStoredProjectTrust(
  *  `.athena/` receives must never bootstrap trusted mode (that would make every
  *  directory shell-trusted). */
 export function explicitProjectTrust(paths: BrainPaths, cwd: string): boolean {
+  if (isUnderTrustRoot(cwd, loadGlobalTrustRoots(paths))) return true
   if (!paths.projectBrainDir) return false
   return new ProjectTrustStore(paths.trustFile).isTrusted(cwd)
 }

@@ -56,6 +56,22 @@ export function projectId(projectPath: string): string {
   return createHash('sha256').update(canonicalProjectPath(projectPath)).digest('hex')
 }
 
+/**
+ * Standing trust-root check: returns true if `projectPath` equals or is a
+ * canonical descendant of any configured root, enforcing a strict path-segment
+ * boundary so sibling prefix spoofing (`nico-apps-evil` vs `nico-apps`) fails.
+ */
+export function isUnderTrustRoot(projectPath: string, trustRoots: readonly string[]): boolean {
+  if (trustRoots.length === 0) return false
+  const target = canonicalProjectPath(projectPath)
+  for (const rawRoot of trustRoots) {
+    if (!rawRoot.trim()) continue
+    const root = canonicalProjectPath(rawRoot)
+    if (target === root || target.startsWith(`${root}/`)) return true
+  }
+  return false
+}
+
 export function capabilityDigest(value: unknown): string {
   return createHash('sha256').update(stableJson(value)).digest('hex')
 }

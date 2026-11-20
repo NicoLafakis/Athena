@@ -4,9 +4,10 @@
 - [ ] Blind-first Jarvis voice live acceptance run -> [.wiki/features/blind-first-jarvis/acceptance-runbook.md]
 
 ### Planned
-- [ ] Voice project switching pieces 2-3 -> [.wiki/features/voice-project-switching/00-overview.md]
+- [ ] Live speaker diarization backend acquisition & Phase 1+ -> [.wiki/features/speaker-diarization/implementation-status.md]
 
 ### Done
+- [x] Voice-addressable project switching pieces 2-3 & trustRoots (2026-11-20) -> [.wiki/features/voice-project-switching/00-overview.md]
 - [x] Active-session local transcript search (2026-11-20) -> [.wiki/features/transcript-reader/00-overview.md]
 - [x] Computer use bounded actuator foundation (2026-11-20) -> [.wiki/features/computer-use/00-overview.md]
 - [x] Jev Stage 2 root budgets, circuit breaker & shadow advisory adapters (2026-11-20) -> [.wiki/features/jev-integration/00-overview.md]

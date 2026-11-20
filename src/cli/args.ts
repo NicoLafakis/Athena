@@ -35,6 +35,7 @@ export type CliCommand =
       action: 'start' | 'probe' | 'auth'
       model: VoiceModel
       keyboard: boolean
+      tui?: boolean
     }
   | { command: 'import'; sourceDir: string; force: boolean }
   | { command: 'trust'; revoke: boolean; capabilities: ProjectCapability[] }
@@ -123,7 +124,7 @@ export const EXEC_USAGE =
   '[--session|--resume id] [--provider id] [--model key] [--effort level]'
 
 const VOICE_USAGE =
-  'Usage: athena voice [probe|auth] [--model gpt-realtime-2.1-mini|gpt-realtime-2.1] [--keyboard]'
+  'Usage: athena voice [probe|auth] [--model gpt-realtime-2.1-mini|gpt-realtime-2.1] [--keyboard] [--tui]'
 
 const AUTH_USAGE =
   `Usage: athena auth [status] [--provider <${PROVIDER_IDS.join('|')}>] ` +
@@ -314,12 +315,17 @@ function parseVoiceArgs(argv: string[]): CliCommand {
   let action: 'start' | 'probe' | 'auth' = 'start'
   let model: VoiceModel = DEFAULT_VOICE_MODEL
   let keyboard = false
+  let tui = false
   const rest = [...argv]
   if (rest[0] === 'probe' || rest[0] === 'auth') action = rest.shift() as 'probe' | 'auth'
   for (let index = 0; index < rest.length; index++) {
     const arg = rest[index]!
     if (arg === '--keyboard' && action === 'start') {
       keyboard = true
+      continue
+    }
+    if (arg === '--tui' && action === 'start') {
+      tui = true
       continue
     }
     if (arg === '--model') {
@@ -333,7 +339,7 @@ function parseVoiceArgs(argv: string[]): CliCommand {
     }
     return { command: 'error', message: VOICE_USAGE }
   }
-  return { command: 'voice', action, model, keyboard }
+  return { command: 'voice', action, model, keyboard, ...(tui ? { tui: true } : {}) }
 }
 
 export function parseArgs(argv: string[]): CliCommand {
