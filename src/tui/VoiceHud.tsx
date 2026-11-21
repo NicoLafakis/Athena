@@ -90,14 +90,15 @@ export function VoiceHud({ store }: VoiceHudProps) {
 
   const runningCount = state.handoffs.filter((h) => h.status === 'running').length
 
-  // Single coalesced ~14 FPS (72 ms) render loop: spins the 3D Jarvis sphere smoothly,
-  // decays brain heat, ticks hand-off spinners, and flushes buffered audio/feed updates.
+  // Single coalesced ~10 FPS (100 ms) calm render loop: slow meditative 3D drift
+  // (~22s/rev at rest, gently livelier when speaking/working), zero flicker.
   useEffect(() => {
     const timer = setInterval(() => {
       const now = Date.now()
       const current = latestStateRef.current
       const activeHandoffs = current.handoffs.some((h) => h.status === 'running')
       const activeHeat = hasActiveBrainHeat(current.brain)
+      const voiceActive = current.micLevel > 8 || current.athenaLevel > 5
 
       if (activeHeat) {
         store.dispatch({ type: 'brain-decay', now })
@@ -107,13 +108,14 @@ export function VoiceHud({ store }: VoiceHudProps) {
         setState(latestStateRef.current)
       }
       if (showEeg) {
-        setPhaseRad((p) => (p + 0.085) % (Math.PI * 200))
+        const step = voiceActive || activeHandoffs ? 0.042 : 0.022
+        setPhaseRad((p) => (p + step) % (Math.PI * 200))
       }
       if (activeHandoffs) {
         setTickNow(now)
         setSpinIdx((i) => (i + 1) % SPINNER_FRAMES.length)
       }
-    }, 72)
+    }, 100)
     return () => clearInterval(timer)
   }, [showEeg, store])
 

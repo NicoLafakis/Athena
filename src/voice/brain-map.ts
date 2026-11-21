@@ -330,10 +330,10 @@ export function renderBrainOrbitalLines(
   const phaseRad = options?.phaseRad ?? 0
   const micEnergy = clamp01(options?.micEnergy ?? 0)
   const athenaEnergy = clamp01(options?.athenaEnergy ?? 0)
-  const tiltX = 0.34 + Math.sin(phaseRad * 0.45) * 0.08
-  const cameraZ = 3.15
-  // Keep spherical proportions in terminal cells (Braille dots are roughly square in 2x4 cells)
-  const radiusPx = Math.max(8, Math.min(cx - 8, cy - 3) * 0.94)
+  const tiltX = 0.30
+  const cameraZ = 3.3
+  // Leave generous breathing room around the 3D sphere for anchored plain-English labels
+  const radiusPx = Math.max(8, Math.min(cx - 14, cy - 4) * 0.88)
 
   const mask = new Uint8Array(cols * rows)
   const styles: Array<CellStyle | null> = new Array<CellStyle | null>(cols * rows).fill(null)
@@ -382,15 +382,15 @@ export function renderBrainOrbitalLines(
     }
   }
 
-  // 1. Rotating 3D Geodesic Wireframe Sphere (6 meridians + 5 latitude parallels)
-  const sphereR = 0.82 + athenaEnergy * 0.05 + micEnergy * 0.03
-  const meridians = 6
+  // 1. Clean, airy 3D Geodesic Wireframe Sphere (4 meridians + 3 parallels)
+  const sphereR = 0.78 + athenaEnergy * 0.04 + micEnergy * 0.025
+  const meridians = 4
   for (let m = 0; m < meridians; m++) {
     const lon = (m / meridians) * Math.PI
-    const steps = 48
+    const steps = 44
     for (let s = 0; s < steps; s++) {
       const lat = (s / steps) * Math.PI * 2
-      const ripple = micEnergy > 0.05 ? Math.sin(lat * 4 - phaseRad * 5) * 0.045 * micEnergy : 0
+      const ripple = micEnergy > 0.08 ? Math.sin(lat * 3 - phaseRad * 4) * 0.03 * micEnergy : 0
       const r = sphereR + ripple
       const raw: Vec3 = {
         x: Math.cos(lat) * Math.cos(lon) * r,
@@ -404,13 +404,13 @@ export function renderBrainOrbitalLines(
     }
   }
 
-  const parallels = [-0.62, -0.32, 0, 0.32, 0.62]
+  const parallels = [-0.48, 0, 0.48]
   for (const sinLat of parallels) {
     const cosLat = Math.sqrt(Math.max(0, 1 - sinLat * sinLat))
-    const steps = 54
+    const steps = 50
     for (let s = 0; s < steps; s++) {
       const lon = (s / steps) * Math.PI * 2
-      const ripple = athenaEnergy > 0.05 ? Math.sin(lon * 3 + phaseRad * 6) * 0.04 * athenaEnergy : 0
+      const ripple = athenaEnergy > 0.08 ? Math.sin(lon * 3 + phaseRad * 4) * 0.028 * athenaEnergy : 0
       const r = sphereR + ripple
       const raw: Vec3 = {
         x: Math.cos(lon) * cosLat * r,
@@ -424,49 +424,42 @@ export function renderBrainOrbitalLines(
     }
   }
 
-  // 2. Two inclined 3D gyroscopic astrolabe rings (counter-precessing)
-  const gyroConfigs = [
-    { radius: 1.03, tiltA: 0.58, tiltB: 0.25, speed: -0.7, gold: true },
-    { radius: 1.12, tiltA: -0.52, tiltB: -0.32, speed: 0.45, gold: false },
-  ]
-  for (const gyro of gyroConfigs) {
-    const steps = 76
+  // 2. Single calm equatorial halo ring (minimalist anchor around the 3D globe)
+  {
+    const haloR = 0.98
+    const steps = 68
     for (let s = 0; s < steps; s++) {
       const a = (s / steps) * Math.PI * 2
-      let p: Vec3 = { x: Math.cos(a) * gyro.radius, y: 0, z: Math.sin(a) * gyro.radius }
-      p = rotateAroundX(p, gyro.tiltA)
-      p = rotateAroundZ(p, gyro.tiltB)
-      const rot = rotate3D(p, phaseRad * gyro.speed, tiltX)
+      const p: Vec3 = rotateAroundZ(
+        rotateAroundX({ x: Math.cos(a) * haloR, y: 0, z: Math.sin(a) * haloR }, 0.35),
+        0.12,
+      )
+      const rot = rotate3D(p, -phaseRad * 0.25, tiltX)
       const proj = project(rot)
-      const color = gyro.gold
-        ? lerpHex(RGB_GOLD_DIM, athenaEnergy > 0.1 ? RGB_GOLD_HOT : RGB_GOLD_MID, proj.depth)
-        : lerpHex(RGB_BACK, RGB_FRONT, proj.depth)
+      const color = lerpHex(RGB_GOLD_DIM, athenaEnergy > 0.12 ? RGB_GOLD_HOT : RGB_GOLD_MID, proj.depth)
       plotPixel(proj.px, proj.py, {
         color,
-        bold: proj.depth > 0.72 && (gyro.gold || athenaEnergy > 0.15),
-        dimColor: proj.depth < 0.34,
+        bold: proj.depth > 0.78 && athenaEnergy > 0.12,
+        dimColor: proj.depth < 0.45,
         z: rot.z,
         priority: 2,
       })
     }
   }
 
-  // Compute live 3D rotated coordinates for every subsystem node
+  // Compute calm, ANCHORED positions for every subsystem node so labels never fly around
   const node3D = new Map<BrainNodeId, Vec3>()
   for (const def of BRAIN_NODES) {
     if (def.id === 'core') {
       node3D.set('core', { x: 0, y: 0, z: 0 })
       continue
     }
-    const lon = (def.angleDeg * Math.PI) / 180
-    const elev = (def.elevDeg * Math.PI) / 180
-    const cosE = Math.cos(elev)
-    const raw: Vec3 = {
-      x: Math.cos(lon) * cosE * def.ring,
-      y: Math.sin(elev) * def.ring,
-      z: Math.sin(lon) * cosE * def.ring,
-    }
-    node3D.set(def.id, rotate3D(raw, phaseRad * 0.65, tiltX))
+    const rad = (def.angleDeg * Math.PI) / 180
+    node3D.set(def.id, {
+      x: Math.cos(rad) * 1.08,
+      y: Math.sin(rad) * 1.02,
+      z: 0.35,
+    })
   }
 
   // 3. Traveling 3D Plasma Synaptic Arcs from Core to firing subsystems
@@ -607,10 +600,7 @@ export function renderBrainOrbitalLines(
   })
 
   for (const item of sortedLabels) {
-    const { def, px, py, z, depth, heat } = item
-    // Hide resting labels that are far behind the back hemisphere to preserve 3D clarity;
-    // firing nodes ALWAYS remain visible!
-    if (def.id !== 'core' && heat <= 0.05 && depth < 0.34) continue
+    const { def, px, py, z, heat } = item
 
     const cellX = Math.floor(px / 2)
     const cellY = Math.floor(py / 4)
@@ -626,11 +616,9 @@ export function renderBrainOrbitalLines(
             ? def.warmColor
             : def.id === 'core'
               ? '#fde047'
-              : depth > 0.58
-                ? '#bae6fd'
-                : '#64748b',
-      bold: heat >= 0.35 || def.id === 'core' || depth > 0.72,
-      dimColor: heat <= 0.05 && def.id !== 'core' && depth < 0.5,
+              : '#64748b',
+      bold: heat >= 0.35 || def.id === 'core',
+      dimColor: heat <= 0.05 && def.id !== 'core',
       z: z + 2,
       priority: 10,
     }
