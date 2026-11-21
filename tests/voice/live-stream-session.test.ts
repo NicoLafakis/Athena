@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events'
 import { describe, expect, it } from 'vitest'
 import type WebSocket from 'ws'
 import { runLiveVoiceSession, type DuplexAudioTransport } from '../../src/voice/live-stream-session.js'
+import { VoiceTelemetry } from '../../src/voice/telemetry.js'
 
 class FakeSocket extends EventEmitter {
   readyState = 1
@@ -161,6 +162,72 @@ describe('Full-duplex runLiveVoiceSession (gpt-live-1.1)', () => {
         content: 'Checked: Check git status on this repo. — all green.',
       }),
     )
+
+    abort.abort()
+    await sessionPromise
+  })
+
+  it('records scalar VoiceTelemetry lifecycle meters and routes spoken project-switch delegations to switchProject', async () => {
+    const fakeWs = new FakeSocket()
+    const fakeAudio = new FakeDuplexAudio()
+    const lines: string[] = []
+    const telemetry = new VoiceTelemetry({
+      model: 'gpt-live-1.1',
+      write: (line) => lines.push(line),
+    })
+    const switchedPaths: string[] = []
+    const delegatedPrompts: string[] = []
+    const abort = new AbortController()
+
+    const sessionPromise = runLiveVoiceSession({
+      apiKey: 'sk-test',
+      model: 'gpt-live-1.1',
+      duplex: fakeAudio,
+      signal: abort.signal,
+      telemetry,
+      webSocketFactory: () => fakeWs as unknown as WebSocket,
+      switchProject: async (requestedPath) => {
+        switchedPaths.push(requestedPath)
+        return { ok: true, cwd: 'C:/programming/nicos-apps/Common-Time', projectName: 'Common-Time' }
+      },
+      onDelegate: async (prompt) => {
+        delegatedPrompts.push(prompt)
+        return 'Delegated ok.'
+      },
+    })
+
+    fakeWs.emit('open')
+    fakeWs.serverSend({ type: 'session.started', session: { id: 'live_sw_1' } })
+    await new Promise((r) => setImmediate(r))
+
+    // Spoken project-switch request -> handled directly by switchProject, not onDelegate
+    fakeWs.serverSend({ type: 'session.input_transcript.delta', delta: 'Switch project to ../Common-Time.' })
+    fakeWs.serverSend({
+      type: 'session.delegation.created',
+      delegation: { id: 'item_sw_1', type: 'delegation', target: 'client' },
+    })
+
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+
+    expect(switchedPaths).toEqual(['../Common-Time'])
+    expect(delegatedPrompts).toEqual([])
+    expect(fakeWs.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'session.commentary.append',
+        delegation_id: 'item_sw_1',
+        content: expect.stringContaining('Common-Time'),
+      }),
+    )
+
+    // Verify closed-enum scalar telemetry was recorded with zero dropped records
+    const counters = telemetry.counters()
+    expect(counters['realtime.connect/initial']).toBe(1)
+    expect(counters['session.ready']).toBe(1)
+    expect(counters['turn.submitted']).toBe(1)
+    expect(counters['turn.completed']).toBe(1)
+    expect(counters['ledger.dropped']).toBeUndefined()
+    expect(lines.length).toBeGreaterThanOrEqual(4)
 
     abort.abort()
     await sessionPromise

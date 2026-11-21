@@ -1,7 +1,9 @@
 import WebSocket from 'ws'
 import { z } from 'zod'
 import { plainBounded } from '../interaction/format.js'
+import type { VoiceProjectSwitchResult } from './daemon.js'
 import { RealtimeTransportError, type RealtimeVoiceModel } from './realtime.js'
+import type { VoiceTelemetryRecorder } from './telemetry.js'
 
 const ServerEventSchema = z.object({ type: z.string() }).passthrough()
 
@@ -41,6 +43,20 @@ export interface LiveVoiceSessionOptions {
   onDelegate?: (prompt: string, delegationId: string) => Promise<string>
   onDelegateStart?: (info: { id: string; prompt: string }) => void
   onDelegateEnd?: (info: { id: string; status: 'completed' | 'failed'; detail?: string }) => void
+  /** Optional host callback that rebuilds HarnessSessionController at a new project root. */
+  switchProject?: (targetPath: string) => Promise<VoiceProjectSwitchResult>
+  /** Optional scalar-only lifecycle telemetry ledger (`voice-usage.jsonl`). */
+  telemetry?: VoiceTelemetryRecorder
+}
+
+const PROJECT_SWITCH_RE =
+  /^(?:please\s+)?(?:switch|change|move|open)\s+(?:the\s+)?(?:active\s+)?project(?:\s+directory|\s+folder|\s+root)?(?:\s+to)?\s+(.+)$/i
+
+function extractProjectSwitchPath(prompt: string): string | null {
+  const match = PROJECT_SWITCH_RE.exec(prompt.trim())
+  if (!match?.[1]) return null
+  const cleaned = match[1].trim().replace(/^['"`]+|['"`.,!?]+$/g, '').trim()
+  return cleaned.length > 0 ? cleaned : null
 }
 
 function buildLiveVoiceInstructions(persona?: string): string {
@@ -100,6 +116,7 @@ export async function runLiveVoiceSession(options: LiveVoiceSessionOptions): Pro
 
   let closed = false
   let sessionStarted = false
+  const connectStartedAt = options.telemetry?.now() ?? Date.now()
   let userTranscriptBuf = ''
   let lastUserUtterance = ''
   let athenaTranscriptBuf = ''
@@ -195,9 +212,20 @@ export async function runLiveVoiceSession(options: LiveVoiceSessionOptions): Pro
       if (event.type === 'session.started') {
         sessionStarted = true
         clearTimeout(connectTimer)
+        options.telemetry?.record({
+          event: 'realtime.connect',
+          label: 'initial',
+          ms: Math.max(0, (options.telemetry.now() ?? Date.now()) - connectStartedAt),
+        })
         options.onStatus?.(`Live full-duplex connected (${options.model})`)
         options.duplex.start({
-          onReady: (backend) => options.onReady?.(backend),
+          onReady: (backend) => {
+            options.telemetry?.record({
+              event: 'session.ready',
+              ms: options.telemetry.sinceLaunch(),
+            })
+            options.onReady?.(backend)
+          },
           onWarn: (msg) => options.onWarn?.(msg),
           onFrame: (pcm, level) => {
             options.onMicLevel?.(level)
@@ -262,7 +290,7 @@ export async function runLiveVoiceSession(options: LiveVoiceSessionOptions): Pro
       // Per OpenAI docs, `session.delegation.created` carries `delegation.id` and the client
       // reads the user's request from recent `session.input_transcript.delta` text.
       if (
-        options.onDelegate &&
+        (options.onDelegate || options.switchProject) &&
         event.type === 'session.delegation.created'
       ) {
         const delegationObj = event['delegation'] as { id?: unknown; target?: unknown } | undefined
@@ -282,10 +310,29 @@ export async function runLiveVoiceSession(options: LiveVoiceSessionOptions): Pro
               ? event['content']
               : lastUserUtterance
         const prompt = plainBounded(rawPrompt || 'Inspect the current request from the user.', 4_096)
+        const switchTarget = options.switchProject ? extractProjectSwitchPath(prompt) : null
+        const turnStartedAt = options.telemetry?.now() ?? Date.now()
+        options.telemetry?.record({ event: 'turn.submitted' })
         options.onDelegateStart?.({ id: delegationId, prompt })
-        void options.onDelegate(prompt, delegationId).then(
+
+        const workPromise =
+          switchTarget && options.switchProject
+            ? options.switchProject(switchTarget).then((res) => {
+                if (!res.ok) throw new Error(res.error)
+                const warn = res.warning ? ` (${res.warning})` : ''
+                return `Switched active project to ${res.projectName} at ${res.cwd}.${warn}`
+              })
+            : options.onDelegate
+              ? options.onDelegate(prompt, delegationId)
+              : Promise.reject(new Error('No harness delegate configured for this voice session.'))
+
+        void workPromise.then(
           (summary) => {
             const bounded = plainBounded(summary, 1_500)
+            options.telemetry?.record({
+              event: 'turn.completed',
+              ms: Math.max(0, (options.telemetry.now() ?? Date.now()) - turnStartedAt),
+            })
             options.onDelegateEnd?.({ id: delegationId, status: 'completed', detail: bounded })
             sendJson({
               type: 'session.commentary.append',
@@ -296,6 +343,10 @@ export async function runLiveVoiceSession(options: LiveVoiceSessionOptions): Pro
           },
           (err: unknown) => {
             const msg = plainBounded((err as Error).message, 400)
+            options.telemetry?.record({
+              event: 'turn.failed',
+              ms: Math.max(0, (options.telemetry.now() ?? Date.now()) - turnStartedAt),
+            })
             options.onDelegateEnd?.({ id: delegationId, status: 'failed', detail: msg })
             sendJson({
               type: 'session.commentary.append',

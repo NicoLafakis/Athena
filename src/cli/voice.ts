@@ -386,6 +386,15 @@ export async function runVoiceCommand(
             const res = await activeController.submitTurn(prompt)
             return res.summary
           },
+          switchProject: async (requestedPath) => {
+            const result = await switchProject(requestedPath)
+            if (result.ok) {
+              hudStore?.dispatch({ type: 'project', projectName: result.projectName })
+              hudStore?.dispatch({ type: 'feed', role: 'system', text: `Switched project -> ${result.cwd}` })
+            }
+            return result
+          },
+          telemetry: voiceTelemetry,
         })
       } else {
         const voiceInput = cmd.keyboard
