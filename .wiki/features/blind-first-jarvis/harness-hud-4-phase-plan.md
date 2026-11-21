@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-20
 **Branch:** `feat/design-features-buildout`
-**Status:** Phase 1 complete (`383bb3a`); Phases 2–4 specified and ready for execution
+**Status:** All 4 phases implemented and verified
 **Parents:**
 - [Fullscreen Split-Screen Voice HUD & 3D Brain Scan](voice-hud-brain-scan.md)
 - [Direct PCM & GPT-Live Voice Upgrade](gpt-live-voice-upgrade.md)
@@ -16,9 +16,9 @@
 | Phase | Scope | Primary Files / Artifacts | Status |
 |---|---|---|---|
 | **Phase 1** | Close `gpt-live-1.1` harness wiring gaps (`switchProject`, `VoiceTelemetry`) & sync `node_modules` | `src/voice/live-stream-session.ts`, `src/cli/voice.ts`, `tests/voice/live-stream-session.test.ts` | **Done (`383bb3a`)** |
-| **Phase 2** | Enable Code Library (Project Librarian) on trusted project | `.athena/library.config.json` (gitignored), tracked read-only check script if needed | **Planned** |
-| **Phase 3** | Enable VMP Telemetry (Vibe Monitor Plus) local ledger + document remote pull pairing | `~/.athena/settings.json`, `~/.athena/vmp-ledger.jsonl` | **Planned** |
-| **Phase 4** | Split Voice HUD right pane 50/50: calm 3D Jarvis Sphere (top) + live Running Agent Ledger (bottom) | `src/voice/visualizer.ts`, `src/tui/VoiceHud.tsx`, `src/cli/voice.ts`, `tests/tui/voice-hud.test.tsx` | **Planned** |
+| **Phase 2** | Enable Code Library (Project Librarian) on trusted project | `.athena/library.config.json` (gitignored), `athena trust` | **Done** |
+| **Phase 3** | Enable VMP Telemetry (Vibe Monitor Plus) local ledger + document remote pull pairing | `~/.athena/settings.json`, `~/.athena/vmp-ledger.jsonl` | **Done** |
+| **Phase 4** | Split Voice HUD right pane 50/50: calm 3D Jarvis Sphere (top) + live Running Agent Ledger (bottom) | `src/voice/visualizer.ts`, `src/tui/VoiceHud.tsx`, `src/cli/voice.ts`, `tests/tui/voice-hud.test.tsx` | **Done** |
 
 ---
 

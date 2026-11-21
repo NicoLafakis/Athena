@@ -33,6 +33,17 @@ export interface VoiceHudHandoff {
   detail?: string
 }
 
+export interface VoiceHudAgentEntry {
+  name: string
+  description: string
+  status: 'running' | 'idle'
+  task: string
+  startedAt: number | null
+  finishedAt: number | null
+  lastStatus?: 'completed' | 'failed'
+  activeCallId?: string
+}
+
 export interface VoiceHudState {
   model: string
   projectName: string
@@ -44,6 +55,7 @@ export interface VoiceHudState {
   liveHypothesis: string
   lastStatus: string
   handoffs: VoiceHudHandoff[]
+  agents: VoiceHudAgentEntry[]
   feed: VoiceHudFeedEntry[]
   brain: BrainActivityState
 }
@@ -58,6 +70,7 @@ export type VoiceHudEvent =
   | { type: 'feed'; role: 'user' | 'athena' | 'system'; text: string }
   | { type: 'handoff-start'; id: string; label: string; target?: string; startedAt?: number }
   | { type: 'handoff-end'; id: string; status: 'completed' | 'failed'; detail?: string; finishedAt?: number }
+  | { type: 'agents-sync'; agents: Array<{ name: string; description: string }> }
   | { type: 'engine-event'; event: EngineEvent; now?: number }
   | { type: 'brain-decay'; now?: number }
 
@@ -142,6 +155,19 @@ export function renderLevelBar(level: number, width = 16): string {
   return `[${'█'.repeat(filled)}${'░'.repeat(Math.max(0, width - filled))}] ${String(clamped).padStart(3, ' ')}%`
 }
 
+const HARNESS_AGENT_NAME = 'Athena Harness'
+
+function makeDefaultHarnessAgent(): VoiceHudAgentEntry {
+  return {
+    name: HARNESS_AGENT_NAME,
+    description: 'Primary delegated workspace & tool executor',
+    status: 'idle',
+    task: '',
+    startedAt: null,
+    finishedAt: null,
+  }
+}
+
 export function createInitialVoiceHudState(options: {
   model: string
   projectName: string
@@ -157,6 +183,7 @@ export function createInitialVoiceHudState(options: {
     liveHypothesis: '',
     lastStatus: 'Connecting to OpenAI Realtime and opening microphone…',
     handoffs: [],
+    agents: [makeDefaultHarnessAgent()],
     feed: [],
     brain: createInitialBrainActivity(),
   }
@@ -222,24 +249,49 @@ export function reduceVoiceHudState(
       return { ...state, feed }
     }
     case 'handoff-start': {
+      const startedAt = event.startedAt ?? Date.now()
       const entry: VoiceHudHandoff = {
         id: event.id,
         label: event.label.trim().slice(0, 140) || 'Delegated task',
-        target: event.target ?? 'Athena Harness',
+        target: event.target ?? HARNESS_AGENT_NAME,
         status: 'running',
-        startedAt: event.startedAt ?? Date.now(),
+        startedAt,
         finishedAt: null,
       }
       const withoutDup = state.handoffs.filter((h) => h.id !== event.id)
+      const targetName = entry.target
+      const hasTarget = state.agents.some((a) => a.name === targetName)
+      const agents: VoiceHudAgentEntry[] = (
+        hasTarget
+          ? state.agents
+          : [
+              ...state.agents,
+              {
+                name: targetName,
+                description: 'Delegated executor',
+                status: 'idle' as const,
+                task: '',
+                startedAt: null,
+                finishedAt: null,
+              },
+            ]
+      ).map((a) =>
+        a.name === targetName
+          ? { ...a, status: 'running' as const, task: entry.label, startedAt, finishedAt: null }
+          : a,
+      )
       return {
         ...state,
         phase: 'working',
         handoffs: [...withoutDup, entry].slice(-MAX_HANDOFF_ENTRIES),
+        agents,
         brain: pulseBrainNodes(state.brain, ['voice', 'core', 'engine', 'harness'], 1.0, entry.label),
       }
     }
     case 'handoff-end': {
       const finishedAt = event.finishedAt ?? Date.now()
+      const matched = state.handoffs.find((h) => h.id === event.id)
+      const targetName = matched?.target ?? HARNESS_AGENT_NAME
       const handoffs = state.handoffs.map((h) =>
         h.id === event.id
           ? {
@@ -250,9 +302,23 @@ export function reduceVoiceHudState(
             }
           : h,
       )
+      const stillRunningForTarget = handoffs.some(
+        (h) => h.target === targetName && h.status === 'running',
+      )
+      const agents: VoiceHudAgentEntry[] = state.agents.map((a) =>
+        a.name === targetName && !stillRunningForTarget
+          ? {
+              ...a,
+              status: 'idle' as const,
+              finishedAt,
+              lastStatus: event.status,
+            }
+          : a,
+      )
       return {
         ...state,
         handoffs,
+        agents,
         brain: pulseBrainNodes(
           state.brain,
           event.status === 'completed' ? ['core', 'voice', 'journal'] : ['guards', 'core'],
@@ -261,10 +327,110 @@ export function reduceVoiceHudState(
         ),
       }
     }
+    case 'agents-sync': {
+      const existingByName = new Map(state.agents.map((a) => [a.name, a]))
+      const harness = existingByName.get(HARNESS_AGENT_NAME) ?? makeDefaultHarnessAgent()
+      const nextAgents: VoiceHudAgentEntry[] = [harness]
+      const seen = new Set<string>([HARNESS_AGENT_NAME])
+      for (const def of event.agents) {
+        const name = def.name.trim()
+        if (!name || seen.has(name)) continue
+        seen.add(name)
+        const prev = existingByName.get(name)
+        nextAgents.push(
+          prev
+            ? { ...prev, description: def.description.slice(0, 120) }
+            : {
+                name,
+                description: def.description.slice(0, 120),
+                status: 'idle',
+                task: '',
+                startedAt: null,
+                finishedAt: null,
+              },
+        )
+      }
+      return { ...state, agents: nextAgents }
+    }
     case 'engine-event': {
+      const now = event.now ?? Date.now()
       const routed = routeEngineEventToBrain(event.event)
+      let agents = state.agents
+      if (event.event.type === 'tool-request' && event.event.name === 'Agent') {
+        const callId = event.event.id
+        const rawInput = (event.event.input ?? {}) as Record<string, unknown>
+        const agentName =
+          typeof rawInput['agent'] === 'string' && rawInput['agent'].trim()
+            ? rawInput['agent'].trim()
+            : typeof rawInput['run_id'] === 'string' && rawInput['run_id'].trim()
+              ? rawInput['run_id'].trim()
+              : 'Subagent'
+        const taskText =
+          typeof rawInput['prompt'] === 'string' && rawInput['prompt'].trim()
+            ? rawInput['prompt'].trim().slice(0, 140)
+            : typeof rawInput['action'] === 'string'
+              ? `Agent ${rawInput['action']}`
+              : 'Running subagent'
+        const exists = agents.some((a) => a.name === agentName)
+        const baseList = exists
+          ? agents
+          : [
+              ...agents,
+              {
+                name: agentName,
+                description: 'Subagent',
+                status: 'idle' as const,
+                task: '',
+                startedAt: null,
+                finishedAt: null,
+              },
+            ]
+        agents = baseList.map((a) =>
+          a.name === agentName
+            ? {
+                ...a,
+                status: 'running' as const,
+                task: taskText,
+                startedAt: now,
+                finishedAt: null,
+                activeCallId: callId,
+              }
+            : a,
+        )
+      } else if (event.event.type === 'tool-result' && event.event.name === 'Agent') {
+        const callId = event.event.id
+        const lastStatus: 'completed' | 'failed' = event.event.isError ? 'failed' : 'completed'
+        agents = agents.map((a) =>
+          a.activeCallId === callId
+            ? {
+                ...a,
+                status: 'idle' as const,
+                finishedAt: now,
+                lastStatus,
+                activeCallId: undefined,
+              }
+            : a,
+        )
+      } else if (event.event.type === 'agent-status-update') {
+        const detail = (event.event.objective ?? event.event.nextExpected ?? '').trim().slice(0, 140)
+        if (detail) {
+          // Update the most-recently started running agent (prefer subagent over parent harness)
+          let targetIdx = -1
+          let latestStart = -1
+          agents.forEach((a, idx) => {
+            if (a.status === 'running' && (a.startedAt ?? 0) >= latestStart) {
+              latestStart = a.startedAt ?? 0
+              targetIdx = idx
+            }
+          })
+          if (targetIdx !== -1) {
+            agents = agents.map((a, idx) => (idx === targetIdx ? { ...a, task: detail } : a))
+          }
+        }
+      }
       return {
         ...state,
+        agents,
         brain: pulseBrainNodes(state.brain, routed.nodes, routed.intensity, routed.reason, event.now),
       }
     }

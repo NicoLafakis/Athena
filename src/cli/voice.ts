@@ -233,6 +233,14 @@ export async function runVoiceCommand(
     const busSub: { dispose: (() => void) | null } = { dispose: null }
     const bindHudBus = (controller: HarnessSessionController): void => {
       busSub.dispose?.()
+      if (hudStore) {
+        hudStore.dispatch({
+          type: 'agents-sync',
+          agents: controller.orchestrator
+            .listDefs()
+            .map((d) => ({ name: d.name, description: d.description })),
+        })
+      }
       busSub.dispose = hudStore
         ? controller.bus.on((event) => {
             hudStore?.dispatch({ type: 'engine-event', event })

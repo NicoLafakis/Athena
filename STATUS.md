@@ -1,13 +1,13 @@
 # Status
 
 ### In Progress
-- [ ] Voice HUD & harness activation 4-phase rollout (Phase 1 done; Phases 2–4 planned) -> [.wiki/features/blind-first-jarvis/harness-hud-4-phase-plan.md]
 - [ ] Blind-first Jarvis voice live acceptance run -> [.wiki/features/blind-first-jarvis/acceptance-runbook.md]
 
 ### Planned
 - [ ] Live speaker diarization backend acquisition & Phase 1+ -> [.wiki/features/speaker-diarization/implementation-status.md]
 
 ### Done
+- [x] Phases 2–4: Code Library & VMP Telemetry enabled + 50/50 Voice HUD right pane with Running Agent Ledger (2026-11-20) -> [.wiki/features/blind-first-jarvis/harness-hud-4-phase-plan.md]
 - [x] Phase 1: `gpt-live-1.1` `switchProject` & `voiceTelemetry` parity + lockfile sync (2026-11-20) -> [.wiki/features/blind-first-jarvis/harness-hud-4-phase-plan.md]
 - [x] Bare `athena` default entry wired to fullscreen Voice HUD + `gpt-live-1.1` (`athena tui` for text TUI) (2026-11-20) -> [src/cli/args.ts]
 - [x] Fullscreen split-screen Voice HUD with scrollable chat & live orbital EEG brain scan (2026-11-20) -> [.wiki/features/blind-first-jarvis/voice-hud-brain-scan.md]

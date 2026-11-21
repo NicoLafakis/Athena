@@ -145,4 +145,52 @@ describe('VoiceHud EEG view toggle (non-conflicting with Ctrl+C)', () => {
       inst.unmount()
     }
   })
+
+  it('splits the right pane 50/50 with 3D EEG on top and a bounded Running Agent Ledger underneath (20-agent overflow safe)', async () => {
+    const stdout = new TtyStdout(120, 26)
+    const stdin = new TtyStdin()
+    const stderr = new TtyStdout(120, 26)
+    const store = new VoiceHudStore(
+      createInitialVoiceHudState({ model: 'gpt-live-1.1', projectName: 'Athena' }),
+    )
+    store.dispatch({
+      type: 'agents-sync',
+      agents: Array.from({ length: 20 }, (_, i) => ({
+        name: `agent-${i + 1}`,
+        description: `Specialist worker #${i + 1}`,
+      })),
+    })
+    store.dispatch({
+      type: 'engine-event',
+      now: Date.now() - 2_000,
+      event: {
+        type: 'tool-request',
+        id: 'tc_1',
+        name: 'Agent',
+        input: { agent: 'agent-7', prompt: 'Auditing API routes' },
+      },
+    })
+
+    const inst = inkRender(React.createElement(VoiceHud, { store }), {
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stderr: stderr as unknown as NodeJS.WriteStream,
+      debug: true,
+      exitOnCtrlC: false,
+      patchConsole: false,
+    })
+    try {
+      const frame = await waitForFrame(stdout, (f) => f.includes('AGENT LEDGER'))
+      expect(frame).toContain('NEURAL SCAN · EEG')
+      expect(frame).toContain('AGENT LEDGER')
+      expect(frame).toContain('1 ACTIVE')
+      // Active agent pinned at top with task
+      expect(frame).toContain('agent-7')
+      expect(frame).toContain('Auditing API routes')
+      // Overflow indicator bounds the 20 idle agents cleanly inside the row budget
+      expect(frame).toMatch(/\+\d+ more idle/)
+    } finally {
+      inst.unmount()
+    }
+  })
 })

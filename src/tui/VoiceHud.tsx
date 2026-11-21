@@ -97,6 +97,7 @@ export function VoiceHud({ store }: VoiceHudProps) {
       const now = Date.now()
       const current = latestStateRef.current
       const activeHandoffs = current.handoffs.some((h) => h.status === 'running')
+      const activeAgents = current.agents.some((a) => a.status === 'running')
       const activeHeat = hasActiveBrainHeat(current.brain)
       const voiceActive = current.micLevel > 8 || current.athenaLevel > 5
 
@@ -108,10 +109,10 @@ export function VoiceHud({ store }: VoiceHudProps) {
         setState(latestStateRef.current)
       }
       if (showEeg) {
-        const step = voiceActive || activeHandoffs ? 0.042 : 0.022
+        const step = voiceActive || activeHandoffs || activeAgents ? 0.042 : 0.022
         setPhaseRad((p) => (p + step) % (Math.PI * 200))
       }
-      if (activeHandoffs) {
+      if (activeHandoffs || activeAgents) {
         setTickNow(now)
         setSpinIdx((i) => (i + 1) % SPINNER_FRAMES.length)
       }
@@ -189,9 +190,13 @@ export function VoiceHud({ store }: VoiceHudProps) {
     return picked
   }, [state.feed, entryHeights, clampedScroll, feedContentRows])
 
-  // Right pane: 3D rotating Jarvis Braille sphere + 2-line hot subsystems telemetry
+  // Right pane vertical 50/50 split (strict AGENTS.md §1 row budget):
+  // Top 50%: 3D Jarvis Holographic Sphere + compact 1-line Active Pathways readout
+  // Bottom 50%: Running Agent Ledger (active agents pinned top, idle agents below)
+  const rightTopRows = Math.max(8, Math.floor(middleRows / 2))
+  const rightBottomRows = Math.max(5, middleRows - rightTopRows)
   const brainCanvasCols = Math.max(20, rightWidth - 4)
-  const brainCanvasRows = Math.max(6, middleRows - 6) // border(2) + title(1) + telemetry(3)
+  const brainCanvasRows = Math.max(4, rightTopRows - 4) // border(2) + title(1) + pathways(1)
   const orbitalRows = useMemo(
     () =>
       showEeg
@@ -204,6 +209,26 @@ export function VoiceHud({ store }: VoiceHudProps) {
     [showEeg, state.brain, brainCanvasCols, brainCanvasRows, phaseRad, state.micLevel, state.athenaLevel],
   )
   const hotNodes = useMemo(() => topFiringNodes(state.brain, 3), [state.brain])
+
+  const ledgerContentRows = Math.max(2, rightBottomRows - 3) // border(2) + header(1)
+  const activeAgents = useMemo(
+    () => state.agents.filter((a) => a.status === 'running'),
+    [state.agents],
+  )
+  const idleAgents = useMemo(
+    () => state.agents.filter((a) => a.status !== 'running'),
+    [state.agents],
+  )
+  const visibleLedgerRows = useMemo(() => {
+    const ordered = [...activeAgents, ...idleAgents]
+    if (ordered.length <= ledgerContentRows) {
+      return { items: ordered, hiddenIdle: 0 }
+    }
+    const maxItems = Math.max(1, ledgerContentRows - 1)
+    const items = ordered.slice(0, maxItems)
+    const hiddenIdle = ordered.length - items.length
+    return { items, hiddenIdle }
+  }, [activeAgents, idleAgents, ledgerContentRows])
 
   const badge = PHASE_BADGE[state.phase]
   const micActive = state.micLevel > 8 || state.phase === 'hearing'
@@ -358,58 +383,56 @@ export function VoiceHud({ store }: VoiceHudProps) {
         </Box>
         )}
 
-        {/* RIGHT PANE: Live Orbital EEG Neural Scan */}
+        {/* RIGHT PANE: 50% 3D Jarvis Sphere (top) + 50% Running Agent Ledger (bottom) */}
         {showEeg && (
-          <Box
-            flexDirection="column"
-            width={rightWidth}
-            height={middleRows}
-            borderStyle="single"
-            borderColor={hotNodes.length > 0 ? 'cyan' : 'gray'}
-            paddingX={1}
-            overflow="hidden"
-          >
-            <Box justifyContent="space-between">
-              <Text bold color={hotNodes.length > 0 ? 'cyanBright' : 'white'}>
-                NEURAL SCAN · EEG
-              </Text>
-              <Text dimColor>
-                {hotNodes.length > 0 ? `${hotNodes.length} FIRING` : 'RESTING'}
-              </Text>
-            </Box>
-
-            <Box flexDirection="column" height={brainCanvasRows} overflow="hidden">
-              {orbitalRows.map((row, rIdx) => (
-                <Text key={rIdx} wrap="truncate-end">
-                  {row.segments.map((seg, sIdx) => (
-                    <Text
-                      key={sIdx}
-                      color={seg.color}
-                      bold={seg.bold}
-                      dimColor={seg.dimColor}
-                    >
-                      {seg.text}
-                    </Text>
-                  ))}
+          <Box flexDirection="column" width={rightWidth} height={middleRows} overflow="hidden">
+            {/* TOP 50%: Calm 3D Jarvis Holographic Sphere */}
+            <Box
+              flexDirection="column"
+              width={rightWidth}
+              height={rightTopRows}
+              borderStyle="single"
+              borderColor={hotNodes.length > 0 ? 'cyan' : 'gray'}
+              paddingX={1}
+              overflow="hidden"
+            >
+              <Box justifyContent="space-between">
+                <Text bold color={hotNodes.length > 0 ? 'cyanBright' : 'white'}>
+                  NEURAL SCAN · EEG
                 </Text>
-              ))}
-            </Box>
-
-            {/* Compact Live Firing Readout */}
-            <Box flexDirection="column" height={3} overflow="hidden">
-              <Text bold dimColor wrap="truncate-end">
-                ACTIVE PATHWAYS
-              </Text>
-              {hotNodes.length === 0 ? (
-                <Text dimColor wrap="truncate-end">
-                  Core idling — speak or delegate to watch subsystems fire.
+                <Text dimColor>
+                  {hotNodes.length > 0 ? `${hotNodes.length} FIRING` : 'RESTING'}
                 </Text>
-              ) : (
-                <>
+              </Box>
+
+              <Box flexDirection="column" height={brainCanvasRows} overflow="hidden">
+                {orbitalRows.map((row, rIdx) => (
+                  <Text key={rIdx} wrap="truncate-end">
+                    {row.segments.map((seg, sIdx) => (
+                      <Text
+                        key={sIdx}
+                        color={seg.color}
+                        bold={seg.bold}
+                        dimColor={seg.dimColor}
+                      >
+                        {seg.text}
+                      </Text>
+                    ))}
+                  </Text>
+                ))}
+              </Box>
+
+              {/* Compact 1-line Active Pathways readout */}
+              <Box height={1} overflow="hidden">
+                {hotNodes.length === 0 ? (
+                  <Text dimColor wrap="truncate-end">
+                    Core calm — speak or delegate to watch subsystems fire.
+                  </Text>
+                ) : (
                   <Text wrap="truncate-end">
                     {hotNodes.map((n, idx) => {
                       const pct = Math.round(n.heat * 100)
-                      const bars = '█'.repeat(Math.max(1, Math.round(n.heat * 5)))
+                      const bars = '█'.repeat(Math.max(1, Math.round(n.heat * 4)))
                       return (
                         <Text key={n.id}>
                           {idx > 0 ? ' · ' : ''}
@@ -422,10 +445,84 @@ export function VoiceHud({ store }: VoiceHudProps) {
                       )
                     })}
                   </Text>
-                  <Text dimColor wrap="truncate-end">
-                    Last: {hotNodes[0]!.label} ({hotNodes[0]!.reason || 'active'})
+                )}
+              </Box>
+            </Box>
+
+            {/* BOTTOM 50%: Running Agent Ledger (Active + Idle agents) */}
+            <Box
+              flexDirection="column"
+              width={rightWidth}
+              height={rightBottomRows}
+              borderStyle="single"
+              borderColor={activeAgents.length > 0 ? 'blueBright' : 'gray'}
+              paddingX={1}
+              overflow="hidden"
+            >
+              <Box justifyContent="space-between">
+                <Text bold color={activeAgents.length > 0 ? 'blueBright' : 'white'}>
+                  AGENT LEDGER
+                </Text>
+                <Text
+                  bold={activeAgents.length > 0}
+                  color={activeAgents.length > 0 ? 'blueBright' : undefined}
+                  dimColor={activeAgents.length === 0}
+                >
+                  {activeAgents.length > 0
+                    ? `${SPINNER_FRAMES[spinIdx]} ${activeAgents.length} ACTIVE · ${idleAgents.length} IDLE`
+                    : `ALL IDLE (${idleAgents.length})`}
+                </Text>
+              </Box>
+
+              {visibleLedgerRows.items.map((agent) => {
+                const isRunning = agent.status === 'running'
+                const elapsed =
+                  isRunning && agent.startedAt !== null
+                    ? formatHandoffElapsed(agent.startedAt, tickNow)
+                    : agent.startedAt !== null && agent.finishedAt !== null
+                      ? formatHandoffElapsed(agent.startedAt, agent.finishedAt)
+                      : null
+                const icon = isRunning
+                  ? SPINNER_FRAMES[spinIdx]
+                  : agent.lastStatus === 'completed'
+                    ? '✓'
+                    : agent.lastStatus === 'failed'
+                      ? '✗'
+                      : '○'
+                const iconColor = isRunning
+                  ? 'cyanBright'
+                  : agent.lastStatus === 'completed'
+                    ? 'green'
+                    : agent.lastStatus === 'failed'
+                      ? 'redBright'
+                      : 'gray'
+                const detail = isRunning
+                  ? agent.task || 'Working…'
+                  : agent.task
+                    ? agent.task
+                    : agent.description || 'Ready'
+                return (
+                  <Text key={agent.name} wrap="truncate-end">
+                    <Text bold={isRunning} color={iconColor}>
+                      {icon}{' '}
+                    </Text>
+                    <Text bold={isRunning} color={isRunning ? 'white' : undefined} dimColor={!isRunning}>
+                      {agent.name}
+                    </Text>
+                    {elapsed && (
+                      <Text dimColor={!isRunning} color={isRunning ? 'blueBright' : undefined}>
+                        {' '}
+                        [{elapsed}]
+                      </Text>
+                    )}
+                    <Text dimColor> · {detail}</Text>
                   </Text>
-                </>
+                )
+              })}
+              {visibleLedgerRows.hiddenIdle > 0 && (
+                <Text dimColor wrap="truncate-end">
+                  +{visibleLedgerRows.hiddenIdle} more idle
+                </Text>
               )}
             </Box>
           </Box>

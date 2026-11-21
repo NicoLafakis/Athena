@@ -113,4 +113,91 @@ describe('parseWakeListenerLine live telemetry events', () => {
       finishedAt: 14_300,
     })
   })
+
+  it('tracks active and idle agents in the running agent ledger across Agent tool & handoff events', () => {
+    let state = createInitialVoiceHudState({ model: 'gpt-live-1.1', projectName: 'Athena' })
+    state = reduceVoiceHudState(state, {
+      type: 'agents-sync',
+      agents: [
+        { name: 'explorer', description: 'Fast read-only codebase search' },
+        { name: 'reviewer', description: 'Diff and safety audit' },
+      ],
+    })
+    expect(state.agents.map((a) => a.name)).toEqual(['Athena Harness', 'explorer', 'reviewer'])
+    expect(state.agents.every((a) => a.status === 'idle')).toBe(true)
+
+    // Subagent invoked via Agent tool -> flips to running
+    state = reduceVoiceHudState(state, {
+      type: 'engine-event',
+      now: 20_000,
+      event: {
+        type: 'tool-request',
+        id: 'tc_agent_1',
+        name: 'Agent',
+        input: { agent: 'explorer', prompt: 'Inspect VoiceHud layout' },
+      },
+    })
+    const explorerRunning = state.agents.find((a) => a.name === 'explorer')
+    expect(explorerRunning).toMatchObject({
+      status: 'running',
+      task: 'Inspect VoiceHud layout',
+      startedAt: 20_000,
+      activeCallId: 'tc_agent_1',
+    })
+
+    // Live agent-status-update refines the active objective
+    state = reduceVoiceHudState(state, {
+      type: 'engine-event',
+      now: 21_500,
+      event: {
+        type: 'agent-status-update',
+        objective: 'Checking row budgets in src/tui/VoiceHud.tsx',
+        sourceRef: 'turn:1',
+      },
+    })
+    expect(state.agents.find((a) => a.name === 'explorer')?.task).toBe(
+      'Checking row budgets in src/tui/VoiceHud.tsx',
+    )
+
+    // Tool result flips explorer back to idle with completed status
+    state = reduceVoiceHudState(state, {
+      type: 'engine-event',
+      now: 24_200,
+      event: {
+        type: 'tool-result',
+        id: 'tc_agent_1',
+        name: 'Agent',
+        output: 'Found layout',
+        isError: false,
+      },
+    })
+    expect(state.agents.find((a) => a.name === 'explorer')).toMatchObject({
+      status: 'idle',
+      lastStatus: 'completed',
+      finishedAt: 24_200,
+    })
+
+    // Handoff flips Athena Harness running -> idle
+    state = reduceVoiceHudState(state, {
+      type: 'handoff-start',
+      id: 'h_1',
+      label: 'Run vitest suite',
+      startedAt: 30_000,
+    })
+    expect(state.agents.find((a) => a.name === 'Athena Harness')).toMatchObject({
+      status: 'running',
+      task: 'Run vitest suite',
+    })
+    state = reduceVoiceHudState(state, {
+      type: 'handoff-end',
+      id: 'h_1',
+      status: 'completed',
+      finishedAt: 35_000,
+    })
+    expect(state.agents.find((a) => a.name === 'Athena Harness')).toMatchObject({
+      status: 'idle',
+      lastStatus: 'completed',
+      finishedAt: 35_000,
+    })
+  })
 })
